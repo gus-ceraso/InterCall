@@ -1,142 +1,172 @@
 # InterCall
 
-## Introduction
+InterCall makes native functions portable across languages.
 
-InterCall provides portable function definitions and bidirectional remote
-procedure calls.
+A function is implemented idiomatically in one language, exported as a portable
+contract, and imported as an idiomatic generated binding in another language or
+environment. InterCall supplies the code generation and the small bidirectional
+runtime used to communicate between peers.
 
-Applications often describe the same capability several times: as a server
-function, a wire message, client types, validation rules, documentation, SDK
-methods, and AI tools. These descriptions can drift as the application changes.
+Native source is the primary user experience. InterCall definition text is a
+generated, portable intermediate representation: stable enough to exchange,
+inspect, diff, document, and use as input to other generators, but not normally
+the first thing an application author writes.
 
-InterCall defines a remotely callable capability once as a documented function
-with portable argument and return types. Language-specific toolchains export
-InterCall definition documents and generate bindings for other popular
-general-purpose programming languages. The same definitions can also drive
-validation, documentation, and agent tools. Each language can provide an
-idiomatic toolchain; the definitions and runtime protocol are the portable
-contracts between them.
+## Conceptual Use
 
-InterCall carries function calls over a small binary, bidirectional
-request-response protocol. Either peer may call functions, so server operations,
-callbacks, and requests for client state use the same mechanism. Multiple
-calls may be outstanding concurrently.
+Suppose a C program implements an ordinary function:
 
-InterCall deliberately supports only data types that map predictably across
-popular general-purpose programming languages. It does not attempt to model
-every distributed-system interaction or replace interfaces that need different
-semantics, such as streaming or offline delivery. Its goal is to provide a
-small, portable foundation for generated function calls.
+```c
+#include <stdint.h>
 
-## Installation
+// Add returns the sum of a and b.
+uint32_t add(uint32_t a, uint32_t b) {
+    return a + b;
+}
+```
 
-TODO
+A C exporter selects that function and emits its InterCall contract. A Go
+importer can then generate a binding used like this:
 
-## Examples
+```go
+sum, err := arithmetic.Add(2, 3)
+if err != nil {
+    // Remote calls are inherently fallible.
+}
+```
 
-The following definition document declares types and functions in two
-namespaces:
+The reverse direction works on the same connection: Go functions can be
+exported and called through generated C bindings. Neither side is inherently a
+client or a server.
+
+These snippets are illustrative. Export annotations, package APIs, context and
+cancellation conventions, ownership rules, and exact generated signatures are
+not yet specified.
+
+An exporter might generate this inspectable InterCall definition IR:
 
 ```text
 /* Arithmetic operations. */
 namespace arithmetic {
-    /* Adds two 32-bit integers. */
-    function add(
-        /* The first integer. */
-        a int,
-
-        /* The second integer. */
-        b int
-    ) int;
+    /* Adds two unsigned 32-bit integers. */
+    function add(a uint32, b uint32) uint32;
 }
 
 /* Peer preferences. */
 namespace preferences {
-    /* A locale identifier such as "en-US". */
     type locale = string;
 
-    /* Returns the peer's locale. */
-    function get_locale() locale;
+    type preference = record {
+        name string;
+        value string;
+    };
 
-    /* Changes the peer's locale. */
+    function get_locale() locale;
     function set_locale(value locale);
+    function list_preferences() list{preference};
 }
 ```
 
-If Peer A exports `arithmetic.add` and Peer B exports the `preferences`
-functions, Peer B can call `arithmetic.add` with `a = 2` and `b = 3` and receive
-`5`. Peer A can use the same connection to call `preferences.get_locale` and
-receive a value such as `"en-US"`. A call to `preferences.set_locale` returns no
-value.
+A function with no return declaration, such as `set_locale`, returns no value.
+There is no separate portable `unit` type.
 
-On the wire, each function is identified by a 64-bit hash of its definition,
-and values are encoded according to their declared types.
+## Scope
 
-## Specification
+InterCall consists of three parts:
 
-### Data Types
+- a portable function ABI and inspectable definition IR;
+- language exporters and importers; and
+- a small, bidirectional peer runtime.
 
-InterCall supports booleans, signed and unsigned integers, floating-point
-numbers, strings, bytes, lists, records, and application-defined types.
-Nullable, optional, union, and function types are not supported.
+The runtime carries framed request-response calls over a reliable ordered byte
+stream. Either peer may call exported functions, and both peers may have calls
+outstanding concurrently. Local processes and Unix domain sockets are
+first-class uses. Web transports, service discovery, deployment, gateways,
+authentication, and other service infrastructure are layers above the core.
 
-#### Boolean
+InterCall uses C, Zig, C++, Rust, Swift, Java, Kotlin, C#, Go, Ruby, Python,
+JavaScript, and TypeScript as its initial semantic portability baseline and is
+intended to support other general-purpose languages. Its data model is strict:
+decoders do not coerce values. Each language profile must validate and map the
+portable contract into representations appropriate for that language. A
+profile may need wrappers, checked conversions, or distinct generated types
+where a language lacks a direct representation.
 
-`boolean` has two values: `true` and `false`.
+InterCall does not attempt to model streaming, shared memory, object identity,
+offline delivery, or every distributed-system interaction.
 
-#### Integers
+## Status
 
-InterCall supports fixed-width signed and unsigned integers. `int` is an alias
-for `int32`, and `uint` is an alias for `uint32`.
+InterCall is a greenfield design. This README distinguishes current design
+decisions from unresolved questions. Unless a section says otherwise, the
+rules below describe the current protocol draft. The final section lists work
+that remains open and is not normative.
 
-| Type | Minimum | Maximum |
-| --- | ---: | ---: |
-| `int8` | -128 | 127 |
-| `int16` | -32,768 | 32,767 |
-| `int`, `int32` | -2,147,483,648 | 2,147,483,647 |
-| `int64` | -9,223,372,036,854,775,808 | 9,223,372,036,854,775,807 |
-| `uint8` | 0 | 255 |
-| `uint16` | 0 | 65,535 |
-| `uint`, `uint32` | 0 | 4,294,967,295 |
-| `uint64` | 0 | 18,446,744,073,709,551,615 |
+## Installation
 
-#### Floating Point
+TODO.
 
-`float32` and `float64` are IEEE 754 binary32 and binary64 values,
-respectively. They support finite values, positive and negative zero, positive
-and negative infinity, and NaN.
+## Data Model
 
-#### String
+### Primitive Types
 
-`string` is a sequence of Unicode scalar values. It represents text rather than
-encoded binary data.
+InterCall has these primitive types:
 
-#### Bytes
+| Type | Meaning |
+| --- | --- |
+| `boolean` | `true` or `false` |
+| `int8`, `int16`, `int32`, `int64` | Exact-width signed integers |
+| `uint8`, `uint16`, `uint32`, `uint64` | Exact-width unsigned integers |
+| `float32`, `float64` | IEEE 754 binary32 and binary64 |
+| `string` | A sequence of Unicode scalar values |
+| `bytes` | An ordered sequence of raw bytes |
 
-`bytes` is an ordered sequence of zero or more raw bytes. It represents binary
-data directly, without Base64 or another text encoding.
+Signed integer ranges are `-2^(N-1)` through `2^(N-1)-1`; unsigned ranges are
+`0` through `2^N-1`. There are no portable `int` or `uint` aliases. Width is
+always explicit.
 
-#### List
+`float32` and `float64` include finite values, positive and negative zero,
+positive and negative infinity, and NaN, subject to the canonical wire encoding
+below.
 
-A list is an ordered sequence of zero or more values of one element type. All
-values in a list have the same type. The element type may be any InterCall type,
-including another list or an anonymous record.
+`string` represents text, not encoded binary data. It cannot contain surrogate
+code points because those are not Unicode scalar values. InterCall does not
+have a separate character type.
 
-#### Record
+### Lists
 
-A record is a fixed collection of named fields. Fields may have different
-types, but every declared field is required. Additional fields are not allowed.
+`list{T}` is an ordered sequence of zero or more values of one element type.
+Lists may contain primitives, named types, or other lists.
 
-#### Application-Defined Types
+### Named Records
 
-An application-defined type is a named, transparent alias for any InterCall
-type, including another application-defined type, a list, or a record. A local
-type is referenced by its name. A type in another namespace is referenced as
-`namespace.type`.
+A record is a closed, named collection of ordered fields. Every declared field
+is required and additional fields are not allowed. Public contracts do not
+contain anonymous record types.
 
-Application-defined types may be recursive only through lists. Every cycle of
-type references must pass through at least one list. For example, this tree type
-is valid:
+```text
+type user = record {
+    id uint64;
+    name string;
+    avatar bytes;
+};
+```
+
+### Application-Defined Types
+
+A type declaration introduces either a named record or a transparent alias.
+Aliases do not add a distinct wire representation:
+
+```text
+type user_id = uint64;
+type users = list{user};
+```
+
+A local type is referenced by name. A type in another namespace is referenced
+as `namespace.type`.
+
+Named types may be recursive only through lists. Every cycle in the type graph
+must pass through at least one list:
 
 ```text
 type tree = record {
@@ -145,7 +175,7 @@ type tree = record {
 };
 ```
 
-Direct record recursion and pure alias cycles are invalid:
+Direct record recursion and alias-only cycles are invalid:
 
 ```text
 type invalid_record = record {
@@ -156,60 +186,48 @@ type invalid_alias_a = invalid_alias_b;
 type invalid_alias_b = invalid_alias_a;
 ```
 
-All InterCall values are finite trees. Object identity and cyclic runtime values
-are not part of the InterCall data model. Implementations must reject cyclic
-values when encoding them.
+All values are finite, acyclic trees. Pointers, references, object identity,
+shared substructure as an observable property, and cyclic runtime values are
+not portable. Encoders must reject cyclic values.
 
-#### Zero Values
+### Deliberately Unsupported Types
 
-Every InterCall type has a zero value:
+The current data model has no optional type, enum, general variant or sum type,
+map, character, unit type, pointer, or function value. Optional values, enums,
+variants, and maps remain design questions rather than implicit conventions.
+Applications must not rely on language-specific coercions to emulate them.
 
-| Type | Zero value |
-| --- | --- |
-| `boolean` | `false` |
-| Signed and unsigned integers | `0` |
-| `float32`, `float64` | Positive zero |
-| `string` | Empty string |
-| `bytes` | Empty sequence |
-| List | Empty list |
-| Record | A record containing the zero value of every field |
-| Application-defined type | The zero value of its underlying type |
+A universal zero-value rule is also unresolved. In particular, error handling
+must not assume that a failed call can return a zero value of every result type.
 
-List-guarded recursion ensures that the zero value of every valid recursive type
-is finite.
+## Definition IR
 
-### Definition Format
+An InterCall definition document is UTF-8 text containing one or more
+namespaces. The current draft has no embedded edition header. Documentation and
+formatting do not affect function identity.
 
-An InterCall definition document is a UTF-8 text file containing one or more
-namespaces. It has no header or embedded format version. Consumers interpret a
-document according to the InterCall specification version they support.
+Outside documentation blocks, spaces, tabs, carriage returns, line feeds, form
+feeds, and vertical tabs may appear between tokens without changing their
+meaning. Whitespace is required only when its absence would combine adjacent
+tokens. Semicolons terminate declarations and record fields, commas separate
+function parameters, braces delimit namespaces and composite declarations, and
+parentheses delimit parameter lists. Newlines and indentation have no semantic
+meaning.
 
-Outside documentation blocks, whitespace may appear between tokens without
-changing their meaning. Spaces, tabs, carriage returns, line feeds, form feeds,
-and vertical tabs are ignored between tokens. Whitespace is required only when
-its absence would combine adjacent tokens. Semicolons terminate type and
-function declarations and record fields. Commas separate function arguments,
-braces delimit namespaces and composite types, and parentheses delimit
-argument lists. Newlines and indentation have no semantic meaning.
+### Documentation
 
-#### Documentation
+A `/* ... */` block documents the namespace, type, function, parameter, or
+record field that immediately follows it. Documentation association does not
+depend on whitespace or line breaks. Documentation is optional, and an item may
+have at most one documentation block. Comments do not nest and end at the first
+`*/`.
 
-A `/* ... */` block contains documentation for the namespace, type, function,
-argument, or record field that immediately follows it. Every comment is
-documentation; there are no non-documentation or line comments. Documentation
-association does not depend on whitespace or line breaks.
+The documentation value is the UTF-8 text between the delimiters with leading
+and trailing spaces, tabs, carriage returns, line feeds, form feeds, and
+vertical tabs removed. A function's documentation also describes its unnamed
+return value when one is present.
 
-Documentation is optional, and an item may have at most one documentation
-block. Comments cannot nest and end at the first `*/`. The documentation value
-is the UTF-8 text between the delimiters with leading and trailing whitespace
-removed. It therefore cannot contain the sequence `*/`.
-
-A function's documentation also describes its unnamed return value when one is
-present.
-
-#### Grammar
-
-The definition format uses the following grammar:
+### Grammar
 
 ```ebnf
 document ::=
@@ -233,7 +251,12 @@ declaration ::=
     ;
 
 type-declaration ::=
-    "type" IDENT "=" type-expression ";"
+    "type" IDENT "="
+    (
+        type-expression
+      | record-definition
+    )
+    ";"
     ;
 
 function-declaration ::=
@@ -256,7 +279,6 @@ type-expression ::=
       primitive-type
     | type-reference
     | list-type
-    | record-type
     ;
 
 type-reference ::=
@@ -267,7 +289,7 @@ list-type ::=
     "list" "{" type-expression "}"
     ;
 
-record-type ::=
+record-definition ::=
     "record" "{"
         field*
     "}"
@@ -281,12 +303,10 @@ field ::=
 
 primitive-type ::=
       "boolean"
-    | "int"
     | "int8"
     | "int16"
     | "int32"
     | "int64"
-    | "uint"
     | "uint8"
     | "uint16"
     | "uint32"
@@ -318,60 +338,22 @@ documentation ::=
 ```
 
 `DOCUMENTATION_TEXT` is any sequence of Unicode scalar values that does not
-contain `*/`. Text matching `IDENT` is recognized as an identifier only when it
-is not a reserved keyword or primitive type name. Identifiers are
-case-sensitive.
+contain `*/`. Identifiers are case-sensitive. The reserved words are
+`namespace`, `type`, `function`, `list`, and `record`, together with every
+primitive type name.
 
-#### Namespaces and Declarations
+A document declares each namespace at most once. Declaration names are unique
+within a namespace. Field names are unique within a record, and parameter names
+are unique within a function. Declarations may refer to types declared later in
+the document. Unqualified references resolve in the current namespace;
+qualified references resolve in the named namespace within the same document.
 
-A document must declare each namespace exactly once. Declaration names must be
-unique within their namespace. Field names must be unique within their record,
-and argument names must be unique within their function.
+Definition processors must preserve record field and function parameter order.
+After resolving references, they must reject every type cycle that is not
+list-guarded.
 
-A namespace may contain type and function declarations in any order. Type
-references may refer to types declared later in the document. An unqualified
-reference resolves within the current namespace; a qualified reference has the
-form `namespace.type` and resolves within the same document.
-
-Definition processors must preserve record field and function argument order.
-
-#### Types
-
-A type declaration introduces a transparent alias for its type expression. Type
-expressions may contain primitive types, references to application-defined
-types, lists, or records.
-
-A list encloses exactly one element type in braces:
-
-```text
-type names = list{string};
-type matrix = list{list{float64}};
-type points = list{record {
-    x float64;
-    y float64;
-}};
-```
-
-A record contains zero or more ordered fields. Each field consists of a name, a
-type expression, and a semicolon:
-
-```text
-type user = record {
-    id uint64;
-    name string;
-    avatar bytes;
-};
-```
-
-After resolving all type references, every reference cycle must pass through at
-least one list. This rule permits finite recursive structures while rejecting
-direct record recursion and alias-only cycles.
-
-#### Functions
-
-A function declaration contains a name, an ordered argument list, and an
-optional unnamed return type. Arguments consist of a name followed by a type
-expression and are separated by commas.
+A function has ordered parameters and either no return value or one unnamed
+return value:
 
 ```text
 function ping();
@@ -380,83 +362,71 @@ function add(a int32, b int32) int32;
 function get_users() list{user};
 ```
 
-If no type follows the closing parenthesis, the function returns no value.
-Otherwise, it returns exactly one value of the declared type.
+Functions are declarations, not values. Whether a native implementation is
+synchronous or asynchronous does not change its portable contract or function
+identity.
 
-Functions are declarations rather than values. They cannot be used as
-arguments, return values, list elements, record fields, or targets of type
-aliases.
+## Wire Protocol
 
-### Wire Protocol
+### Transport and Peers
 
-#### Transport
+InterCall requires a reliable, ordered sequence of bytes. It does not depend on
+transport message boundaries. Unix domain stream sockets, TCP, TLS over TCP,
+and binary WebSocket streams are possible transports; transport bindings define
+how their APIs expose the InterCall byte stream.
 
-InterCall requires a reliable, ordered sequence of bytes. The protocol does not
-select a transport and does not use transport message boundaries.
+Each connection has an initiator and an acceptor only for allocating request ID
+ranges. After transport establishment, the peers are otherwise symmetric and
+either may send a request immediately. There is currently no InterCall
+handshake, registry exchange, magic value, or embedded protocol version. Peers
+must establish compatible wire and definition semantics out of band.
 
-> **Implementation note:** TCP, TLS over TCP, Unix domain stream sockets, and
-> binary WebSocket connections are possible transports. Authentication,
-> encryption, and the mapping between a transport API and the InterCall byte
-> stream are implementation concerns.
+### Byte Order and Value Encoding
 
-Each transport integration designates one peer as the connection initiator and
-the other as the connection acceptor. Once the transport is established, either
-peer may send a request immediately. InterCall has no handshake, magic value,
-or embedded protocol version. Peers must ensure protocol and definition
-compatibility out of band.
+All multibyte integers, sizes, counts, IDs, and floating-point bit patterns are
+little-endian. Values have no implicit alignment or padding. Implementations
+must never serialize native structure memory directly.
 
-#### Byte Order
-
-All multibyte integers, lengths, counts, function IDs, request IDs, and
-floating-point bit patterns use little-endian byte order. Values are encoded
-without alignment or padding. Implementations must not serialize native record
-or structure memory directly.
-
-#### Value Encoding
-
-Values are encoded according to their resolved InterCall types:
+Values are encoded according to their resolved types:
 
 | Type | Encoding |
 | --- | --- |
-| `boolean` | One byte: `0` for false or `1` for true; other values are invalid |
+| `boolean` | One byte: `0` is false and `1` is true; every other byte is invalid |
 | `int8`, `uint8` | One byte |
 | `int16`, `uint16` | Two bytes |
-| `int`, `int32`, `uint`, `uint32` | Four bytes |
+| `int32`, `uint32` | Four bytes |
 | `int64`, `uint64` | Eight bytes |
 | `float32` | Four-byte IEEE 754 binary32 bit pattern |
 | `float64` | Eight-byte IEEE 754 binary64 bit pattern |
 | `string` | `uint64` byte length followed by UTF-8 bytes |
 | `bytes` | `uint64` byte length followed by raw bytes |
-| `list{T}` | `uint64` element count followed by each encoded `T` value |
-| Record | Encoded fields in declaration order |
-| Application-defined type | Encoding of the underlying type |
+| `list{T}` | `uint64` element count followed by each encoded `T` |
+| Named record | Fields encoded in declaration order |
+| Transparent alias | Encoding of its resolved underlying type |
 
-Signed integers use two's-complement representation. Integers and counts are
-fixed-width rather than variable-length.
+Signed integers use two's-complement representation. Integers, byte lengths,
+and element counts are fixed-width rather than variable-length.
 
-Strings must contain valid UTF-8 encodings of Unicode scalar values. Overlong
-encodings, surrogate code points, truncated sequences, and other invalid UTF-8
-are not allowed. InterCall does not normalize Unicode strings.
+Strings must be valid UTF-8 encodings of Unicode scalar values. Decoders reject
+overlong encodings, surrogate code points, truncation, and all other invalid
+UTF-8. InterCall does not normalize strings.
 
-Finite floating-point values, infinities, and positive and negative zero use
-their corresponding IEEE 754 bit patterns. NaN has no portable sign or payload.
-Encoders must use the canonical quiet NaN bit patterns `0x7fc00000` for
-`float32` and `0x7ff8000000000000` for `float64`; decoders must reject other NaN
-bit patterns.
+Finite floating-point values, infinities, and signed zero use their IEEE 754 bit
+patterns. Encoders must emit canonical quiet NaN `0x7fc00000` for `float32` and
+`0x7ff8000000000000` for `float64`. Decoders reject every other NaN bit pattern.
 
-A list count describes values rather than bytes. List elements are encoded
-consecutively without individual lengths. A record has no encoded field count,
-field names, or total length because its definition supplies that information.
-An empty record therefore occupies zero bytes.
+A list count is a count of values, not bytes. Elements are consecutive and have
+no individual frame. A record has no encoded field count, field names, padding,
+or total length; its definition determines its layout. An empty named record
+therefore occupies zero payload bytes.
 
-Function arguments are encoded consecutively in declaration order. A return
-value, when present, uses the same encoding as any other value of its declared
-type.
+Request arguments are encoded consecutively in declaration order. A successful
+return value uses the same encoding as any other value of its declared type.
 
-#### Function IDs
+### Function IDs
 
-A function ID is the complete 64-bit FNV-0 hash of a canonical representation
-of the function definition. FNV-0 is defined as:
+Every function is identified by the complete 64-bit FNV-0 hash of its canonical
+function representation:
 
 ```text
 hash = 0
@@ -468,146 +438,176 @@ for each canonical byte:
 ```
 
 There is no initial offset, seed, or domain marker. Hash value `0` is valid and
-is not reserved. The resulting `uint64` is encoded in little-endian order.
+not reserved. The resulting `uint64` is encoded little-endian.
 
-The exact canonical function representation is **TODO**. It must:
+The exact canonical function representation remains TODO. It must be
+deterministic across implementations and include the fully qualified function
+name, ordered parameters, optional return type, and every reachable named type
+needed by the contract. It must represent list-guarded recursion without
+infinite expansion. Documentation, source formatting, exporter annotations,
+synchronous versus asynchronous source implementation, and unrelated
+declarations are excluded. Adding or reordering an unrelated declaration must
+not change an existing function ID.
 
-- be deterministic across all implementations;
-- include the fully qualified function name, ordered arguments, optional return
-  type, and every reachable application-defined type needed by the contract;
-- handle recursive types without infinitely expanding them;
-- normalize `int` to `int32` and `uint` to `uint32`;
-- exclude documentation, whitespace, source formatting, and unrelated
-  declarations; and
-- remain stable when unrelated declarations are added or reordered.
+Generation must reject distinct functions that collide within one generated
+function registry. Function IDs are dispatch identifiers, not authentication or
+authorization tokens.
 
-Definition toolchains must reject distinct functions that produce the same
-64-bit ID within one generated function registry. Function IDs identify
-functions for dispatch; they do not provide authentication or authorization.
+There is no compatibility negotiation. Subject to compatible wire and
+definition semantics and the absence of a hash collision, compatibility is per
+immutable function ID:
 
-#### Request IDs
+- independently updated peers can continue calling functions whose canonical
+  representations are unchanged;
+- a changed signature is rehashed and is expected to receive a different ID;
+- a missing function receives an InterCall errno response after its bounded
+  payload has been skipped; and
+- old and new contracts can coexist while both IDs remain exported.
+
+### Request IDs
 
 The most significant bit of a request ID identifies the peer that initiated the
 request:
 
-- The connection initiator uses IDs from `0x0000000000000000` through
-  `0x7fffffffffffffff`.
-- The connection acceptor uses IDs from `0x8000000000000000` through
+- the connection initiator uses `0x0000000000000000` through
+  `0x7fffffffffffffff`;
+- the connection acceptor uses `0x8000000000000000` through
   `0xffffffffffffffff`.
 
-The remaining 63 bits are selected by the initiating peer. A peer must not reuse
-a request ID during the lifetime of a connection. If a peer exhausts its ID
-space, it may continue responding to requests but cannot initiate another one
-on that connection.
+The initiating peer chooses the remaining 63 bits. A peer must not reuse a
+request ID during the lifetime of a connection. After exhausting its range, it
+may continue responding but cannot initiate another request on that connection.
 
-A response repeats the request ID exactly. When a peer receives an ID from the
-remote peer's range, the message is a request. When it receives an ID from its
-own range, the message is a response.
+A response repeats its request ID exactly. An ID in the remote peer's range
+starts a request; an ID in the local peer's range starts a response.
 
-#### Messages
+### Frames
 
-A request consists of:
-
-```text
-request_id  uint64
-function_id uint64
-arguments   encoded according to the function definition
-```
-
-A response consists of:
+A request is:
 
 ```text
 request_id   uint64
 function_id  uint64
-return_value encoded according to the function definition, when present
+payload_size uint64
+payload      payload_size bytes
 ```
 
-Both message headers occupy 16 bytes. A request without arguments and a
-successful response without a return value consist only of their headers.
-
-A response must repeat both the request ID and function ID of its request. The
-requester uses its pending request state and the repeated function ID to select
-and validate the return type.
-
-The function definition determines how to decode the bytes following a header,
-and embedded lengths and counts delimit variable-size values. Messages therefore
-need no total length. The next byte after the final argument or return value
-begins the next message.
-
-Both peers may have multiple outstanding requests. Responses may be sent in any
-order. Bytes belonging to separate messages must never be interleaved; each
-implementation must serialize complete outgoing messages onto the transport.
-Implementations must continue processing inbound messages while requests are
-outstanding so bidirectional calls cannot deadlock.
-
-#### Application Errors
-
-InterCall does not give application errors a special wire representation. They
-are ordinary return values defined by the application. For example:
+A response is:
 
 ```text
-type user_result = record {
-    value user;
-    error string;
-};
+request_id   uint64
+errno        uint64
+payload_size uint64
+payload      payload_size bytes
 ```
 
-An application may use an empty `error` as success and return the zero value of
-`value` on failure. It may instead define another convention or return partial
-values. InterCall assigns no special meaning to the field name `error` or to an
-empty string.
+Each header is 24 bytes and uses three consecutive 64-bit fields at offsets 0,
+8, and 16, with no padding. `payload_size` is the number of bytes immediately
+following the header and does not include the header.
 
-A function that declares no return value has no application-level error result.
-It must declare a return type if the application needs to report one.
+A request payload contains its encoded arguments. A successful response payload
+contains its return value, or is empty for a function with no return value.
 
-#### Connection Lifecycle
+A decoder must bound all decoding to the declared frame payload. Request
+arguments and successful return values must consume exactly that many bytes. A
+decoder must not read into the next frame to complete a malformed value. A
+bounded request for an unknown function can be skipped and answered with an
+InterCall errno. Until nonzero response payload semantics are decided, such a
+payload is consumed only as bounded opaque bytes. A frame whose declared size
+exceeds a safe implementation limit may cause the connection to close without
+consuming the payload.
 
-Transport establishment completes InterCall connection establishment. There is
-no additional negotiation. Both peers may initiate calls, and a response may be
-sent as soon as its handler completes.
+Both peers may have multiple outstanding requests, and responses may be sent in
+any order. Bytes from different frames must not be interleaved. Implementations
+must continue processing inbound frames while calls are outstanding to avoid
+reader-loop deadlocks. InterCall does not prevent deadlocks caused by
+application-level dependency cycles.
 
-A request completes after its response has been fully decoded. The requester
-may then release its pending state, but it must never reuse the request ID on
-that connection.
+## Errors
 
-Local timeouts and cancellation are implementation concerns and do not send
-InterCall messages. An implementation that stops waiting for a response must
-retain a tombstone for the request so it can recognize and discard a late
-response, or it must close the connection. A response for a retained tombstone
-is not an unknown response.
+Every response has one universal numeric `errno`:
 
-Closing the transport closes the InterCall connection, fails every outstanding
-request, and abandons or cancels active handlers according to implementation
-policy. InterCall does not define graceful shutdown or retry behavior. A
-transport half-close is treated as complete connection closure.
+- `0` means success;
+- `1` through `255` are reserved for InterCall; and
+- `256` through `2^64-1` are application-defined.
 
-#### Failures
+The portable contract has no throws declarations, exception inheritance, error
+strings, or per-function error type. Protocol and application failures use the
+same response field. Exact reserved InterCall errno assignments and the way
+applications declare and name their errno values are not yet specified.
 
-A peer closes the connection when it detects any condition that prevents
-unambiguous continued decoding or execution, including:
+Remote calls remain fallible even when their native implementation has no
+application failure path. Generated bindings project failures into the target
+language's idiom: for example, a Go `error`, a Rust `Result`, Swift error
+handling, Java, Kotlin, C#, Python, or Ruby exceptions, JavaScript or
+TypeScript promise rejection, or a C status result. The exact profile mappings
+remain to be designed.
 
-- an unknown function ID;
-- an unknown response ID;
-- a response whose function ID does not match its request;
-- a reused request ID, when detected;
-- malformed or invalid encoded data;
-- invalid handler outputs;
-- a handler crash; or
-- an implementation resource limit being exceeded.
+For `errno == 0`, the payload must encode the declared return value exactly, or
+be empty when there is no return value. The meaning of a payload when `errno !=
+0` is open. A likely first version requires it to be empty, but that is not yet
+a current rule. Implementations must not substitute or depend on a universal
+zero return value after failure.
 
-No InterCall error message is sent before closing. Every outstanding request on
-the connection fails. A valid application error returned as ordinary data is
-not a protocol failure and does not close the connection.
+### Replyable and Fatal Failures
 
-#### Implementation Limits
+Framing separates failures that can be attributed to one request from failures
+that make the connection unsafe.
 
-The InterCall specification does not prescribe numeric resource limits. An
-implementation may limit value lengths, list counts, recursive nesting, decoded
-allocation, buffered output, outstanding requests, concurrent handlers, and
-connection lifetime. Definition toolchains may separately reject definitions
-that exceed their local complexity limits.
+When frame integrity and peer state remain trustworthy, a peer can answer a
+request with a reserved InterCall errno. Examples include an unknown function,
+a contained request decoding failure, and a contained handler failure. The
+exact errno for each case is open.
 
-Implementations should check local limits and arithmetic overflow before
-allocating memory or converting `uint64` values to native sizes. Exceeding a
-connection or decoding limit closes the connection. Implementations are not
-required to accept every length or count representable by the wire format.
+A peer closes the connection when it cannot continue unambiguously or safely.
+Examples include an invalid or impossible header/state transition, an unknown
+response ID, a reused request ID when it makes state ambiguous, a structurally
+malformed response, an unsafe oversized frame, arithmetic overflow needed to
+process a frame, or transport truncation. Because a response cannot be answered with
+another response, an invalid response is normally fatal to the connection.
+Closing fails all outstanding calls.
+
+An application errno is a normal response and does not by itself close the
+connection.
+
+## Connection Lifecycle and Resource Safety
+
+Transport establishment establishes the InterCall connection; there is no
+additional handshake. Closing or half-closing the transport closes the
+InterCall connection. Active handlers are abandoned or cancelled according to
+implementation policy. InterCall currently defines no graceful shutdown, retry,
+or wire cancellation operation.
+
+A request completes after its successful return value has been decoded or its
+nonzero response payload has been consumed. The requester may release its
+pending state but must not reuse the request ID. If a local
+timeout or cancellation stops waiting for a response, the implementation must
+retain enough tombstone state to recognize and discard the eventual response,
+or close the connection.
+
+Implementations may bound frame payload size, string and byte lengths, list
+counts, nesting depth, decoded allocation, buffered output, outstanding calls,
+concurrent handlers, definition complexity, and connection lifetime. They must
+check limits and arithmetic overflow before allocation or conversion from
+`uint64` to a native size. The wire format's numeric range does not require an
+implementation to allocate or accept every representable size.
+
+## Open Design Questions
+
+The following points are intentionally unsettled:
+
+- the canonical function representation hashed by FNV-0;
+- exact assignments and semantics for InterCall errnos `1` through `255`;
+- declaration, naming, scoping, documentation, and generated-language mapping
+  of application errnos; namespace-scoped explicit declarations are one
+  possibility, not a decision;
+- whether a nonzero response may carry a payload; an empty payload is the likely
+  first-version rule but is not confirmed;
+- whether any universal zero-value doctrine should exist;
+- portable option, enum, general variant or sum, and map designs, if any;
+- protocol and definition edition mechanisms;
+- language export annotations and detailed importer/exporter mappings;
+- the first language implementations to support;
+- default resource limits and limit-related behavior; and
+- cross-registry hash collisions and the broader security implications of
+  dispatch by function ID.
