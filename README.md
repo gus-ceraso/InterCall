@@ -46,24 +46,37 @@ not yet specified.
 An exporter might generate this inspectable InterCall definition IR:
 
 ```text
-/* Arithmetic operations. */
-namespace arithmetic {
-    /* Adds two unsigned 32-bit integers. */
-    function add(a uint32, b uint32) uint32;
-}
+namespace intercall {
+    errno unknown_function 1;
+    errno malformed_request 2;
+    errno internal_error 3;
+    errno resource_exhausted 4;
 
-/* Peer preferences. */
-namespace preferences {
-    type locale = string;
+    /* Arithmetic operations. */
+    namespace arithmetic {
+        /* Adds two unsigned 32-bit integers. */
+        function add(a uint32, b uint32) uint32;
+    }
 
-    type preference = record {
-        name string;
-        value string;
-    };
+    /* Peer preferences. */
+    namespace preferences {
+        type locale string;
 
-    function get_locale() locale;
-    function set_locale(value locale);
-    function list_preferences() list{preference};
+        /* The requested locale is not supported. */
+        errno unsupported_locale 5;
+
+        type preference record {
+            name string;
+            value string;
+            metadata record {
+                source string;
+            };
+        };
+
+        function get_locale() locale;
+        function set_locale(value locale);
+        function list_preferences() list{preference};
+    }
 }
 ```
 
@@ -136,40 +149,98 @@ have a separate character type.
 ### Lists
 
 `list{T}` is an ordered sequence of zero or more values of one element type.
-Lists may contain primitives, named types, or other lists.
+The element may be any type expression, including another list, an anonymous
+record, or an anonymous enum.
 
-### Named Records
+### Records
 
-A record is a closed, named collection of ordered fields. Every declared field
-is required and additional fields are not allowed. Public contracts do not
-contain anonymous record types.
+A record is a closed collection of ordered fields. Every declared field is
+required and additional fields are not allowed. A record expression may appear
+anywhere a type expression is accepted; it does not need its own declaration.
 
 ```text
-type user = record {
+type user record {
     id uint64;
     name string;
     avatar bytes;
+    preferences list{record {
+        name string;
+        value string;
+    }};
+};
+
+function create_user(input record {
+    name string;
+    avatar bytes;
+}) record {
+    id uint64;
 };
 ```
 
-### Application-Defined Types
+An anonymous record has no portable generated type name. A language profile may
+synthesize a helper name from its use site. Authors declare a named type when a
+record must be reused or exposed under a stable generated name.
 
-A type declaration introduces either a named record or a transparent alias.
-Aliases do not add a distinct wire representation:
+### Enums
+
+An enum is a closed set of symbolic members backed by an exact-width integer
+type. Its integer representation and every member discriminant are explicit:
 
 ```text
-type user_id = uint64;
-type users = list{user};
+type delivery_state enum uint8 {
+    pending 0;
+    in_transit 1;
+    delivered 2;
+};
 ```
 
-A local type is referenced by name. A type in another namespace is referenced
-as `namespace.type`.
+The backing type must be `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
+`uint32`, or `uint64`. An enum has at least one member. Member names are unique,
+as are numeric discriminants, and every discriminant must fit the backing type.
+Enums have no implicit discriminants or numeric aliases and do not require a
+zero member.
 
-Named types may be recursive only through lists. Every cycle in the type graph
-must pass through at least one list:
+Enum expressions, like record expressions, may be anonymous and nested. An
+anonymous enum has the same generated-name considerations as an anonymous
+record. Enum member order has no semantic meaning because every discriminant is
+explicit.
+
+Enums are closed. Decoders reject an integer that is not one of the declared
+discriminants, and encoders reject invalid native values. Profiles may use a
+native enum where its representation and validation are suitable, or generate
+a checked integer wrapper and named constants. Native enum ordinals and memory
+layouts are never portable.
+
+Adding, removing, renaming, or renumbering an enum member changes every
+function identity that reaches the enum. Reordering members or editing their
+documentation does not.
+
+### Named Types
+
+A type declaration binds a reusable name to any type expression. The syntax has
+no `=`:
 
 ```text
-type tree = record {
+type user_id uint64;
+type users list{user};
+```
+
+A declaration adds no tag or other representation to the wire value, but its
+name remains significant to the contract, generated source API, and function
+identity. A profile may represent a declared type as an alias, wrapper,
+structure, class, or other idiomatic checked type. Replacing a named type
+reference with an identical anonymous expression therefore preserves the wire
+layout but changes the contract.
+
+A local type is referenced by name. A type in another namespace is referenced
+by its absolute name, such as `intercall.accounts.user`.
+
+Named types may be recursive only through lists. Every cycle in the type graph,
+including a cycle that passes through an anonymous record, must pass through at
+least one list:
+
+```text
+type tree record {
     value string;
     children list{tree};
 };
@@ -178,49 +249,52 @@ type tree = record {
 Direct record recursion and alias-only cycles are invalid:
 
 ```text
-type invalid_record = record {
+type invalid_record record {
     next invalid_record;
 };
 
-type invalid_alias_a = invalid_alias_b;
-type invalid_alias_b = invalid_alias_a;
+type invalid_alias_a invalid_alias_b;
+type invalid_alias_b invalid_alias_a;
 ```
 
 All values are finite, acyclic trees. Pointers, references, object identity,
 shared substructure as an observable property, and cyclic runtime values are
 not portable. Encoders must reject cyclic values.
 
-### Deliberately Unsupported Types
+### Deliberately Unsupported Types and Declarations
 
-The current data model has no optional type, enum, general variant or sum type,
-map, character, unit type, pointer, or function value. Optional values, enums,
-variants, and maps remain design questions rather than implicit conventions.
-Applications must not rely on language-specific coercions to emulate them.
+The current data model has no optional type, general variant or sum type, map,
+character, unit type, pointer, or function value. Optional values, variants,
+and maps remain design questions rather than implicit conventions. Applications
+must not rely on language-specific coercions to emulate them. A failed call has
+no return value; it does not produce a zero value of its declared result type.
 
-A universal zero-value rule is also unresolved. In particular, error handling
-must not assume that a failed call can return a zero value of every result type.
+The definition IR also has no application-defined constant declarations or
+composite literal grammar. Enum members and errnos are specialized declarations,
+not a general constant facility.
 
 ## Definition IR
 
-An InterCall definition document is UTF-8 text containing one or more
-namespaces. The current draft has no embedded edition header. Documentation and
-formatting do not affect function identity.
+An InterCall definition document is UTF-8 text containing exactly one namespace
+tree. Its root is the reserved `intercall` namespace, and every other namespace
+is nested beneath it. The current draft has no embedded edition header.
+Documentation and formatting do not affect function identity.
 
 Outside documentation blocks, spaces, tabs, carriage returns, line feeds, form
 feeds, and vertical tabs may appear between tokens without changing their
 meaning. Whitespace is required only when its absence would combine adjacent
-tokens. Semicolons terminate declarations and record fields, commas separate
-function parameters, braces delimit namespaces and composite declarations, and
-parentheses delimit parameter lists. Newlines and indentation have no semantic
-meaning.
+tokens. Semicolons terminate declarations, record fields, and enum members;
+commas separate function parameters; braces delimit namespaces and composite
+declarations; and parentheses delimit parameter lists. Newlines and indentation
+have no semantic meaning.
 
 ### Documentation
 
-A `/* ... */` block documents the namespace, type, function, parameter, or
-record field that immediately follows it. Documentation association does not
-depend on whitespace or line breaks. Documentation is optional, and an item may
-have at most one documentation block. Comments do not nest and end at the first
-`*/`.
+A `/* ... */` block documents the namespace, type, errno, function, parameter,
+record field, or enum member that immediately follows it. Documentation
+association does not depend on whitespace or line breaks. Documentation is
+optional, and an item may have at most one documentation block. Comments do not
+nest and end at the first `*/`.
 
 The documentation value is the UTF-8 text between the delimiters with leading
 and trailing spaces, tabs, carriage returns, line feeds, form feeds, and
@@ -231,14 +305,26 @@ return value when one is present.
 
 ```ebnf
 document ::=
-    namespace-declaration+
+    root-namespace
     EOF
+    ;
+
+root-namespace ::=
+    documentation?
+    "namespace" "intercall" "{"
+        namespace-member*
+    "}"
+    ;
+
+namespace-member ::=
+      namespace-declaration
+    | declaration
     ;
 
 namespace-declaration ::=
     documentation?
     "namespace" IDENT "{"
-        declaration*
+        namespace-member*
     "}"
     ;
 
@@ -246,17 +332,17 @@ declaration ::=
     documentation?
     (
         type-declaration
+      | errno-declaration
       | function-declaration
     )
     ;
 
 type-declaration ::=
-    "type" IDENT "="
-    (
-        type-expression
-      | record-definition
-    )
-    ";"
+    "type" IDENT type-expression ";"
+    ;
+
+errno-declaration ::=
+    "errno" IDENT unsigned-integer-literal ";"
     ;
 
 function-declaration ::=
@@ -279,17 +365,20 @@ type-expression ::=
       primitive-type
     | type-reference
     | list-type
+    | record-type
+    | enum-type
     ;
 
 type-reference ::=
-    IDENT ("." IDENT)?
+      IDENT
+    | "intercall" "." IDENT ("." IDENT)*
     ;
 
 list-type ::=
     "list" "{" type-expression "}"
     ;
 
-record-definition ::=
+record-type ::=
     "record" "{"
         field*
     "}"
@@ -301,9 +390,19 @@ field ::=
     ";"
     ;
 
-primitive-type ::=
-      "boolean"
-    | "int8"
+enum-type ::=
+    "enum" integer-primitive-type "{"
+        enum-member+
+    "}"
+    ;
+
+enum-member ::=
+    documentation?
+    IDENT integer-literal ";"
+    ;
+
+integer-primitive-type ::=
+      "int8"
     | "int16"
     | "int32"
     | "int64"
@@ -311,25 +410,45 @@ primitive-type ::=
     | "uint16"
     | "uint32"
     | "uint64"
+    ;
+
+primitive-type ::=
+      "boolean"
+    | integer-primitive-type
     | "float32"
     | "float64"
     | "string"
     | "bytes"
     ;
 
+integer-literal ::=
+      unsigned-integer-literal
+    | "-" NONZERO_DIGIT DIGIT*
+    ;
+
+unsigned-integer-literal ::=
+      "0"
+    | NONZERO_DIGIT DIGIT*
+    ;
+
+DIGIT ::=
+    "0" ... "9"
+    ;
+
+NONZERO_DIGIT ::=
+    "1" ... "9"
+    ;
+
 IDENT ::=
-    IDENT_START IDENT_CONTINUE*
+    IDENT_WORD ("_" IDENT_WORD)*
     ;
 
-IDENT_START ::=
-      "A" ... "Z"
-    | "a" ... "z"
-    | "_"
+IDENT_WORD ::=
+    LOWER (LOWER | DIGIT)*
     ;
 
-IDENT_CONTINUE ::=
-      IDENT_START
-    | "0" ... "9"
+LOWER ::=
+    "a" ... "z"
     ;
 
 documentation ::=
@@ -338,19 +457,35 @@ documentation ::=
 ```
 
 `DOCUMENTATION_TEXT` is any sequence of Unicode scalar values that does not
-contain `*/`. Identifiers are case-sensitive. The reserved words are
-`namespace`, `type`, `function`, `list`, and `record`, together with every
+contain `*/`. Integer literals are single decimal tokens and have no sign
+except a leading `-` for a negative enum discriminant. They have no leading
+zeroes, `+` sign, or negative-zero form. Portable identifiers consist of
+lowercase ASCII words separated by single underscores. Digits may occur after
+the first letter of a word. The reserved words are `namespace`, `intercall`,
+`type`, `errno`, `function`, `list`, `record`, and `enum`, together with every
 primitive type name.
 
-A document declares each namespace at most once. Declaration names are unique
-within a namespace. Field names are unique within a record, and parameter names
-are unique within a function. Declarations may refer to types declared later in
-the document. Unqualified references resolve in the current namespace;
-qualified references resolve in the named namespace within the same document.
+A document declares its root namespace once. A nested namespace has one lexical
+declaration and cannot be reopened. Child namespace names and declaration names
+share one scope and are unique within their parent. Field names are unique
+within a record, parameter names are unique within a function, and member names
+and discriminants are each unique within an enum. Enum discriminants must fit
+the enum's backing type. Every fully qualified declaration name begins with
+`intercall`.
 
-Definition processors must preserve record field and function parameter order.
-After resolving references, they must reject every type cycle that is not
-list-guarded.
+Application contracts are declared in child namespaces such as
+`intercall.arithmetic`; those namespaces may themselves be nested. Direct type,
+errno, and function declarations in `intercall` are reserved for the protocol.
+Protocol declarations and application child namespaces share the root member
+name scope, so their names must not collide.
+
+Declarations may refer to types declared later in the document. An unqualified
+type reference resolves only in the current namespace. A qualified type
+reference is absolute, begins with `intercall`, traverses zero or more nested
+namespaces, and ends at a type declaration. Definition processors must preserve
+record field and function parameter order. Enum member order is not semantic.
+After resolving references, processors must reject every type cycle that is not
+list-guarded. The Errors section defines errno scope and validation.
 
 A function has ordered parameters and either no return value or one unnamed
 return value:
@@ -359,12 +494,54 @@ return value:
 function ping();
 function notify(message string);
 function add(a int32, b int32) int32;
-function get_users() list{user};
+function get_users() list{intercall.accounts.user};
+function create_user(input record { name string; }) intercall.accounts.user;
 ```
 
 Functions are declarations, not values. Whether a native implementation is
 synchronous or asynchronous does not change its portable contract or function
-identity.
+identity. A function's possible errnos are derived from its namespace lineage
+rather than listed on the function.
+
+### Identifier Projection
+
+Portable identifiers encode word boundaries in lower snake case. Language
+profiles project those words into native conventions; native spelling is not
+preserved in the IR. For example:
+
+| Direction | Projection |
+| --- | --- |
+| Go `RenderHTML` to IR | `render_html` |
+| Go `RenderHtml` to IR | `render_html` |
+| C `render_html` to IR | `render_html` |
+| IR `render_html` to exported Go | `RenderHTML` |
+| IR `render_html` to C | `render_html` |
+
+Each language profile defines a fixed, versioned abbreviation dictionary. An
+entry specifies the preferred generated spelling and the native spellings an
+exporter recognizes. The Go entry for the portable word `html`, for example,
+emits `HTML` and recognizes both `HTML` and `Html`; the profile similarly
+defines words such as `id`, `http`, `json`, and `url`. These tables belong to
+the profile, not to an individual generator.
+
+A generator selects and pins a profile revision out of band until editions are
+specified. Changing the table can change generated source and can change the IR
+produced by re-exporting native source. It may therefore change newly generated
+function IDs. It cannot change the identity of an existing IR document, whose
+portable names are already fixed.
+
+Projection is not injective. For example, Go `RenderHTML` and `RenderHtml` both
+normalize to `render_html`. Exporters must reject portable-name collisions in a
+scope unless an explicit source annotation supplies another portable name.
+Importers must define deterministic keyword escaping and reject any remaining
+collision in a generated scope. They must not resolve collisions with
+declaration-order suffixes, because an unrelated declaration could then rename
+an existing API. Namespace flattening in languages without a matching namespace
+construct must likewise use a profile-defined, collision-checked mapping.
+
+Only the portable IR spelling participates in type and function identity.
+Abbreviation tables, keyword escaping, source annotations, generated helper
+names, and other native spellings do not.
 
 ## Wire Protocol
 
@@ -401,8 +578,9 @@ Values are encoded according to their resolved types:
 | `string` | `uint64` byte length followed by UTF-8 bytes |
 | `bytes` | `uint64` byte length followed by raw bytes |
 | `list{T}` | `uint64` element count followed by each encoded `T` |
-| Named record | Fields encoded in declaration order |
-| Transparent alias | Encoding of its resolved underlying type |
+| Record, named or anonymous | Fields encoded in declaration order |
+| Enum, named or anonymous | Its backing integer encoding, restricted to declared discriminants |
+| Named type | Encoding of its underlying type expression |
 
 Signed integers use two's-complement representation. Integers, byte lengths,
 and element counts are fixed-width rather than variable-length.
@@ -417,8 +595,10 @@ patterns. Encoders must emit canonical quiet NaN `0x7fc00000` for `float32` and
 
 A list count is a count of values, not bytes. Elements are consecutive and have
 no individual frame. A record has no encoded field count, field names, padding,
-or total length; its definition determines its layout. An empty named record
-therefore occupies zero payload bytes.
+or total length; its definition determines its layout. An empty record,
+including an anonymous one, therefore occupies zero payload bytes. An enum uses
+its declared discriminant rather than a native ordinal; an undeclared
+underlying value is malformed.
 
 Request arguments are encoded consecutively in declaration order. A successful
 return value uses the same encoding as any other value of its declared type.
@@ -440,18 +620,37 @@ for each canonical byte:
 There is no initial offset, seed, or domain marker. Hash value `0` is valid and
 not reserved. The resulting `uint64` is encoded little-endian.
 
-The exact canonical function representation remains TODO. It must be
-deterministic across implementations and include the fully qualified function
-name, ordered parameters, optional return type, and every reachable named type
-needed by the contract. It must represent list-guarded recursion without
-infinite expansion. Documentation, source formatting, exporter annotations,
-synchronous versus asynchronous source implementation, and unrelated
-declarations are excluded. Adding or reordering an unrelated declaration must
-not change an existing function ID.
+The exact canonical byte representation remains TODO. Its semantic inputs are
+fixed. A reachable named type contributes its fully qualified name and complete
+underlying type expression, preserving every named reference and alias edge. An
+anonymous record contributes its ordered field names and types. An anonymous
+enum contributes its backing type and set of member-name/discriminant pairs.
+Anonymous types have structural identity; synthesized helper names and use-site
+paths are excluded.
+
+The representation must also include the function's fully qualified nested
+name; ordered parameter names and types; the optional return type; and the fully
+qualified name and numeric value of every errno in the function's namespace
+lineage. It must represent list-guarded recursion without infinite expansion.
+Enum member order, namespace member order, and errno declaration order are not
+semantic and must not affect the representation.
+
+Documentation, source formatting, native identifier spelling, abbreviation
+tables, exporter annotations, synchronous versus asynchronous source
+implementation, and unrelated declarations are excluded. An annotation that
+selects a different portable IR name changes identity through that name, not
+through the annotation itself. Errno descriptions are not identity inputs.
+
+Adding or reordering an unrelated declaration must not change an existing
+function ID. Replacing a named type with an anonymous structural equivalent,
+changing an enum's value set, moving a function to another namespace, or
+changing any errno in its lineage does change the ID. An errno added to a
+sibling namespace does not.
 
 Generation must reject distinct functions that collide within one generated
-function registry. Function IDs are dispatch identifiers, not authentication or
-authorization tokens.
+function registry. Protocol-level functions use the same identity algorithm and
+ID space as other functions. Function IDs are dispatch identifiers, not
+authentication or authorization tokens.
 
 There is no compatibility negotiation. Subject to compatible wire and
 definition semantics and the absence of a hash collision, compatibility is per
@@ -460,9 +659,11 @@ immutable function ID:
 - independently updated peers can continue calling functions whose canonical
   representations are unchanged;
 - a changed signature is rehashed and is expected to receive a different ID;
-- a missing function receives an InterCall errno response after its bounded
+- a missing function receives `intercall.unknown_function` after its bounded
   payload has been skipped; and
-- old and new contracts can coexist while both IDs remain exported.
+- old and new contracts can coexist only under distinct fully qualified names,
+  unless a separate legacy-registry mechanism is defined. Preserving an old ID
+  requires preserving its original name and complete canonical definition.
 
 ### Request IDs
 
@@ -506,16 +707,16 @@ Each header is 24 bytes and uses three consecutive 64-bit fields at offsets 0,
 following the header and does not include the header.
 
 A request payload contains its encoded arguments. A successful response payload
-contains its return value, or is empty for a function with no return value.
+contains its return value, or is empty for a function with no return value. A
+response with nonzero `errno` has `payload_size == 0` and no payload.
 
 A decoder must bound all decoding to the declared frame payload. Request
 arguments and successful return values must consume exactly that many bytes. A
 decoder must not read into the next frame to complete a malformed value. A
-bounded request for an unknown function can be skipped and answered with an
-InterCall errno. Until nonzero response payload semantics are decided, such a
-payload is consumed only as bounded opaque bytes. A frame whose declared size
-exceeds a safe implementation limit may cause the connection to close without
-consuming the payload.
+bounded request for an unknown function is skipped as opaque bytes and answered
+with `intercall.unknown_function`. A frame whose declared size exceeds a safe
+implementation limit may cause the connection to close without consuming the
+payload.
 
 Both peers may have multiple outstanding requests, and responses may be sent in
 any order. Bytes from different frames must not be interleaved. Implementations
@@ -525,50 +726,151 @@ application-level dependency cycles.
 
 ## Errors
 
-Every response has one universal numeric `errno`:
+Every response contains one numeric `errno` field. Value `0` is the fixed
+success sentinel and cannot be declared. Every errno value must fit `uint64` and
+be nonzero, so every value from `1` through `2^64-1` is available to an explicit
+declaration. No numeric range is reserved for the protocol or for applications,
+and an undeclared value has no implicit meaning.
 
-- `0` means success;
-- `1` through `255` are reserved for InterCall; and
-- `256` through `2^64-1` are application-defined.
+### Protocol Declarations
 
-The portable contract has no throws declarations, exception inheritance, error
-strings, or per-function error type. Protocol and application failures use the
-same response field. Exact reserved InterCall errno assignments and the way
-applications declare and name their errno values are not yet specified.
+Every document must contain these direct declarations in its root `intercall`
+namespace. Their names, values, and protocol meanings are fixed. The comments
+are documentation and are not part of their identity.
+
+```text
+namespace intercall {
+    /* The receiver does not export the requested function ID. */
+    errno unknown_function 1;
+
+    /* A known function's payload is not its exact declared argument encoding. */
+    errno malformed_request 2;
+
+    /* The receiver failed internally while executing or encoding the call. */
+    errno internal_error 3;
+
+    /* A safely bounded request was rejected by a receiver resource limit. */
+    errno resource_exhausted 4;
+}
+```
+
+These declarations assign only the individual values `1`, `2`, `3`, and `4`.
+For example, value `5` has no protocol significance unless an explicit errno in
+the relevant namespace lineage declares it.
+
+The root namespace is not limited to errnos. An InterCall protocol edition may
+also declare protocol-level types and functions directly in `intercall`.
+Protocol functions use the ordinary request, response, function-ID, and errno
+rules. Direct type, errno, and function declarations in the root are owned by
+the protocol; application declarations belong in child namespaces.
+
+Until an embedded edition mechanism exists, peers select a protocol edition out
+of band. Definition processors validate every protocol-owned declaration
+against that edition and reject missing, unknown, or mismatched declarations;
+an application cannot create an arbitrary direct root declaration by calling it
+protocol-level.
+
+Only the runtime, including a protocol-function implementation, may produce a
+root protocol errno. An application handler result is resolved against the
+function's lineage: a root protocol value or a value absent from the lineage
+becomes `intercall.internal_error` when the runtime can respond safely. Profiles
+may expose symbolic native errors, but symbolic namespace provenance is not
+carried on the wire. If sibling namespaces reuse a number, that number in an
+application handler result denotes the unique declaration in the current
+function's lineage. Transport failures and local timeout or cancellation
+failures are not response errnos and are not declared in the IR.
+
+### Namespace Lineage
+
+For a function declared in namespace `N`, the permitted errno set is the union
+of errnos declared directly in `N` and in every ancestor namespace through
+`intercall`. There is no function-level `errors` clause. Shared errnos belong in
+the narrowest ancestor that contains every function allowed to return them.
+With the required root protocol errnos omitted, an application subtree can
+contain:
+
+```text
+namespace intercall {
+    namespace preferences {
+        /* Available to functions here and in child namespaces. */
+        errno unsupported_locale 5;
+
+        function set_locale(value string);
+
+        namespace administration {
+            errno permission_denied 6;
+            function set_default_locale(value string);
+        }
+    }
+}
+```
+
+`intercall.preferences.set_locale` permits the root protocol errnos and
+`intercall.preferences.unsupported_locale`. The administration function also
+permits `intercall.preferences.administration.permission_denied`.
+
+Errno values must be unambiguous along every namespace lineage. No two errnos in
+a namespace may share a value, and an errno cannot reuse an ancestor's value.
+Sibling namespaces may reuse a value because the pending function identifies
+one lineage. Adding an ancestor errno that collides with a descendant errno
+makes the document invalid.
+
+A requester maps a nonzero response using the pending function's lineage.
+Receiving a value absent from that lineage is a malformed response and is fatal
+to the connection. Adding, removing, renaming, or renumbering an errno changes
+the identity of functions in that namespace and its descendants; functions in
+sibling namespaces are unaffected.
+
+An errno's human-facing description is documentation rather than a string
+literal or wire value. InterCall deliberately has no portable runtime error
+message. Documentation can be reworded or localized without changing a
+function ID. Generated runtime errors should identify at least the fully
+qualified symbolic name and numeric value; profiles may also expose the
+description through normal API documentation. Dynamic error details are not
+supported by this first error model.
 
 Remote calls remain fallible even when their native implementation has no
 application failure path. Generated bindings project failures into the target
 language's idiom: for example, a Go `error`, a Rust `Result`, Swift error
 handling, Java, Kotlin, C#, Python, or Ruby exceptions, JavaScript or
-TypeScript promise rejection, or a C status result. The exact profile mappings
-remain to be designed.
+TypeScript promise rejection, or a C status result. InterCall defines no
+exception hierarchy or typed error payload. Exact profile mappings remain to be
+designed.
 
-For `errno == 0`, the payload must encode the declared return value exactly, or
-be empty when there is no return value. The meaning of a payload when `errno !=
-0` is open. A likely first version requires it to be empty, but that is not yet
-a current rule. Implementations must not substitute or depend on a universal
-zero return value after failure.
+For `errno == 0`, the payload encodes the declared return value exactly, or is
+empty when the function has no return value. For `errno != 0`, `payload_size`
+must be zero. A failed call has no return value.
 
 ### Replyable and Fatal Failures
 
 Framing separates failures that can be attributed to one request from failures
-that make the connection unsafe.
+that make the connection unsafe. After consuming or skipping a safely bounded
+request payload, a receiver responds as follows:
 
-When frame integrity and peer state remain trustworthy, a peer can answer a
-request with a reserved InterCall errno. Examples include an unknown function,
-a contained request decoding failure, and a contained handler failure. The
-exact errno for each case is open.
+- an unknown function returns `intercall.unknown_function`;
+- invalid, truncated, or trailing argument encoding for a known function,
+  including an invalid string, boolean, enum, or composite value, returns
+  `intercall.malformed_request`;
+- rejection by a decoding or execution resource policy returns
+  `intercall.resource_exhausted` when the frame can still be safely contained;
+- an unexpected handler failure or invalid return value returns
+  `intercall.internal_error` if no response bytes have been sent; and
+- an application failure returns an application-owned errno from the function's
+  namespace lineage.
 
 A peer closes the connection when it cannot continue unambiguously or safely.
-Examples include an invalid or impossible header/state transition, an unknown
-response ID, a reused request ID when it makes state ambiguous, a structurally
-malformed response, an unsafe oversized frame, arithmetic overflow needed to
-process a frame, or transport truncation. Because a response cannot be answered with
-another response, an invalid response is normally fatal to the connection.
-Closing fails all outstanding calls.
+Examples include an invalid or impossible header or state transition, an
+unknown response ID, a reused request ID that makes state ambiguous, an unsafe
+oversized frame, arithmetic overflow needed to process a frame, transport
+truncation, or a partially written invalid response. A malformed response is
+also fatal, including a successful payload that does not exactly match its
+return type, a nonzero response with a nonempty payload, or an errno absent from
+the pending function's lineage. Because a response cannot be answered with
+another response, closing is the only protocol action. Closing fails all
+outstanding calls.
 
-An application errno is a normal response and does not by itself close the
-connection.
+A declared application errno is a normal response and does not by itself close
+the connection.
 
 ## Connection Lifecycle and Resource Safety
 
@@ -579,11 +881,13 @@ implementation policy. InterCall currently defines no graceful shutdown, retry,
 or wire cancellation operation.
 
 A request completes after its successful return value has been decoded or its
-nonzero response payload has been consumed. The requester may release its
-pending state but must not reuse the request ID. If a local
-timeout or cancellation stops waiting for a response, the implementation must
-retain enough tombstone state to recognize and discard the eventual response,
-or close the connection.
+nonzero response has been validated to have an empty payload. The requester may
+release its pending state but must not reuse the request ID. If a local timeout
+or cancellation stops waiting, a tombstone must retain the function's return
+contract and lineage errno mapping. The eventual response is validated as if
+the caller were still waiting, then its result is discarded. An implementation
+unwilling to retain that state must close the connection when the call is
+abandoned.
 
 Implementations may bound frame payload size, string and byte lengths, list
 counts, nesting depth, decoded allocation, buffered output, outstanding calls,
@@ -596,17 +900,11 @@ implementation to allocate or accept every representable size.
 
 The following points are intentionally unsettled:
 
-- the canonical function representation hashed by FNV-0;
-- exact assignments and semantics for InterCall errnos `1` through `255`;
-- declaration, naming, scoping, documentation, and generated-language mapping
-  of application errnos; namespace-scoped explicit declarations are one
-  possibility, not a decision;
-- whether a nonzero response may carry a payload; an empty payload is the likely
-  first-version rule but is not confirmed;
-- whether any universal zero-value doctrine should exist;
-- portable option, enum, general variant or sum, and map designs, if any;
+- the exact canonical function representation and test vectors for FNV-0;
+- portable option, general variant or sum, and map designs, if any;
 - protocol and definition edition mechanisms;
-- language export annotations and detailed importer/exporter mappings;
+- language export annotations, exact abbreviation dictionaries, keyword
+  escaping, and other detailed importer/exporter mappings;
 - the first language implementations to support;
 - default resource limits and limit-related behavior; and
 - cross-registry hash collisions and the broader security implications of
