@@ -40,8 +40,9 @@ exported and called through generated C bindings. Neither side is inherently a
 client or a server.
 
 These snippets are illustrative. Export annotations, package APIs, context and
-cancellation conventions, ownership rules, and exact generated signatures are
-not yet specified.
+cancellation conventions, ownership rules, exact generated signatures, and
+other native-language mappings are implementation-defined. They do not affect
+the portable contract except through the InterCall IR an implementation emits.
 
 An exporter might generate this inspectable InterCall definition IR:
 
@@ -100,10 +101,11 @@ authentication, and other service infrastructure are layers above the core.
 InterCall uses C, Zig, C++, Rust, Swift, Java, Kotlin, C#, Go, Ruby, Python,
 JavaScript, and TypeScript as its initial semantic portability baseline and is
 intended to support other general-purpose languages. Its data model is strict:
-decoders do not coerce values. Each language profile must validate and map the
-portable contract into representations appropriate for that language. A
-profile may need wrappers, checked conversions, or distinct generated types
-where a language lacks a direct representation.
+decoders do not coerce values. Native-language mappings are
+implementation-defined, and two implementations targeting the same language or
+language revision may expose different APIs. Those mappings must preserve the
+portable contract and may use wrappers, checked conversions, or distinct
+generated types where a language lacks a direct representation.
 
 InterCall does not attempt to model streaming, shared memory, object identity,
 offline delivery, or every distributed-system interaction.
@@ -177,7 +179,7 @@ function create_user(input record {
 };
 ```
 
-An anonymous record has no portable generated type name. A language profile may
+An anonymous record has no portable generated type name. An implementation may
 synthesize a helper name from its use site. Authors declare a named type when a
 record must be reused or exposed under a stable generated name.
 
@@ -206,14 +208,15 @@ record. Enum member order has no semantic meaning because every discriminant is
 explicit.
 
 Enums are closed. Decoders reject an integer that is not one of the declared
-discriminants, and encoders reject invalid native values. Profiles may use a
-native enum where its representation and validation are suitable, or generate
-a checked integer wrapper and named constants. Native enum ordinals and memory
-layouts are never portable.
+discriminants, and encoders reject invalid native values. An implementation may
+use a native enum where its representation and validation are suitable, or
+generate a checked integer wrapper and named constants. Native enum ordinals
+and memory layouts are never portable.
 
 Adding, removing, renaming, or renumbering an enum member changes every
-function identity that reaches the enum. Reordering members or editing their
-documentation does not.
+function contract that reaches the enum, but it does not change any function
+ID. Reordering members or editing their documentation changes neither the
+contract nor a function ID.
 
 ### Named Types
 
@@ -226,14 +229,28 @@ type users list{user};
 ```
 
 A declaration adds no tag or other representation to the wire value, but its
-name remains significant to the contract, generated source API, and function
-identity. A profile may represent a declared type as an alias, wrapper,
-structure, class, or other idiomatic checked type. Replacing a named type
-reference with an identical anonymous expression therefore preserves the wire
-layout but changes the contract.
+name remains significant to the contract and generated source API. An
+implementation may represent a declared type as an alias, wrapper, structure,
+class, or other checked type. Replacing a named type reference with an identical
+anonymous expression therefore preserves the wire layout but changes the
+contract. It does not change a function ID.
 
 A local type is referenced by name. A type in another namespace is referenced
-by its absolute name, such as `intercall.accounts.user`.
+by its absolute name, such as `intercall.accounts.user`. Namespace nesting does
+not restrict this: a function in a parent namespace may use a type declared in
+a child namespace, provided that it uses the type's absolute name:
+
+```text
+namespace intercall {
+    namespace parent {
+        function process(value intercall.parent.child.item);
+
+        namespace child {
+            type item string;
+        }
+    }
+}
+```
 
 Named types may be recursive only through lists. Every cycle in the type graph,
 including a cycle that passes through an anonymous record, must pass through at
@@ -263,11 +280,12 @@ not portable. Encoders must reject cyclic values.
 
 ### Deliberately Unsupported Types and Declarations
 
-The current data model has no optional type, general variant or sum type, map,
-character, unit type, pointer, or function value. Optional values, variants,
-and maps remain design questions rather than implicit conventions. Applications
-must not rely on language-specific coercions to emulate them. A failed call has
-no return value; it does not produce a zero value of its declared result type.
+InterCall deliberately has no optional type, general variant or sum type, map,
+character, unit type, pointer, or function value. These types are outside the
+portable data model. Applications must model any corresponding concepts
+explicitly with the supported types and must not rely on language-specific
+coercions to supply additional wire semantics. A failed call has no return
+value; it does not produce a zero value of its declared result type.
 
 The definition IR also has no application-defined constant declarations or
 composite literal grammar. Enum members and errnos are specialized declarations,
@@ -275,10 +293,17 @@ not a general constant facility.
 
 ## Definition IR
 
-An InterCall definition document is UTF-8 text containing exactly one namespace
-tree. Its root is the reserved `intercall` namespace, and every other namespace
-is nested beneath it. The current draft has no embedded edition header.
-Documentation and formatting do not affect function identity.
+An InterCall definition document is UTF-8 text that contains exactly one
+namespace tree and describes the exported contract of exactly one peer. Every
+function declared in the document belongs to that peer's function registry; the types
+and errnos support those function contracts. A caller uses the exporting
+peer's exact document to encode requests and decode responses. How
+implementations generate, distribute, select, or install peer documents is
+implementation-defined and occurs out of band.
+
+The document's root is the reserved `intercall` namespace, and every other
+namespace is nested beneath it. The current draft has no embedded edition
+header. Documentation and formatting do not affect function IDs.
 
 Outside documentation blocks, spaces, tabs, carriage returns, line feeds, form
 feeds, and vertical tabs may appear between tokens without changing their
@@ -500,48 +525,27 @@ function create_user(input record { name string; }) intercall.accounts.user;
 
 Functions are declarations, not values. Whether a native implementation is
 synchronous or asynchronous does not change its portable contract or function
-identity. A function's possible errnos are derived from its namespace lineage
-rather than listed on the function.
+ID. A function's possible errnos are derived from its namespace lineage rather
+than listed on the function.
 
 ### Identifier Projection
 
-Portable identifiers encode word boundaries in lower snake case. Language
-profiles project those words into native conventions; native spelling is not
-preserved in the IR. For example:
+Portable identifiers encode word boundaries in lower snake case. Projection
+between portable identifiers and native names is implementation-defined; native
+spelling is not preserved in the IR. Two implementations targeting the same
+language or language revision may use different abbreviation dictionaries,
+keyword escaping, namespace mappings, source annotations, helper names, or
+other conventions.
 
-| Direction | Projection |
-| --- | --- |
-| Go `RenderHTML` to IR | `render_html` |
-| Go `RenderHtml` to IR | `render_html` |
-| C `render_html` to IR | `render_html` |
-| IR `render_html` to exported Go | `RenderHTML` |
-| IR `render_html` to C | `render_html` |
+An exporter must resolve any native projection collisions before emitting a
+valid document. Changing its projection rules can change the portable function
+names it emits and therefore the IDs of newly generated functions. It cannot
+change the IDs in an existing IR document, whose portable function names are
+already fixed. An importer may expose any native API that preserves the
+portable contract.
 
-Each language profile defines a fixed, versioned abbreviation dictionary. An
-entry specifies the preferred generated spelling and the native spellings an
-exporter recognizes. The Go entry for the portable word `html`, for example,
-emits `HTML` and recognizes both `HTML` and `Html`; the profile similarly
-defines words such as `id`, `http`, `json`, and `url`. These tables belong to
-the profile, not to an individual generator.
-
-A generator selects and pins a profile revision out of band until editions are
-specified. Changing the table can change generated source and can change the IR
-produced by re-exporting native source. It may therefore change newly generated
-function IDs. It cannot change the identity of an existing IR document, whose
-portable names are already fixed.
-
-Projection is not injective. For example, Go `RenderHTML` and `RenderHtml` both
-normalize to `render_html`. Exporters must reject portable-name collisions in a
-scope unless an explicit source annotation supplies another portable name.
-Importers must define deterministic keyword escaping and reject any remaining
-collision in a generated scope. They must not resolve collisions with
-declaration-order suffixes, because an unrelated declaration could then rename
-an existing API. Namespace flattening in languages without a matching namespace
-construct must likewise use a profile-defined, collision-checked mapping.
-
-Only the portable IR spelling participates in type and function identity.
-Abbreviation tables, keyword escaping, source annotations, generated helper
-names, and other native spellings do not.
+Only a function's fully qualified portable IR name participates in its function
+ID. Native projection choices do not.
 
 ## Wire Protocol
 
@@ -554,9 +558,12 @@ how their APIs expose the InterCall byte stream.
 
 Each connection has an initiator and an acceptor only for allocating request ID
 ranges. After transport establishment, the peers are otherwise symmetric and
-either may send a request immediately. There is currently no InterCall
-handshake, registry exchange, magic value, or embedded protocol version. Peers
-must establish compatible wire and definition semantics out of band.
+either may send a request immediately. There is no InterCall handshake,
+registry exchange, magic value, or embedded protocol version. Before exchanging
+InterCall bytes, peers must establish compatible wire and definition semantics,
+the initiator and acceptor roles, and the exact export document for each peer
+out of band. How they do so is implementation-defined. InterCall does not detect
+or negotiate a mismatch.
 
 ### Byte Order and Value Encoding
 
@@ -605,65 +612,58 @@ return value uses the same encoding as any other value of its declared type.
 
 ### Function IDs
 
-Every function is identified by the complete 64-bit FNV-0 hash of its canonical
-function representation:
+Every function is identified by the complete 64-bit FNV-0 hash of the ASCII
+bytes of its fully qualified portable name:
 
 ```text
 hash = 0
 prime = 1099511628211
 
-for each canonical byte:
+for each name byte:
     hash = hash * prime modulo 2^64
     hash = hash XOR byte
 ```
 
-There is no initial offset, seed, or domain marker. Hash value `0` is valid and
-not reserved. The resulting `uint64` is encoded little-endian.
+The hash input contains exactly the name bytes, with `.` between namespace and
+function identifiers. It has no length prefix, terminator, initial offset, seed,
+or domain marker. Because portable identifiers are ASCII, their ASCII and UTF-8
+encodings are identical. Hash value `0` is valid and not reserved. The resulting
+`uint64` is encoded little-endian.
 
-The exact canonical byte representation remains TODO. Its semantic inputs are
-fixed. A reachable named type contributes its fully qualified name and complete
-underlying type expression, preserving every named reference and alias edge. An
-anonymous record contributes its ordered field names and types. An anonymous
-enum contributes its backing type and set of member-name/discriminant pairs.
-Anonymous types have structural identity; synthesized helper names and use-site
-paths are excluded.
+For example:
 
-The representation must also include the function's fully qualified nested
-name; ordered parameter names and types; the optional return type; and the fully
-qualified name and numeric value of every errno in the function's namespace
-lineage. It must represent list-guarded recursion without infinite expansion.
-Enum member order, namespace member order, and errno declaration order are not
-semantic and must not affect the representation.
+```text
+name:        intercall.users.add_user
+function ID: 0x55f5399d9023d46f
+wire bytes:  6f d4 23 90 9d 39 f5 55
+```
 
-Documentation, source formatting, native identifier spelling, abbreviation
-tables, exporter annotations, synchronous versus asynchronous source
-implementation, and unrelated declarations are excluded. An annotation that
-selects a different portable IR name changes identity through that name, not
-through the annotation itself. Errno descriptions are not identity inputs.
+Parameter names and types, return types, named and anonymous type definitions,
+enum members, errnos, documentation, source formatting, native identifier
+spelling, and unrelated declarations do not participate in a function ID.
+Changing any of them without changing the fully qualified function name leaves
+the ID unchanged. Moving or renaming the function changes the ID.
 
-Adding or reordering an unrelated declaration must not change an existing
-function ID. Replacing a named type with an anonymous structural equivalent,
-changing an enum's value set, moving a function to another namespace, or
-changing any errno in its lineage does change the ID. An errno added to a
-sibling namespace does not.
+A function ID is therefore a name-derived dispatch key, not a fingerprint of the
+function contract. Peers must use matching out-of-band documents. If their
+contracts for one name differ, InterCall does not detect the mismatch; each peer
+encodes, decodes, and validates the call according to its own document.
 
-Generation must reject distinct functions that collide within one generated
-function registry. Protocol-level functions use the same identity algorithm and
-ID space as other functions. Function IDs are dispatch identifiers, not
-authentication or authorization tokens.
+A definition processor must reject a peer document in which distinct functions
+have the same ID. Protocol-level functions use the same algorithm and ID space
+as other functions. A collision between mismatched peer documents is not
+detected in band. Function IDs are not authentication or authorization tokens.
 
-There is no compatibility negotiation. Subject to compatible wire and
-definition semantics and the absence of a hash collision, compatibility is per
-immutable function ID:
+There is no compatibility negotiation. An unchanged function ID does not imply
+a compatible contract:
 
-- independently updated peers can continue calling functions whose canonical
-  representations are unchanged;
-- a changed signature is rehashed and is expected to receive a different ID;
+- independently updated peers can continue calling a function only while they
+  use compatible contracts for its name;
+- changing a contract under the same name preserves its ID but requires the
+  peers' out-of-band documents to be updated together;
 - a missing function receives `intercall.unknown_function` after its bounded
   payload has been skipped; and
-- old and new contracts can coexist only under distinct fully qualified names,
-  unless a separate legacy-registry mechanism is defined. Preserving an old ID
-  requires preserving its original name and complete canonical definition.
+- old and new contracts can coexist only under distinct fully qualified names.
 
 ### Request IDs
 
@@ -736,7 +736,7 @@ and an undeclared value has no implicit meaning.
 
 Every document must contain these direct declarations in its root `intercall`
 namespace. Their names, values, and protocol meanings are fixed. The comments
-are documentation and are not part of their identity.
+are documentation and do not affect function IDs.
 
 ```text
 namespace intercall {
@@ -764,20 +764,20 @@ Protocol functions use the ordinary request, response, function-ID, and errno
 rules. Direct type, errno, and function declarations in the root are owned by
 the protocol; application declarations belong in child namespaces.
 
-Until an embedded edition mechanism exists, peers select a protocol edition out
-of band. Definition processors validate every protocol-owned declaration
-against that edition and reject missing, unknown, or mismatched declarations;
-an application cannot create an arbitrary direct root declaration by calling it
-protocol-level.
+Peers select their protocol and definition semantics out of band; InterCall has
+no embedded edition mechanism or edition negotiation. Definition processors
+validate every protocol-owned declaration against the selected semantics and
+reject missing, unknown, or mismatched declarations. An application cannot
+create an arbitrary direct root declaration by calling it protocol-level.
 
 Only the runtime, including a protocol-function implementation, may produce a
 root protocol errno. An application handler result is resolved against the
 function's lineage: a root protocol value or a value absent from the lineage
-becomes `intercall.internal_error` when the runtime can respond safely. Profiles
-may expose symbolic native errors, but symbolic namespace provenance is not
-carried on the wire. If sibling namespaces reuse a number, that number in an
-application handler result denotes the unique declaration in the current
-function's lineage. Transport failures and local timeout or cancellation
+becomes `intercall.internal_error` when the runtime can respond safely.
+Implementations may expose symbolic native errors, but symbolic namespace
+provenance is not carried on the wire. If sibling namespaces reuse a number,
+that number in an application handler result denotes the unique declaration in
+the current function's lineage. Transport failures and local timeout or cancellation
 failures are not response errnos and are not declared in the IR.
 
 ### Namespace Lineage
@@ -818,14 +818,14 @@ makes the document invalid.
 A requester maps a nonzero response using the pending function's lineage.
 Receiving a value absent from that lineage is a malformed response and is fatal
 to the connection. Adding, removing, renaming, or renumbering an errno changes
-the identity of functions in that namespace and its descendants; functions in
-sibling namespaces are unaffected.
+the contracts of functions in that namespace and its descendants, but not their
+function IDs. Functions in sibling namespaces are unaffected.
 
 An errno's human-facing description is documentation rather than a string
 literal or wire value. InterCall deliberately has no portable runtime error
 message. Documentation can be reworded or localized without changing a
 function ID. Generated runtime errors should identify at least the fully
-qualified symbolic name and numeric value; profiles may also expose the
+qualified symbolic name and numeric value; implementations may also expose the
 description through normal API documentation. Dynamic error details are not
 supported by this first error model.
 
@@ -834,8 +834,8 @@ application failure path. Generated bindings project failures into the target
 language's idiom: for example, a Go `error`, a Rust `Result`, Swift error
 handling, Java, Kotlin, C#, Python, or Ruby exceptions, JavaScript or
 TypeScript promise rejection, or a C status result. InterCall defines no
-exception hierarchy or typed error payload. Exact profile mappings remain to be
-designed.
+exception hierarchy or typed error payload. Exact native error mappings are
+implementation-defined.
 
 For `errno == 0`, the payload encodes the declared return value exactly, or is
 empty when the function has no return value. For `errno != 0`, `payload_size`
@@ -898,14 +898,15 @@ implementation to allocate or accept every representable size.
 
 ## Open Design Questions
 
-The following points are intentionally unsettled:
+The following protocol points are intentionally unsettled:
 
-- the exact canonical function representation and test vectors for FNV-0;
-- portable option, general variant or sum, and map designs, if any;
-- protocol and definition edition mechanisms;
-- language export annotations, exact abbreviation dictionaries, keyword
-  escaping, and other detailed importer/exporter mappings;
-- the first language implementations to support;
-- default resource limits and limit-related behavior; and
-- cross-registry hash collisions and the broader security implications of
-  dispatch by function ID.
+- request-ID reuse detection, abandoned-call state, and the complete connection
+  state machine;
+- failure precedence and response construction when encoding or writing fails;
+  and
+- default resource limits and exact limit-related behavior.
+
+Native exporter and importer APIs, source annotations, identifier projection,
+error mapping, generated signatures, ownership conventions, supported language
+revisions, and implementation-language priorities are implementation choices,
+not protocol design questions.
