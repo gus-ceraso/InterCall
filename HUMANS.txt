@@ -1,0 +1,9 @@
+Greetings mortal,
+
+Currently, this is a vibecoded (or, depending on your inclinations, an agentic
+engineered) proof-of-concept. If we like the outcome of this experiment, we may
+write a clanker-free version in the future. Until then, please ignore everything
+except maybe:
+
+./README.md (clanker-generated but coherent; fine for a gloss over)
+./LICENSE.txt
