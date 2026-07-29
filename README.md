@@ -744,15 +744,18 @@ bytes. A list of zero-width values still carries its element count.
 
 ### Frames
 
-The connection initiator and acceptor use separate request ID ranges:
+The most significant bit of the `request_id` field distinguishes requests from
+responses. It is clear in a request and set in a response. The remaining 63 bits
+form the request ID, from `0x0000000000000000` through
+`0x7fffffffffffffff`. A response copies the request's ID into those bits.
 
-- the initiator uses `0x0000000000000000` through `0x7fffffffffffffff`;
-- the acceptor uses `0x8000000000000000` through `0xffffffffffffffff`.
-
-The transport binding determines which peer is the initiator. Request ID zero
-is valid. A peer must not have two outstanding requests with the same ID and
-should not reuse an ID after a request completes. The other peer is not required
-to remember IDs or enforce the recommendation against reuse.
+Both peers use the same request ID range independently, so requests in opposing
+directions may have the same ID. Request ID zero is valid. A peer must not have
+two outstanding requests with the same ID. Once it receives the response to a
+request, it may reuse that request's ID. A request abandoned locally, such as
+after a timeout, remains outstanding for ID-allocation purposes until its
+response arrives or the connection closes. The other peer is not required to
+remember IDs across completed requests.
 
 A request frame is:
 
@@ -777,9 +780,9 @@ padding. `payload_length` counts only the bytes immediately following the
 header. Value decoding is bounded by that length and must never consume bytes
 from another frame.
 
-A response repeats the request ID. On receipt, an ID in the remote peer's range
-identifies a request, while an ID in the local peer's range identifies a
-response. No separate frame-kind field is encoded.
+A receiver uses the most significant bit of `request_id` to select the frame
+layout, then clears that bit before matching a response to a pending request. No
+separate frame-kind field is encoded.
 
 Both peers may have multiple outstanding requests. Responses may arrive in any
 order, and InterCall gives separate requests no execution-order guarantee. An
@@ -824,8 +827,8 @@ function echo {
 ```
 
 The function key is `0xf84e1e0e300214c3`, and the error key is
-`0x9f42862f8fc4d5f1`. The following fields form a request from the connection
-initiator with request ID `1` and argument `0x1234`:
+`0x9f42862f8fc4d5f1`. The following fields form a request with request ID `1`
+and argument `0x1234`:
 
 ```text
 request_id     01 00 00 00 00 00 00 00
@@ -834,10 +837,10 @@ payload_length 02 00 00 00 00 00 00 00
 payload        34 12
 ```
 
-A successful response returning `0x1234` is:
+A successful response returning `0x1234` sets the response bit:
 
 ```text
-request_id     01 00 00 00 00 00 00 00
+request_id     01 00 00 00 00 00 00 80
 error_key      00 00 00 00 00 00 00 00
 payload_length 02 00 00 00 00 00 00 00
 payload        34 12
@@ -847,7 +850,7 @@ The same function may instead return the declared `failed` error without a
 payload:
 
 ```text
-request_id     01 00 00 00 00 00 00 00
+request_id     01 00 00 00 00 00 00 80
 error_key      f1 d5 c4 8f 2f 86 42 9f
 payload_length 00 00 00 00 00 00 00 00
 ```
@@ -869,7 +872,7 @@ response.
 
 A response whose request ID does not correspond to a pending request is ignored.
 Its payload is consumed or discarded as opaque bytes and is not validated. A
-recipient is not required to detect reused request IDs or duplicate responses.
+recipient is not required to detect duplicate responses.
 
 Handling of incomplete frames, local timeouts, cancellation, half-closure, and
 transport failure is implementation-defined. Closing a connection is always
