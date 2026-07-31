@@ -14,7 +14,7 @@ The proof of concept consists of:
   InterCall interface, and generates dispatch code;
 - an `intercall-go import` command that reads an InterCall interface and
   generates typed Go callers; and
-- generated codecs for InterCall values, arguments, returns, and errors.
+- generated codecs for InterCall values, arguments, returns, and exceptions.
 
 The proof of concept prioritizes a small implementation and transparent Go APIs.
 It is not intended to be safe for untrusted peers. In particular, it imposes no
@@ -26,8 +26,8 @@ A **connection** is one bidirectional InterCall conversation carried by one raw
 byte stream.
 
 An **export binding** is a generated Go package for the interface implemented by
-the local peer. It contains the dispatcher and internal wrappers for the Go
-functions named by that interface.
+the local peer. It contains the dispatcher and internal wrappers that map the
+interface's procedures to Go functions.
 
 An **import binding** is a generated Go package for the interface implemented by
 the remote peer. It contains typed Go functions that make calls over a
@@ -51,8 +51,8 @@ Import and export are independent operations:
 
 One exported InterCall interface may aggregate implementation functions from
 many importable Go packages. For example, one backend interface may contain
-functions implemented by `users`, `orders`, `billing`, and `health`, allowing a
-frontend to call all of them over one connection.
+procedures implemented by functions in `users`, `orders`, `billing`, and
+`health`, allowing a frontend to call all of them over one connection.
 
 The export CLI knows the source package and symbol for every selected function.
 It generates private, statically typed wrappers that directly call those
@@ -68,10 +68,10 @@ backendexport -> users   -> frontendimport
               -> billing -> frontendimport
 ```
 
-Every function in the generated exported interface is callable. The proof of
-concept has no runtime function whitelist. Documentation tags and CLI overrides
-determine the exported function set at generation time, and the generated
-interface and dispatcher contain exactly the same set.
+Every procedure in the generated exported interface is callable. The proof of
+concept has no runtime procedure whitelist. Documentation tags and CLI
+overrides determine the exported procedure set at generation time, and the
+generated interface and dispatcher contain exactly the same set.
 
 ### Raw byte-stream boundary
 
@@ -116,9 +116,9 @@ cannot be decoded according to the locally generated interface.
 
 ### No runtime policy or resource limits
 
-The runtime receives no identity, authorization policy, function whitelist, or
+The runtime receives no identity, authorization policy, procedure whitelist, or
 limit configuration. Authentication and connection-level admission are outside
-the runtime. Once a connection is running, every function in the exported
+the runtime. Once a connection is running, every procedure in the exported
 interface may be called.
 
 The proof of concept intentionally defines no limits for frame payloads, value
@@ -217,66 +217,68 @@ Outgoing imported calls use the calling goroutine. They register a pending
 request, write the request through the same connection-wide mutex, and wait for
 a response delivered by the read goroutine or for local cancellation.
 
-### Runtime errors
+### Runtime exceptions
 
-InterCall itself defines no canonical errors, but the Go implementation does.
-The initial Go runtime wire errors are:
+InterCall itself defines no canonical exceptions, but the Go implementation
+does. The initial Go runtime wire exceptions are:
 
 ```intercall
-error function_not_found;
-error invalid_arguments;
-error internal_error;
+exception procedure_not_found;
+exception invalid_arguments;
+exception internal_exception;
 ```
 
 These names are reserved by the Go implementation. `intercall-go export`
-automatically inserts all Go runtime wire errors into every generated exported
-interface. Consequently, every runtime error that the implementation may send
-is explicitly present in the interface file, as required by InterCall.
+automatically inserts all Go runtime wire exceptions into every generated
+exported interface. Consequently, every runtime exception that the
+implementation may send is explicitly present in the interface file, as
+required by InterCall.
 
-The initial errors have no payloads. Their names establish broad categories,
-but the exact local conditions that select each error remain open. More Go
-runtime errors are expected to be added later.
+The initial exceptions have no payloads. Their names establish broad
+categories, but the exact local conditions that select each exception remain
+open. More Go runtime exceptions are expected to be added later.
 
-Errors that are never transmitted,
-such as local context cancellation, missing context binding, transport failure,
-and malformed remote responses, are ordinary local Go errors and do not appear
-in an InterCall interface.
+Failures that are never transmitted, such as local context cancellation,
+missing context binding, transport failure, and malformed remote responses, are
+ordinary local Go errors and do not appear in an InterCall interface.
 
 ## Open Questions
 
 The following matters are intentionally unresolved. They should not be inferred
 from the illustrative API above.
 
-### Application error declarations and Go behavior
+### Application exception declarations and Go behavior
 
-The exporter needs a way to discover application errors and associate native Go
-values with InterCall error declarations. Questions include:
+The exporter needs a way to discover application Go errors and associate their
+values with InterCall exception declarations. Questions include:
 
-- Are no-payload errors declared by tagged sentinel variables, tagged named
+- Are no-payload exceptions declared by tagged sentinel variables, tagged named
   types, or either?
-- Are payload errors declared by tagged struct types?
-- What is the exact documentation-tag syntax for an error name and payload?
-- Since InterCall errors are global to an interface, are errors collected from
-  all selected packages independently of individual functions, or must each
-  function document the errors it may return?
-- Does generated dispatch use `errors.Is` for no-payload errors and `errors.As`
-  for payload errors?
-- Are wrapped declared errors accepted?
-- If more than one declared error matches a returned Go error, which one wins?
-- Must an error payload be carried by a pointer, a value, or either?
-- How are error comments and payload-field comments obtained?
-- How do imported no-payload errors appear in Go: shared sentinels, generated
-  zero-sized types, or both?
-- How do imported payload errors format their `Error` strings?
-- Is every undeclared non-nil error converted to `internal_error`?
+- Are payload exceptions declared by tagged struct types?
+- What is the exact documentation-tag syntax for an exception name and payload?
+- Since InterCall exceptions are global to an interface, are exceptions
+  collected from all selected packages independently of individual functions,
+  or must each function document the errors it may return?
+- Does generated dispatch use `errors.Is` and `errors.As` to map returned Go
+  errors to no-payload and payload exceptions, respectively?
+- Are wrapped Go errors that map to declared exceptions accepted?
+- If more than one declared exception matches a returned Go error, which one
+  wins?
+- Must an exception payload be carried by a pointer, a value, or either?
+- How are exception comments and payload-field comments obtained?
+- How are imported no-payload exceptions represented as Go errors: shared
+  sentinels, generated zero-sized error types, or both?
+- How do generated Go error types for imported payload exceptions format their
+  `Error` strings?
+- Is every undeclared non-nil error converted to `internal_exception`?
 
 A possible, but unapproved, syntax is:
 
 ```go
-// @intercall error user_not_found
+// @intercall exception user_not_found
 var ErrUserNotFound = errors.New("user not found")
 
-// @intercall error invalid_input
+// @intercall exception invalid_input
 type InvalidInputError struct {
 	Field  string
 	Reason string
@@ -344,13 +346,14 @@ include:
 
 The documentation-tag language and command-line precedence remain open:
 
-- What exact tag selects a function: `@intercall`, `@intercall function`, or
+- What exact tag selects a function: `@intercall`, `@intercall procedure`, or
   another spelling?
 - How are wire names overridden in documentation?
-- How are parameter, return, type, field, and error comments written?
+- How are parameter, return, type, field, and exception comments written?
 - Does a CLI `--include` option permit exporting an otherwise untagged function?
 - Does `--exclude` always override a source tag?
-- Can the CLI rename functions, types, fields, and errors, or only functions?
+- Can the CLI rename procedures, types, fields, and exceptions, or only
+  procedures?
 - Are CLI symbols written as import paths plus identifiers, package-qualified
   names, filesystem paths, or a combination?
 - How are methods named on the CLI if methods are supported?
@@ -397,7 +400,7 @@ The generated artifact model is undecided:
   runtime response-writing method directly?
 - Are dispatch tables generated as maps, sorted slices, perfect switches, or
   another representation?
-- Are codecs generated per declaration, inlined per function, or shared?
+- Are codecs generated per declaration, inlined per procedure, or shared?
 - Are generated files intended to be checked in?
 - Can import and export generation safely rerun independently in the same output
   directory?
@@ -492,28 +495,28 @@ Although `Run` owns the receive loop and connection closure, details remain:
 - Is explicit user closure distinguishable from transport failure?
 - Are half-closures recognized or treated as complete connection failure?
 
-### Runtime error conditions and future errors
+### Runtime exception conditions and future exceptions
 
-The initial runtime error names are fixed, but exact condition mapping and future
-extension policy need refinement:
+The initial runtime exception names are fixed, but exact condition mapping and
+future extension policy need refinement:
 
-- Is every unknown function key answered with `function_not_found` after its
+- Is every unknown procedure key answered with `procedure_not_found` after its
   payload is consumed?
 - Which decoding failures produce `invalid_arguments`, and which malformed
   frames close the connection without a response?
 - Does trailing request payload data produce `invalid_arguments`?
-- Does a handler panic always produce `internal_error`?
-- Does failure to encode a handler result produce `internal_error`, or require
-  connection closure because no valid response can be constructed?
-- Is an undeclared application error always hidden as `internal_error`?
-- Should runtime errors ever gain payloads?
-- How are new runtime errors introduced without unexpectedly changing every
+- Does a handler panic always produce `internal_exception`?
+- Does failure to encode a handler result produce `internal_exception`, or
+  require connection closure because no valid response can be constructed?
+- Is an undeclared application error always hidden as `internal_exception`?
+- Should runtime exceptions ever gain payloads?
+- How are new runtime exceptions introduced without unexpectedly changing every
   generated exported interface?
-- Does the importer map recognized Go runtime errors to shared runtime sentinel
-  values or generated interface-specific errors?
-- Are reserved runtime error names prohibited for user types and functions as
-  well as user error declarations because all declarations share one global
-  InterCall namespace?
+- Does the importer map recognized runtime exceptions to shared Go error values
+  or generated interface-specific error values?
+- Are reserved runtime exception names prohibited for user types and procedures
+  as well as user exception declarations because all declarations share one
+  global InterCall namespace?
 
 ### Local Go errors and diagnostics
 
@@ -536,7 +539,7 @@ Local failures need an idiomatic API even though they are not wire declarations:
 The following are explicitly outside the initial proof of concept rather than
 open design requirements:
 
-- runtime function whitelists or identity-based authorization;
+- runtime procedure whitelists or identity-based authorization;
 - protocol or interface handshakes;
 - interface digest negotiation;
 - configurable resource limits;
