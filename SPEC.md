@@ -1,716 +1,489 @@
 # InterCall Go Proof of Concept
 
-This document is the frozen design for the Go proof of concept. `README.md` is
-authoritative for the InterCall interface language and wire protocol; this
-specification defines the Go mapping, generated artifacts, runtime behavior, and
-tooling. A Go implementation must satisfy both documents. If they appear to
-conflict, the protocol in `README.md` wins.
+`README.md` is authoritative for the InterCall interface language and wire
+protocol. This document defines the Go mapping, generator, and shared runtime. A
+Go proof of concept must satisfy both documents; where they conflict,
+`README.md` wins.
 
 ## Scope
 
-The proof of concept includes:
+The proof of concept implements every primitive, list, record, named type,
+procedure, and exception form in `README.md`. It provides:
 
-- a reusable runtime over an established, reliable, ordered, full-duplex raw
-  byte stream;
-- a complete `.intercall` lexer, parser, validator, semantic comment model, and
-  formatter;
-- `intercall-go export`, using Go package discovery to emit an interface and a
-  generated export binding;
-- `intercall-go import`, using the exact bytes of an interface to emit a
+- a parser, validator, semantic-documentation model, and deterministic formatter
+  for `.intercall` files;
+- `intercall-go export`, which discovers tagged Go declarations from package
+  patterns and writes an interface plus a generated export binding;
+- `intercall-go import`, which reads an exact interface file and writes a
   generated import binding;
-- statically generated typed callers, dispatch, value codecs, and exception
-  mappings; and
-- every InterCall primitive, list, record, named-type, procedure, and exception
-  form defined by `README.md`.
+- statically generated callers, dispatch, codecs, and exception mappings; and
+- a shared Go runtime for one bidirectional connection over an established byte
+  stream.
 
-This is a trusted-peer proof of concept. It has no policy resource limits, but
-it must still reject structurally invalid data, check integer arithmetic, and
-check every `uint64` conversion to a native size before allocation or
-iteration.
+This is a trusted-local-tooling, trusted-peer proof of concept. It has no policy
+resource limits, but it still rejects malformed data, checks arithmetic, and
+checks every wire `uint64` before converting it to `int`, allocating, or
+iterating.
 
-## Repository and Package Layout
+The repository is the module declared by `go.mod`. The root package
+`github.com/cerasos/intercall` is the public runtime, `cmd/intercall-go` is the
+CLI, `internal/syntax` owns interface syntax, and `internal/tool` owns Go
+package discovery and generation. The runtime and syntax packages use only the
+standard library. The tool may use `golang.org/x/tools/go/packages`.
 
-The repository root is the Go module:
-
-```text
-module github.com/cerasos/intercall
-
-go 1.26.5
-```
-
-The root Go package is `intercall` and contains the public shared runtime.
-`cmd/intercall-go` contains the CLI. Interface syntax, Go discovery, and code
-generation live under `internal/`; the intended divisions are
-`internal/syntax`, `internal/godiscovery`, and `internal/generate`.
-
-The runtime and interface-syntax implementation use only the standard library.
-Discovery may depend on `golang.org/x/tools/go/packages`. Generated bindings
-may import the standard library, provider packages in an export binding, and
-the shared root runtime; they must not import generator internals or any other
-third-party runtime.
-
-Each invocation generates one binding into a dedicated, generator-owned Go
-package. An import binding and an export binding are always separate packages
-and cannot share an output directory. Generated export wrappers call provider
-package functions directly. There is no runtime registration, reflection,
-public application handler table, or generated client object.
+Each command writes one binding into a dedicated generator-owned Go package.
+Import and export bindings are separate packages and cannot share an output
+directory. Generated code may import the standard library, the root runtime,
+and, for exports, provider packages. It never imports generator internals or a
+third-party runtime. There is no reflection, runtime registration, handler
+registry, generated client object, or user-supplied callback framework.
 
 ## Interface Processing
 
-### Parsing and validation
+### Syntax model and validation
 
-The parser accepts exactly the grammar and UTF-8 rules in `README.md`. It builds
-an AST with source spans and validates every declaration, type reference,
-identifier scope, reserved word, declaration key, and key collision. It accepts
-an empty interface. It provides no syntax extensions.
+The parser accepts exactly the grammar, lexical rules, and UTF-8 rules in
+`README.md`, including an empty file. Its AST contains only source structure:
+declarations and nested type occurrences in source order, source spans, and the
+documentation slots below. It does not contain Go names, Go objects, generated
+helper names, or runtime state.
 
-Parsing, protocol validation, and Go projection are distinct stages. A file may
-be a valid InterCall interface yet fail import because its names cannot be
-projected to Go without an override. Go-specific runtime exception restrictions
-are also import checks, not changes to the InterCall grammar.
+Protocol validation resolves earlier named-type references and checks all
+scopes, reserved words, declaration keys, key zero, and key collisions. It
+validates every declaration, including unreachable ones. Go projection is a
+later boundary: a protocol-valid interface may still require a native-name
+override or contain a form that cannot be represented by the strict Go subset.
 
-### Semantic comments and formatting
+Import and export build small command-specific generation records directly from
+validated syntax and `go/types` objects. There is no second general-purpose AST,
+target-neutral generation framework, descriptor schema, or plugin IR. The
+syntax AST remains the source of wire order, wire names, documentation, and
+source diagnostics; generation records add only the Go object, projected Go
+name, and codec or dispatch facts needed to emit the binding.
 
-Comment preservation is semantic, not a concrete-syntax round trip. The AST has
-one optional documentation string on each declaration, procedure parameter,
-record field, and type-specifier occurrence. Type occurrences include a declared
-underlying type, exception payload, procedure return, parameter or field type,
-list element, named reference, primitive, list, and inline record. An exception
-without a payload and a procedure without a return have no corresponding type
-occurrence.
+### Semantic documentation
 
-For interface source, a documentation group is one or more consecutive block
-comments in the syntactic trivia immediately before an eligible slot, with no
-blank line between the comments or before the slot; a blank line contains only
-spaces or tabs between line terminators. A same-line group after a semicolon
-that completed another node is trailing and unassociated. A group before a
-complete declaration, parameter, or field documents that node. A same-line
-group between its name, `}`, or `list` keyword and the following type documents
-the following type occurrence. These rules apply recursively. All other
-comments are unassociated, and the formatter discards them.
+Documentation retention is semantic rather than a concrete-syntax round trip.
+The AST has one optional documentation string on each declaration, procedure
+parameter, record field, and type-specifier occurrence. A type occurrence
+includes a declaration's underlying type, an exception payload, a procedure
+return, a parameter or field type, a list element, a primitive or named
+reference, and an inline record. An omitted exception payload or procedure
+return has no type slot.
 
-Documentation is normalized by this exact algorithm:
+For interface input, eligible anchors are the first token of a declaration,
+parameter, field, or type occurrence. A documentation group is the maximal run
+of block comments in the trivia immediately before an anchor, with no blank
+line within the group or between the group and anchor. A blank line contains
+only spaces or tabs between line terminators. A comment after a completed node
+on the same line is trailing and does not attach to a later node. A comment
+between a parameter, field, exception, or type-declaration name and its type
+anchors that type. A comment after `list` anchors its element.
+These rules apply recursively. Each comment attaches at most once; all
+unattached comments are discarded by formatting.
 
-1. Convert CRLF and CR line endings to LF and split into lines.
-2. Remove trailing spaces and tabs from every line.
-3. Remove leading and trailing lines containing only spaces or tabs.
-4. Find the longest byte prefix consisting only of spaces and tabs that is
-   present on every nonblank line, and remove it from every nonblank line.
-5. Join the remaining lines with LF. An empty result means no documentation.
+Normalize documentation with this function:
 
-Each interface block-comment body is normalized separately. A documentation
-group joins its nonempty normalized bodies, in source order, with exactly two LF
-bytes. In handwritten Go source, documentation starts with the exact string
-returned by `(*go/ast.CommentGroup).Text`. Recognized source-directive lines are
-parsed and removed, `@param` and `@return` payloads are assigned to their slots,
-and all retained text is normalized by the same algorithm. A preceding Go doc
-group is eligible; a trailing Go comment is unassociated. Generated source owned
-by `intercall-go` represents semantic documentation only with the metadata
-format defined below.
+1. Convert CRLF and bare CR to LF, and remove trailing spaces and tabs from each
+   line.
+2. Remove leading and trailing blank lines.
+3. Remove from every nonblank line the longest spaces-and-tabs prefix shared by
+   all nonblank lines.
+4. Join lines with LF. An empty result means an empty slot.
 
-A retained normalized string containing the bytes `*/` is a formatting or
-export error at the source comment. The interface formatter does not escape or
-rewrite documentation text. This rule guarantees that every emitted InterCall
-block comment terminates at the intended location.
+Normalize each interface comment body separately, discard empty bodies, and
+join the remaining bodies in a group with two LFs. Handwritten Go documentation
+uses `go/ast.CommentGroup.Text()` as its input, removes the source-directive
+lines defined below, and then applies the same normalization. A retained string
+containing `*/` is an export error because InterCall has no escape for its block
+comment terminator.
 
-For a nonempty normalized string `D`, `doc(indent, D)` emits exactly:
+For nonempty `D`, `doc(indent, D)` emits:
 
 - `indent + "/* " + D + " */\n"` when `D` has no LF; or
-- `indent + "/*\n"`, then each nonempty line as
-  `indent + "    " + line + "\n"` and each empty line as `"\n"`, then
-  `indent + "*/\n"` when `D` contains LF.
+- `indent + "/*\n"`, each nonempty line as
+  `indent + "    " + line + "\n"`, each empty line as `"\n"`, and finally
+  `indent + "*/\n"`.
 
-`indent` is four ASCII spaces per enclosing record or procedure block. A
-declaration, parameter, or field document is emitted with `doc` immediately
-before that complete node. A documented type occurrence is emitted by ending
-its prefix with LF, emitting `doc` at the type's indentation, and then emitting
-the type at that indentation. An undocumented type follows its prefix with one
-ASCII space. This applies recursively after `list`. A return document therefore
-appears between a procedure's `}` and return type, and an exception-payload
-document appears between the exception name and payload type.
+The canonical interface-body formatter is a recursive grammar printer:
 
-The remaining formatter rules are:
+- declarations remain in AST order, with one blank line between them;
+- indentation is four spaces per enclosing procedure or record;
+- adjacent same-line keywords and names use one ASCII space, and `{` follows its
+  keyword or name by one ASCII space; there is no other horizontal whitespace
+  outside indentation or documentation;
+- a node's document appears immediately before the complete node;
+- a type without documentation follows its prefix (`type name`, `field`,
+  `parameter`, `exception name`, procedure `}`, or `list`) after one space;
+- a documented type follows its prefix after LF, `doc` at the type's
+  indentation, and the type at that indentation;
+- nonempty records and parameter blocks put one field or parameter on each line;
+- `record {}` and an empty parameter block `{}` stay inline;
+- semicolons immediately follow their value or closing brace;
+- output never wraps for line width; and
+- an empty body is zero bytes, while a nonempty body ends in one LF.
 
-- emit declarations in AST order and never wrap for a target line width;
-- use one ASCII space between adjacent keywords and names on the same line and
-  immediately before `{`, with no other horizontal whitespace outside
-  indentation or documentation;
-- write `type name`, `exception name`, procedure/field/parameter names, and type
-  occurrences using the prefix rule above;
-- write `record {}` and an empty procedure parameter block `{}` inline;
-- write each nonempty record or procedure block with `{` on the current line,
-  one field or parameter per line, and `}` at the parent indentation;
-- indent record fields and procedure parameters by four additional spaces;
-- emit each semicolon immediately after the preceding type or `}`;
-- place one blank line between top-level declarations;
-- end a nonempty file with one LF; and
-- emit zero bytes for an empty interface.
+This defines a byte result for every valid AST, including documentation on
+nested type occurrences. Import never rewrites its input file; it uses this
+formatter only to construct private semantic metadata.
 
-Thus an undocumented return is `} T;`, while a documented return is `}`, LF,
-`doc("", D)`, then `T;`. The same template applies after an exception name and
-after `list`. These rules define bytes for every retained attachment slot. The
-formatter handles every valid AST and is used for exported interfaces. Import
-parses but never reformats its input.
+### Safe import and re-export metadata
 
-Generated projected symbols retain conventional Go documentation. A symbol
-projecting a declaration starts with this exact line, where `<kind>` is `type`,
-`exception`, or `procedure`:
+Generated Go source does not copy imported documentation into Go prose. An
+import binding instead contains exactly one unexported constant whose value is
+the unpadded RFC 4648 base64url encoding of the canonical interface body:
 
 ```go
-// <GoName> is the Go projection of InterCall <kind> <wire-name>.
+const _intercallSemantic = "<payload-chunk>" +
+	"<payload-chunk>"
 ```
 
-A projected field starts with the following line; `<field-selector>` is the
-field path from the structural grammar below.
+The importer parses and validates its exact input, then formats that AST with
+the canonical semantic formatter above. Formatting and unattached comments are
+therefore absent, while every attached declaration, parameter, field, and nested
+type document remains. Semantically equivalent formatting and unattached
+comments produce identical metadata. Empty interface input has an empty value.
+
+The base64url value is split left to right into quoted ASCII chunks of at most
+4,096 bytes; every nonfinal chunk has exactly that size. A single chunk needs no
+`+`, and the empty value is `""`. This bounds generated literal and line size
+without another file or metadata record. A consumer requires exactly one
+constant, canonical base64url, valid UTF-8, a successfully validated decoded
+interface, and byte-for-byte equality between the decoded bytes and their
+canonical reformatting.
+
+Each generated named type has a machine line in its Go doc:
 
 ```go
-// <GoName> is the Go projection of InterCall field <field-selector>.
+// @intercall type <exact-wire-name>
 ```
 
-Other generated exported symbols use fixed generator prose. If a declaration's
-root has any semantic documentation, its projected symbol also gets this fixed
-second paragraph:
+When export reaches such a type in generated import source, it decodes and
+parses `_intercallSemantic`, finds that exact type declaration, and verifies
+that the generated Go type still projects to the declaration's
+documentation-free wire structure. It then takes the declaration and its
+complete nested documentation tree from the parsed semantic source. Missing,
+duplicate, malformed, noncanonical, or structurally conflicting metadata is an
+error.
 
-```go
-//
-// InterCall semantic documentation is preserved in generated package metadata.
-```
+The exact generated-file marker is the trust boundary for this metadata. An
+unmarked handwritten `_intercallSemantic` constant is ordinary Go, and
+handwritten `@intercall` lines are interpreted only by the source-directive
+grammar in the Go export model. They never form generated metadata. In a marked
+file, malformed machine metadata is an error rather than prose. Decoded
+documentation is assigned directly to AST slots and is never rescanned as a Go
+directive. This preserves every semantic slot, safely carries arbitrary Unicode
+scalar values and directive-like text, and replaces per-slot selector machinery
+with one private semantic value.
 
-Imported text is not copied into readable Go prose. Instead, each import output
-contains exactly one unexported constant whose Go doc is the authoritative
-semantic-documentation carrier. Its collision-free private name is selected by
-the ordinary deterministic private-name rules, and its shape is:
-
-```go
-// <metadataName> preserves InterCall semantic documentation.
-//
-// @intercall-go doc <doc-selector> <payload>
-const <metadataName> = ""
-```
-
-There is one metadata line for each nonempty documentation slot and no metadata
-line for an empty slot. Multiple metadata lines are consecutive, with no blank
-comment lines, in the order defined below. If there are no nonempty slots, the
-carrier contains only its conventional lead. The imported text never appears
-literally elsewhere in Go source.
-
-A documentation selector is an ASCII structural path. Its grammar is defined by
-these path categories, where every `<name>` is an exact InterCall identifier:
-
-```text
-declaration-path = type:<name> | exception:<name> | procedure:<name>
-parameter-path   = procedure:<name>/param:<name>
-type-root        = type:<name>/underlying
-                 | exception:<name>/payload
-                 | procedure:<name>/return
-type-path        = type-root
-                 | parameter-path/type
-                 | field-path/type
-                 | type-path/element
-field-path       = type-path/field:<name>
-doc-selector     = declaration-path/doc
-                 | parameter-path/doc
-                 | field-path/doc
-                 | type-path/doc
-```
-
-The grammar needs no escaping because InterCall identifiers contain neither `:`
-nor `/`. A type path names one type-specifier occurrence, not the declaration of
-a referenced named type. `/element` enters the element occurrence of a list, and
-`/field:<name>` enters a field node of an inline record. `/type` then enters that
-parameter's or field's type occurrence. A step is valid only for the indicated
-AST node. For example:
-
-```text
-type:user/doc
-type:user/underlying/doc
-type:user/underlying/field:name/doc
-type:user/underlying/field:name/type/doc
-procedure:get_user/param:name/doc
-procedure:get_user/param:name/type/doc
-procedure:get_user/return/element/doc
-exception:failure/payload/field:code/type/doc
-```
-
-Metadata lines use exactly `// @intercall-go doc `, the selector, one ASCII
-space, and the payload. The payload is the RFC 4648 base64url encoding of the
-normalized UTF-8 bytes, without `=` padding. It must be nonempty, contain only
-`A-Z`, `a-z`, `0-9`, `_`, and `-`, decode as valid UTF-8, decode to a nonempty
-normalized string, and reproduce the same payload when re-encoded. Thus NUL,
-U+FEFF, line terminators, comment markers, and directive-like text all become
-ASCII comment bytes and always produce valid Go source.
-
-The importer emits metadata in interface AST preorder. For a declaration it
-visits the declaration document first. It then visits a type declaration's
-underlying type, an exception's payload, or a procedure's parameters in order
-followed by its return. For a parameter it visits the parameter document and
-then its type. For a type occurrence it visits the type document and then its
-list element or its record fields in order. For a field it visits the field
-document and then its type. Slots without documentation emit nothing but do not
-change this order.
-
-Selectors and payloads are validated when generated and when consumed. A
-generated import package must contain exactly one carrier, every metadata line
-must match the exact template, and no selector may occur twice. Each emitted
-selector must resolve to exactly one eligible slot in the imported AST. On later
-export, metadata for each consumed declaration root must resolve against that
-projected declaration's reconstructed InterCall AST. Unresolved, structurally
-invalid, duplicate, noncanonical, or conflicting metadata is an error. The
-exporter assigns the decoded string directly to the selected slot and never
-scans it as Go prose or as a source directive.
-
-Generated named types retain their generator-owned type line. After the lead and
-optional fixed metadata note, their doc ends with exactly:
-
-```go
-//
-// @intercall type <wire-name>
-```
-
-In a file whose first line is the exact generated marker, the exporter validates
-generated comment templates and extracts only generator-owned type and
-documentation metadata. Conventional leads, fixed notes, and machine lines are
-not semantic documentation.
-
-The generated marker is the classification boundary. In an unmarked handwritten
-file, an `@intercall-go doc`-like line is ordinary Go prose and is never
-metadata. A handwritten file that copies the exact marker is treated as
-generated: a fully valid carrier is metadata, and any template violation is an
-error. Therefore ordinary unmarked prose, including text equal to any
-`@intercall`, `@param`, `@return`, or `@intercall-go` line, cannot become a
-semantic directive after import or later export. Comment text never determines
-an exception's `Error` string.
-
-### Interface digests
-
-Every generated binding embeds the SHA3-256 digest of the exact interface-file
-bytes represented by that binding. Export computes the digest after canonical
-formatting and embeds the bytes that it writes through `--interface`. Import
-computes the digest from its input before parsing or normalization. Import-only
-Go naming overrides do not affect it.
-
-The digest is descriptor identity metadata and a diagnostic aid only. The proof
-of concept has no handshake, digest exchange, or remote digest verification.
+The metadata is a generation aid, not runtime binding identity. The proof of
+concept embeds no runtime interface digest and performs no handshake or
+interface exchange.
 
 ## Go Export Model
 
-### Package discovery
+### Package discovery and selection
 
-`intercall-go export` operands are standard Go package patterns. File operands
-and an automatic module-wide scan are not supported. Discovery uses the active
-module or workspace, build tags, `GOOS`, `GOARCH`, and other build settings used
-by the Go command. Tests and test variants are excluded.
+Export operands are standard Go package patterns interpreted in the active
+module or workspace and active Go build configuration. File operands and an
+implicit module-wide scan are not supported. Tests and test variants are
+excluded. A package directly matched by an operand is an **explicit package**;
+a dependency loaded only for type checking is not. Pattern overlap is
+deduplicated by canonical import path, and a pattern that matches no package is
+an error.
 
-A package directly matched by an operand is an **explicitly scanned package**;
-dependencies loaded only for type checking are not explicitly scanned. Pattern
-overlap is deduplicated by canonical import path. A pattern that matches no
-package is an error.
+Every explicit package must type-check and be an importable non-`main` package.
+The export output directory must resolve to an importable package in the active
+module or workspace. That generated package must be able to import every
+provider, application exception package, and reachable named-type package.
+`internal` visibility, workspace or module visibility, import cycles, and
+inaccessible or unexported required declarations are errors. Active workspaces
+may make packages from several modules eligible.
 
-Generated Go files, as recognized by Go's standard generated-file marker, are
-ignored when selecting procedures and application exceptions. If a selected
-signature reaches a type declared in a generated file, the exporter still
-inspects that type's directives, field tags, documentation, and type graph.
+Generated Go files recognized by Go's standard generated-file marker do not
+supply selectable procedures or application exceptions. A selected signature
+may nevertheless reach a generated named type; export then validates its field
+tags, type machine line, source metadata, and type graph.
 
-Every explicitly scanned package must type-check and be an importable non-`main`
-package. The export output directory must resolve to an importable package path
-in the active module or workspace. That output package must be able to import
-each provider and each package that supplies an application exception or
-reachable named type. Go `internal` visibility, module or workspace visibility,
-and import-cycle failures are fatal. Cross-module discovery is permitted when
-the active workspace makes the packages importable.
+Only exported package-level functions with `@intercall procedure` are eligible.
+With no `--include`, export selects every eligible function in every explicit
+package. Repeatable `--include` values restrict that set; repeatable
+`--exclude` values remove from it, so exclusion wins. A filter has the exact
+form `full/import/path.Symbol` and must name an eligible function in an explicit
+package. Malformed, unknown, duplicate, unexported, untagged, method, or generic
+selectors are errors. Naming a symbol in both sets is valid and excludes it.
 
-### Procedure selection and filtering
+Filters affect procedures only. Every valid tagged application exception in a
+nongenerated file of every explicit package belongs to the interface and is
+available to every generated handler. Reachable ordinary types are computed
+after procedure filtering from selected signatures and all retained exception
+payloads.
 
-Only package-level functions carrying an `@intercall procedure` directive are
-eligible. With no `--include`, every eligible function in every explicitly
-scanned package is selected. Repeatable `--include` flags restrict that set;
-repeatable `--exclude` flags then remove functions, so exclusion wins.
+### Source directives and Go documentation
 
-Each filter value has the exact form `full/import/path.Symbol`. It must resolve
-to an exported package-level function in an explicitly scanned package, and
-that function must carry a valid procedure directive. Unknown, unexported,
-untagged, duplicate, malformed, method, or generic selectors are errors. A
-symbol named by both filters is valid and excluded.
-
-Filtering affects procedures only. Every valid tagged application exception in
-a non-generated file of every explicitly scanned package remains in the global
-interface. Reachable ordinary types are computed after procedure filtering but
-include types reached through all retained application exception payloads.
-
-### Source directives
-
-Recognized directives are line-oriented within Go documentation comments. After
-comment markers and surrounding whitespace are removed, their forms are:
+InterCall directives occupy complete logical lines in Go doc comments after
+comment markers and surrounding whitespace are removed:
 
 ```text
-@intercall procedure [wire-name]
-@intercall exception [wire-name]
-@intercall type [wire-name]
+@intercall procedure [wire_name]
+@intercall exception [wire_name]
+@intercall type [wire_name]
 @intercall param GoName wire_name
 @param GoName text
 @return text
 ```
 
-Square brackets above mean an optional operand; they are not literal syntax.
-The optional wire name overrides the default source-to-wire projection.
+Brackets denote an optional operand and are not literal. An optional wire name
+replaces default source-to-wire conversion.
 
-`@intercall procedure` applies only to a package-level function.
-`@intercall exception` applies only to one exported sentinel variable or one
-exported named struct type. `@intercall type` applies only to an ordinary
-defined type; it is mandatory for every reachable ordinary defined type.
-`@intercall param` renames a wire parameter and is valid only in the selected
-function's documentation. `@param` fills that parameter's declaration-document
-slot, and `@return` fills the optional result type's documentation slot. The
-context parameter and final `error` result are not wire values and cannot be
-targets.
+`@intercall procedure` applies only to an eligible function.
+`@intercall exception` applies only to one exported package variable or one
+exported named struct type. `@intercall type` applies exactly once to every
+reachable ordinary defined type. `@intercall param` names a wire parameter in
+the tagged function. `@param` supplies that parameter node's documentation, and
+`@return` supplies the optional return type's documentation. The context
+parameter and final `error` are not wire values and cannot be named or
+documented by these directives.
 
-A sentinel declaration containing more than one variable is ambiguous and is
-rejected. Every recognized directive must occupy its complete logical line,
-except for the documented trailing operands. In ordinary handwritten files,
-`@intercall-go` is not a directive prefix and is retained as prose. In a
-validated generated file, the exporter extracts only the generator-owned
-complete machine lines defined above and does not apply handwritten-comment
-parsing. Duplicate, malformed, unknown, or contradictory `@intercall`
-directives are errors, as are unknown parameter names, duplicate parameter or
-return documentation, and directives on the wrong Go object. A bare
-`@intercall` is invalid. Other doc tags, such as `@deprecated`, are ordinary
-prose and are retained.
+After removing directives, a function's retained doc becomes procedure
+documentation, a type's doc becomes type or payload-exception documentation, a
+sentinel's doc becomes no-payload-exception documentation, and a struct field's
+preceding doc becomes field documentation. Handwritten Go syntax has no other
+type-occurrence documentation slots; those slots are empty. Generated source
+recovers all slots from `_intercallSemantic` instead.
 
-The exporter diagnoses malformed InterCall directives on package-level objects
-in explicitly scanned source, and on every reachable type even when it is in a
-dependency or generated file. CLI flags cannot rename wire declarations;
-source directives and struct tags own all export-side wire names.
+A sentinel declaration must contain one variable. Duplicate, malformed,
+unknown, contradictory, misplaced, or unresolved InterCall directives are
+errors. A bare `@intercall` is an error. Other tags and prose are retained as
+ordinary documentation. Export checks InterCall-looking directives on every
+package-level declaration in explicit packages and on every reachable type.
+CLI flags never rename export-side wire declarations; directives and field tags
+are the only overrides.
 
-### Implementation function signatures
+### Procedure signatures and wire values
 
-A selected implementation must be an exported, non-generic, non-variadic,
-package-level function with no receiver. Its signature is exactly one of:
+A selected provider is an exported, nongeneric, nonvariadic package-level
+function without a receiver. Its signature is exactly one of:
 
 ```go
 func(context.Context, P1, ..., Pn) error
 func(context.Context, P1, ..., Pn) (T, error)
 ```
 
-The first parameter's type must be exactly `context.Context` by Go type
-identity. The final result must be the predeclared `error` type. Aliases that
-resolve to those exact types are acceptable; a defined lookalike is not. There
-is at most one data result, and it precedes `error`. Every wire parameter must
-have a nonblank Go name. The context and results may be unnamed.
+The first parameter has the exact type identity `context.Context`, and the last
+result is the predeclared `error` interface. Aliases resolving to those types
+are accepted; defined lookalikes are not. There is at most one data result, and
+every wire parameter has a nonblank Go name. The generated wrapper always
+passes its handler context first. Methods, generics, variadics, and every other
+result form are rejected.
 
-Methods, generic functions, generic reachable types, variadics, and any other
-result form are rejected. A generated wrapper always passes its handler context
-as the first argument.
+The value mapping is exact:
 
-### Value and type mapping
-
-The mapping is exact:
-
-| Go source type | InterCall type |
+| Go source form | InterCall form |
 | --- | --- |
-| `int8`, `int16`, `int32`, `int64` | same name |
-| `uint8`, `uint16`, `uint32`, `uint64` | same name |
-| `float32`, `float64` | same name |
-| `string` | `string` |
-| source `[]byte` | `bytes` |
-| source `[]uint8` | `list uint8` |
+| `int8`...`int64`, `uint8`...`uint64` | same exact-width primitive |
+| `float32`, `float64`, `string` | same primitive |
+| `[]byte` | `bytes` |
+| `[]uint8` | `list uint8` |
 | `[]T` otherwise | `list T` |
 | anonymous `struct { ... }` | inline `record { ... }` |
-| tagged ordinary defined type | named InterCall type declaration |
-| Go alias | its resolved target, with no declaration |
+| tagged ordinary defined type | named type declaration |
+| Go alias | resolved target, without a declaration |
 
-The exporter preserves the source distinction between `byte` and `uint8`
-through alias RHSs. A slice maps to `bytes` only when its source/alias expansion
-uses the predeclared spelling `byte` for that slice element; an expansion using
-`uint8` maps to `list uint8`. For example, `type B = []byte` maps to `bytes`,
-while `type U = []uint8` maps to `list uint8`. A defined `type B []byte` requires
-an `@intercall type` directive and declares a named type whose underlying wire
-type is `bytes`.
+Because `byte` aliases `uint8`, export follows source and alias RHS syntax at
+each slice node: the predeclared spelling `byte` selects `bytes`, while
+`uint8` selects `list uint8`. Thus `type B = []byte` and `type U = []uint8`
+remain distinct. A defined `type B []byte` is a tagged named InterCall type whose
+underlying type is `bytes`.
 
-Ordinary defined types are never flattened. Every reachable defined type must
-have exactly one `@intercall type [wire-name]` directive, and it produces one
-named InterCall declaration. An untagged reachable defined type is an error.
-Aliases produce no declaration and eventually resolve to a primitive, slice,
-anonymous struct, or tagged defined type. Every reachable defined type from
-another package must be exported; in practice, every defined type that the
-separate generated binding must name must be exported and importable.
+Every reachable ordinary defined type is preserved and must have exactly one
+`@intercall type` directive. Aliases are flattened. Reachable defined types from
+other packages must be exported and importable. Recursive type graphs,
+including recursion through slices or anonymous records, and all generic
+declarations or instantiations are rejected.
 
-Recursive type graphs are rejected, including recursion through slices or
-anonymous records. Any reachable generic declaration or instantiation is
-rejected.
+Unsupported wire values are `int`, `uint`, `uintptr`, `bool`, complex numbers,
+arrays, pointers, maps, interfaces, channels, functions, `unsafe.Pointer`, and
+all other unsafe forms. The predeclared `error` interface is legal only as the
+mandatory final function result.
 
-The following are unsupported as wire values, even when their element or
-underlying types would otherwise be supported:
-
-- `int`, `uint`, `uintptr`, `bool`, and complex numbers;
-- arrays, pointers, maps, interfaces, channels, and functions; and
-- `unsafe.Pointer` and all other unsafe forms.
-
-The predeclared `error` interface is permitted only as the mandatory final
-function result.
-
-### Records
-
-Go struct fields map in source order. Every field is required and must be
-exported. Blank fields and embedded fields are rejected. The only recognized
-wire tag is:
+Go struct fields map in source order. Every field is required, named,
+nonembedded, and exported. The only wire tag is:
 
 ```go
 Field T `intercall:"wire_name"`
 ```
 
-Its value must be exactly one valid, nonreserved InterCall identifier. Empty
-values, `-`, comma options, and duplicate or malformed `intercall` keys are
-errors. Other struct-tag keys and unrelated tag options are ignored. There is no
-omission, optionality, or default-value behavior.
+Its value is exactly one valid, nonreserved InterCall identifier. Empty values,
+`-`, comma options, duplicate `intercall` keys, and malformed values are errors.
+Other tag keys are ignored. Anonymous structs remain inline in all positions;
+`struct{}` maps to `record {}`.
 
-Anonymous structs always remain inline records, including in nested records,
-lists, parameters, returns, and exception fields. `struct{}` maps to
-`record {}`.
+Nil slices encode as empty lists or bytes. Decoding an empty list or bytes value
+produces a nonnil zero-length slice. A codec decodes a list of zero-width values
+to the requested native length without per-element work.
 
-A nil Go slice encodes as an empty InterCall list or `bytes` value. Decoding an
-empty list or `bytes` value produces a non-nil, zero-length Go slice. Codecs for
-lists of zero-width elements process the count and native length but do not loop
-over the elements.
+### Names and native overrides
 
-### Naming and collisions
-
-The default source-to-wire projection is lower snake case. The default
-wire-to-Go projection is Pascal case for declarations and fields and camel case
-for parameters. The fixed initialism list is:
+Default source-to-wire conversion is lower snake case. Default wire-to-Go
+conversion is Pascal case for declarations and fields and camel case for
+parameters. Conversion is ASCII-only and uses this fixed initialism set:
 
 ```text
 ACL API ASCII CPU CSS DNS EOF GUID HTML HTTP HTTPS ID IP JSON QPS RAM RPC
 SLA SMTP SQL SSH TCP TLS TTL UDP UI UID URI URL UTF8 UUID VM XML XMPP XSRF XSS
 ```
 
-Default projection operates on ASCII only. A canonical wire name matches
-`[a-z][a-z0-9]*(_[a-z][a-z0-9]*)*`. Any other valid InterCall spelling,
-including uppercase letters, a leading or trailing underscore, or consecutive
-underscores, requires an import `--go-name` override.
-
-Wire-to-Go projection splits a canonical wire name at underscores. A word is an
-initialism only when its uppercase spelling equals a complete entry in the fixed
-list; initialisms are never recognized as substrings. An ordinary word is
-projected by uppercasing its first letter and leaving its lowercase letters and
-digits unchanged. Pascal case concatenates those projected words. Camel case
-uses the lowercase wire spelling for the first word and Pascal projection for
-later words. Thus:
+A canonical wire name matches `[a-z][a-z0-9]*(_[a-z][a-z0-9]*)*`. Split it at
+underscores. A complete word whose uppercase spelling is in the set becomes
+that initialism; every other word has only its first letter uppercased. Pascal
+case concatenates the results. Camel case leaves the first wire word lowercase
+and applies Pascal conversion to later words. For example:
 
 ```text
 user_id       -> UserID / userID
 http_url      -> HTTPURL / httpURL
+https_client  -> HTTPSClient / httpsClient
 utf8_value    -> UTF8Value / utf8Value
 api2_client   -> Api2Client / api2Client
 sha_value     -> ShaValue / shaValue
 ```
 
-The first result on each line is Pascal and the second is camel. `api2` is not
-the complete initialism `API`, and `sha` is not in the fixed list.
+Any valid but noncanonical wire name requires an import `--go-name` override.
 
-Source-to-wire projection first rejects a source identifier containing a
-non-ASCII byte or underscore. It then tokenizes the identifier with this ASCII
-scanner:
+Source-to-wire conversion is the checked inverse:
 
-1. Scan left to right and place a boundary before an uppercase letter whose
-   predecessor is lowercase or a digit.
-2. Place a boundary before the last uppercase letter of an uppercase run when
-   that letter is followed by lowercase. This is the usual `HTTPServer` split
-   into `HTTP` and `Server`.
-3. For each resulting token made only of uppercase letters and digits, accept a
-   single uppercase letter optionally followed by digits, or segment the entire
-   token as fixed initialisms using longest match first. Reject the identifier
-   if any bytes remain. Initialisms containing digits, such as `UTF8`, match as
-   complete list entries; digits never form a word by themselves.
-4. Every other token must be one leading letter followed only by lowercase
-   letters or digits. Lowercase is permitted on the first token only for a
-   parameter's camel-case name.
-5. Lowercase every token, join them with one underscore, project that candidate
-   back to Pascal or camel case as appropriate, and accept it only if the result
-   is byte-for-byte equal to the source identifier.
+1. Reject non-ASCII and underscore bytes. Scanning left to right, split before
+   an uppercase letter whose predecessor is lowercase or a digit, and before the
+   final uppercase letter of a run when that letter is followed by lowercase.
+2. If an all-uppercase-or-digit run is one uppercase letter with optional
+   trailing digits, keep it as one ordinary word. Otherwise, repeatedly take
+   the longest complete fixed-initialism match at the start of the run and
+   reject any remainder.
+3. Lowercase the words, join them with underscores, project the result back to
+   the required Pascal or camel form, and require byte-for-byte equality with
+   the source identifier.
 
-Fixed initialisms are considered only in step 3, so they never split an ordinary
-mixed-case word such as `Identity`. Unknown uppercase runs are errors rather than
-sequences of guessed one-letter words. Representative results are:
+This accepts `HTTPServer`, `HTTPURL`, `HTTPSClient`, `UserID`, `Version42ID`,
+`UTF8Value`, and `ShaValue`; it rejects `SHAValue`, `API2Client`, and
+`User_ID`. In particular, `HTTPS` is chosen before its `HTTP` prefix in
+`HTTPSClient`. A declaration directive, `@intercall param`, or field tag
+bypasses this conversion for that wire name.
 
-```text
-HTTPServer     -> http_server
-HTTPURL        -> http_url
-UserID         -> user_id
-Version42ID    -> version42_id
-UTF8Value      -> utf8_value
-ShaValue       -> sha_value
-SHAValue       -> error: unknown uppercase run SHA
-API2Client     -> error: API2 is not a complete initialism sequence
-User_ID        -> error: underscore in source identifier
-```
+All resulting wire names, FNV-0 keys, Go package names, Go declarations, struct
+fields, and parameter names must be valid and collision-free in their actual
+scope. Generated private helpers and import aliases use deterministic private
+mangling, but public or parameter collisions are errors rather than silently
+escaped or numbered. The default exception wire name converts the complete Go
+identifier and never strips `Err`, `Error`, or another affix.
 
-An explicit procedure, exception, or type wire-name directive,
-`@intercall param`, or field tag bypasses source projection for that name. A
-noncanonical wire name or any source name rejected above therefore remains
-usable only through its corresponding explicit override.
-
-All projected identifiers must be valid, non-keyword Go identifiers with the
-required visibility. The generator rejects any lossy projection, Go keyword,
-unexportable declaration or field name, or collision in a Go package or local
-scope. Wire names and their FNV-0 keys must likewise be unique under the rules in
-`README.md`. The generator never resolves a public name collision by appending a
-number or silently escaping a name.
-
-The default exception wire name is the ordinary lower-snake projection of the
-exact Go sentinel or type identifier. The exporter does not strip `Err`,
-`Error`, or any other prefix or suffix.
-
-### Application exceptions
-
-A no-payload application exception is an exported package-level variable,
-assignable to `error`, tagged with `@intercall exception [wire-name]`. It is a
-sentinel. Generated dispatch converts its current value to the `error` interface
-and compares `err == error(provider.Sentinel)`. The interface-to-interface
-comparison compiles for every declared type assignable to `error`. If a dynamic
-sentinel value is not comparable, the comparison panics; the dispatch recovery
-boundary converts that outcome to `internal_exception`.
-
-A payload application exception is an exported tagged named struct type `T` for
-which `*T` implements `error`. Its fields map as an inline exception-payload
-record under the ordinary record rules. Generated dispatch uses a direct
-`err.(*T)` assertion. The tagged type is exception metadata, not an ordinary
-named wire type; it cannot also carry `@intercall type`, and no procedure value
-or ordinary type declaration may reach it. Ordinary tagged types reached by its
-fields remain normal named declarations.
-
-Every tagged exception selected from a non-generated file in every explicitly
-scanned package is available to every generated handler. Dependencies that were
-not explicitly matched do not contribute exceptions merely because they
-contain tagged errors.
-
-For each non-nil error returned by a provider, generated code evaluates every
-direct sentinel comparison and payload type assertion. Exactly one match sends
-that application exception. Zero matches, multiple matches, wrapped errors, a
-nil `*T` payload held in a non-nil error interface, or a panic during matching
-send `internal_exception`. A comparison panic may stop the remaining tests
-because its outcome is already fixed. Dispatch never uses `errors.Is` or
-`errors.As`. Provider data results are ignored when the error is non-nil.
-
-A provider panic sends `internal_exception`; panic values and stacks are not
-logged or exposed. If a successful result or a matched application payload
-cannot be encoded, dispatch instead sends the no-payload
-`internal_exception`.
-
-### Export declaration order
-
-An exported interface is deterministic. Build a dependency graph whose nodes are
-reachable ordinary type declarations and whose edges point from each type to
-every named type it references. Repeatedly choose the lexicographically smallest
-wire name among nodes whose dependencies have all been emitted, emit it, and
-remove it from the graph. If nodes remain but none is ready, report the recursive
-type graph instead of emitting output.
-
-After all types, emit exceptions by exact wire-name byte order and then
-procedures by exact wire-name byte order. This ready-set topological algorithm is
-total for every accepted acyclic graph and ensures that each named reference
-points backward, as required by `README.md`.
-
-## Go Import Model
-
-### Generated callers and values
-
-Each procedure becomes an exported package function. Its first argument is
-`context.Context`, followed by the procedure parameters. Its result form mirrors
-the export subset:
-
-```go
-func P(context.Context, P1, ..., Pn) error
-func P(context.Context, P1, ..., Pn) (T, error)
-```
-
-The function finds its connection through the shared root runtime context key,
-validates the generated import descriptor's exact identity, encodes the request,
-and calls the runtime. Missing context binding returns `intercall.ErrNoConnection`.
-There is no generated client or runtime registration.
-
-Primitive and list mappings are the inverse of export: `bytes` is `[]byte`, and
-`list uint8` is `[]uint8`. Every InterCall type declaration becomes a defined,
-exported Go type; named references remain references to that generated type
-rather than being flattened. Anonymous records remain anonymous Go structs in
-every position, including nested and list positions. The generator does not
-create public helper types for inline records.
-
-Generated named types carry the generator-owned `@intercall type` machine line
-with the exact wire name, and generated struct fields carry exact `intercall`
-tags. The package metadata carrier stores every imported semantic-documentation
-slot by structural selector and canonical base64url payload. This metadata lets
-a later export reconstruct a reachable generated type without selecting
-procedures or exceptions from the generated file.
-
-The generated decoder validates strings, canonical NaNs, lengths, counts,
-selected response types, and exact payload exhaustion. It returns non-nil empty
-slices for empty lists and bytes.
-
-### Imported exceptions
-
-A no-payload application exception becomes one generated exported sentinel
-whose `Error` string is exactly the wire name. Its Go variable name is the
-normal Pascal projection of the declaration name unless overridden.
-
-An exception with an inline record payload becomes a generated exported named
-error struct with those record fields directly. This includes an explicit
-`record {}`, which remains a distinct zero-field error type. Any other payload
-becomes a generated exported named error struct with one exported field:
-
-```go
-Payload <mapped-payload-type>
-```
-
-A named payload remains the corresponding named generated Go type. Payload
-exception values are returned as unwrapped pointers to their generated error
-struct. Their `Error` method returns exactly the exception's wire name,
-independent of documentation or payload values. The generated error type's name
-is the normal Pascal projection of the exception declaration unless overridden.
-
-The three fixed Go runtime exceptions, when declared with their required
-no-payload shape, map to shared root-runtime sentinels rather than generated
-ones. An interface may omit a runtime exception. Import rejects a reserved
-runtime name used for any other declaration kind or with a payload.
-
-### Import-only Go name overrides
-
-Repeatable `--go-name selector=GoIdentifier` flags resolve an otherwise lossy,
-unexportable, keyword, or colliding native projection. They change generated Go
-identifiers only; they never change wire names, declaration keys, encoded bytes,
-or the interface digest.
-
-Selectors use exact wire names and these forms:
+Import `--go-name SELECTOR=GoIdentifier` changes only a generated Go identifier.
+It never changes wire names, keys, values, source metadata, or interface bytes.
+Selectors use exact wire names:
 
 ```text
 type:<name>
 exception:<name>
 procedure:<name>
 procedure:<name>/param:<name>
-<root>/field:<name>
-<root>/element/field:<name>
-procedure:<name>/return/field:<name>
+type:<name><field-path>
+exception:<name><field-path>
+procedure:<name>/param:<name><field-path>
+procedure:<name>/return<field-path>
+
+<field-path> = zero or more (/element or /field:<name>) steps,
+               followed by /field:<name>
 ```
 
-`<root>` is a type, exception, or procedure selector. `/param:<name>` selects a
-procedure parameter. `/return` enters a return type, `/element` enters a list
-element, and repeated `/field:<name>` steps enter inline record fields. For a
-procedure parameter's inline type, further steps follow the `/param:<name>`
-step. A named type reference is not traversed; its fields are selected from its
-own `type:<name>` root.
+A root selects its generated declaration. A parameter selector selects its
+local name. A field path selects its final inline-record field; `/element`
+enters a list element, and a nonfinal `/field:<name>` enters that field's type.
+Type and exception paths begin at the underlying type or payload. Procedure
+value paths begin at a parameter or return. A named reference is not traversed;
+use its own `type:<name>` root. The fixed wrapper field `Payload` for a nonrecord
+exception payload is not a wire field and has no override.
 
-A root override names the generated function, type, or exception symbol. A
-parameter override may be unexported; declaration and field overrides must be
-exported. Every override must resolve exactly once and produce a valid
-non-keyword Go identifier. Duplicate selectors, unresolved paths, and remaining
-collisions are errors. These Go-name selectors select native identifiers only;
-they are distinct from documentation selectors and never identify declaration
-or type-occurrence documentation slots.
+Declaration and field overrides must be exported Go identifiers; parameters may
+be unexported. Every selector must resolve exactly once. Duplicate, unresolved,
+keyword, wrong-visibility, or still-colliding overrides are errors. Fixed
+runtime exceptions have no generated package symbol and cannot be overridden.
 
-## Runtime Bindings and Public API
+### Application exceptions
 
-### Byte stream
+A no-payload application exception is one exported package variable assignable
+to `error` with `@intercall exception`. A payload application exception is one
+exported tagged named struct type `T` for which `*T` implements `error`; its
+fields form an inline payload record under the ordinary record rules. The
+exception struct cannot also be an ordinary named wire type or occur as a
+procedure value. Tagged ordinary types reached through its fields remain named
+wire types.
 
-The runtime boundary is:
+Generated dispatch matches a provider's nonnil error against every application
+exception in the interface. It uses direct `err == error(provider.Sentinel)`
+comparisons and direct `err.(*T)` assertions, never `errors.Is` or `errors.As`.
+Exactly one match sends that exception. Zero or multiple matches, wrapped
+errors, typed-nil payload pointers, and a panic during matching send
+`internal_exception`. The runtime recovery boundary also maps provider panics
+to `internal_exception`. A data result is ignored when the provider returns a
+nonnil error. Failure to encode a success value or matched exception payload
+also sends the no-payload `internal_exception`.
+
+### Deterministic export order
+
+Export first emits reachable ordinary named types in a stable topological
+order: among types whose named dependencies have already been emitted, choose
+the lexicographically smallest exact wire name. Remaining nodes with no ready
+node are a recursive-type error. It then emits all exceptions by exact wire-name
+byte order and all procedures by the same order. This satisfies `README.md`'s
+backward-reference rule and is independent of Go map and package loading order.
+
+## Go Import Model
+
+Each procedure becomes an exported package function with `context.Context`
+first and the same strict result forms as providers:
+
+```go
+func P(context.Context, P1, ..., Pn) error
+func P(context.Context, P1, ..., Pn) (T, error)
+```
+
+The function obtains the connection from the root runtime context and calls the
+runtime with its package's immutable import binding, one generated encoder
+closure, and one generated response decoder. Missing context binding returns
+`intercall.ErrNoConnection` without constructing either closure's wire result.
+The runtime invokes the encoder only after local validation, as specified below.
+
+The inverse value mapping uses `[]byte` for `bytes`, `[]uint8` for
+`list uint8`, defined exported Go types for every named declaration, and
+anonymous structs for inline records in every position. Named references remain
+the corresponding generated named type. Generated named types carry the exact
+`@intercall type` machine line, generated fields carry exact `intercall` tags,
+and `_intercallSemantic` retains the canonical imported declarations and every
+semantic documentation slot.
+
+A no-payload application exception becomes an exported sentinel whose `Error`
+string is exactly the wire name. An inline-record payload becomes an exported
+named error struct with the record fields directly, including a distinct
+zero-field type for `record {}`. Every other payload becomes an exported named
+error struct with one field:
+
+```go
+Payload <mapped-payload-type>
+```
+
+Payload exceptions are returned as unwrapped, nonnil pointers. Their `Error`
+method returns the exact wire name regardless of payload or documentation.
+
+The three fixed runtime exceptions, when present with their required shape, map
+to root-runtime sentinels instead of generated symbols. An interface may omit
+them. Import rejects a fixed name used by another declaration kind or with a
+payload.
+
+## Generated Binding SPI and Runtime
+
+### Immutable binding pair
+
+The public byte-stream boundary is:
 
 ```go
 type ByteStream interface {
@@ -720,432 +493,295 @@ type ByteStream interface {
 }
 ```
 
-In addition to those method sets, a stream must permit one read and one write to
-run concurrently, make `Close` unblock both, deliver bytes reliably and in
-order, and begin at the first InterCall frame. A connection has no initiator or
-acceptor role. EOF and either read or write half-closure terminate the whole
-connection.
+The stream must allow one read and one write concurrently, make `Close` unblock
+both, deliver bytes reliably and in order, and begin at the first InterCall
+frame. EOF and either half-close terminate the whole connection. The runtime
+does not dial, listen, negotiate, or assign initiator and acceptor roles.
 
-### Binding descriptors
-
-Every connection has exactly one immutable local `ExportBinding` and one
-immutable remote `ImportBinding`. Generated packages expose singleton accessors:
+Generated packages expose one process-local binding value:
 
 ```go
-// In a generated export package.
-func ExportBinding() *intercall.ExportBinding
-func Run(context.Context, *intercall.Connection) error
+// Generated export package.
+func ExportBinding() intercall.ExportBinding
 
-// In a generated import package.
-func ImportBinding() *intercall.ImportBinding
+// Generated import package.
+func ImportBinding() intercall.ImportBinding
 ```
 
-Each accessor returns the same descriptor pointer on every call, and any number
-of connections may share it concurrently. Descriptor fields are unexported;
-their public digest accessor returns a copy. Pointer identity, not equal digest
-contents, is the binding identity. A copied, zero, or independently constructed
-descriptor is not identical.
+The values are opaque handles containing an unexported pointer to immutable,
+non-zero-sized runtime identity state; a private byte is sufficient. Export
+state also contains its dispatch function. Each package constructs its handle
+once. Copying a handle copies the pointer and retains identity. Independently
+constructed export or import handles have distinct state addresses, and the
+nil-pointer zero value is invalid. The non-zero size is required because Go may
+make pointers to distinct zero-sized variables equal. This makes ordinary value
+copies harmless and avoids descriptor self-pointers, constructor registries,
+digests, and copied-descriptor states. Any number of connections may share a
+binding concurrently.
 
-The public runtime and generated-code bridge is:
+The complete public runtime and generated-code bridge is:
 
 ```go
-type InterfaceDigest [32]byte
-
-type DispatchFunc func(
-	ctx context.Context,
-	procedureKey uint64,
-	payload []byte,
-) (exceptionKey uint64, responsePayload []byte)
+type Dispatch func(
+	context.Context,
+	uint64, // procedure key
+	[]byte, // complete owned request payload
+) (uint64, []byte) // exception key and complete owned response payload
 
 type RequestEncoder func() ([]byte, error)
-type ResponseDecoder func(exceptionKey uint64, payload []byte) error
 
-func NewExportBinding(InterfaceDigest, DispatchFunc) (*ExportBinding, error)
-func NewImportBinding(InterfaceDigest) *ImportBinding
-func (b *ExportBinding) Digest() InterfaceDigest
-func (b *ImportBinding) Digest() InterfaceDigest
+type ResponseDecoder func(
+	uint64, // exception key
+	[]byte, // complete owned response payload
+) error
+
+func NewExportBinding(Dispatch) (ExportBinding, error)
+func NewImportBinding() ImportBinding
 
 func NewConnection(
-	stream ByteStream,
-	local *ExportBinding,
-	remote *ImportBinding,
+	context.Context,
+	ByteStream,
+	ExportBinding,
+	ImportBinding,
 ) (*Connection, error)
 
-func (c *Connection) Run(context.Context, *ExportBinding) error
-func (c *Connection) WaitRunning(context.Context) error
-func (c *Connection) Close() error
-func (c *Connection) Err() error
-func (c *Connection) CheckExportBinding(*ExportBinding) error
-func (c *Connection) CheckImportBinding(*ImportBinding) error
 func (c *Connection) Call(
-	ctx context.Context,
-	binding *ImportBinding,
-	procedureKey uint64,
-	encode RequestEncoder,
-	decode ResponseDecoder,
+	context.Context,
+	ImportBinding,
+	uint64, // procedure key
+	RequestEncoder,
+	ResponseDecoder,
 ) error
+func (c *Connection) Wait() error
+func (c *Connection) Close() error
 
 func WithConnection(context.Context, *Connection) context.Context
 func ConnectionFromContext(context.Context) (*Connection, error)
 ```
 
-`DispatchFunc`, `RequestEncoder`, `ResponseDecoder`, and `Connection.Call` are a
-low-level ABI for generated code, not an application handler registry.
-`DispatchFunc` receives a complete, solely owned request payload. A request
-encoder is called at most once and returns a complete owned payload. A response
-decoder runs in the receive goroutine; returning nil means it validated and
-consumed the selected payload and stored any typed result or remote exception in
-its generated closure. Returning an error means the matched response is
-malformed and terminates the connection.
+`Dispatch`, `RequestEncoder`, `ResponseDecoder`, and `Call` are generated-code
+SPI, not application callbacks or a handler registry. A request encoder returns
+one complete owned payload and is invoked at most once under the ordering below.
 
-`NewExportBinding` rejects a nil dispatcher. `NewConnection` validates its
-arguments from left to right: the stream interface, local export descriptor, and
-remote import descriptor. It rejects a nil stream interface, nil descriptors,
-zero descriptors, copied descriptors, and descriptors not produced by their
-runtime constructors. These failures wrap `ErrInvalidByteStream` or
-`ErrInvalidBinding`. An all-zero digest value is data, not by itself an invalid
-descriptor.
+`NewExportBinding` rejects a nil dispatch function and allocates fresh
+non-zero-sized identity state. `NewImportBinding` does the same without a
+dispatch function. `NewConnection` rejects a nil context or stream interface
+and zero bindings before taking ownership of the stream. It also returns an
+already available `ctx.Err()` before ownership. On success, it stores exactly
+one export and one import handle for the connection; neither can change.
 
-Public runtime validation uses this precedence:
+There is no generated `Run`, descriptor callback layer, startup state, or
+startup wait. `NewConnection` completely initializes the connection and starts
+its sole receive-loop goroutine before returning. A call is therefore either on
+an active connection or returns its terminal cause. Generated callers pass
+their import singleton to `Call`, which compares handle identity and checks
+terminal and call-context state before invoking the request encoder. The export
+handle needs no later check because construction already fixed it.
 
-1. A method with a nil `*Connection` receiver returns `ErrInvalidConnection`
-   before inspecting any argument. `Err` on a nil receiver returns that same
-   sentinel.
-2. A non-nil receiver method that takes a context, and
-   `ConnectionFromContext`, returns `ErrInvalidContext` for a nil context.
-3. Other arguments are checked in signature order. Invalid descriptors return
-   `ErrInvalidBinding`; a valid descriptor with wrong identity returns a
-   `BindingError` wrapping `ErrBindingMismatch`; a zero procedure key or nil
-   codec callback returns `ErrInvalidCall`.
-4. Lifecycle state is checked next. `Run` checks and consumes its one-shot claim
-   as described below; `Call` returns `ErrNotRunning` or the terminal cause as
-   appropriate; `WaitRunning` observes running or terminal state.
-5. For a non-nil context, an already available lifecycle result wins; otherwise,
-   the exact `ctx.Err()` wins when cancellation is observed.
-
-Thus `((*Connection)(nil)).WaitRunning(nil)` returns `ErrInvalidConnection`, a
-non-nil connection's `WaitRunning(nil)` returns `ErrInvalidContext`, and an
-otherwise valid call on a new connection returns `ErrNotRunning` even if its
-non-nil context is already canceled. Binding-check methods do not inspect
-lifecycle state. `WithConnection` follows `context.WithValue`: it panics first
-for a nil parent and otherwise panics for a nil connection. All generated paths
-pass valid values.
-
-The generated export `Run` calls `Connection.Run` with its singleton descriptor.
-The method validates exact export identity before claiming `Run` or performing
-frame I/O. Each generated imported call obtains the context connection and uses
-`Connection.Call` with its singleton import descriptor; `Call` validates exact
-import identity before invoking the encoder, allocating an ID, or performing
-frame I/O. A wrong descriptor is a local binding error and does not alter the
-connection.
-
-`WithConnection` uses one unexported key owned by the root runtime and always
-replaces an earlier binding in the derived context. It stores the connection
-without starting it or validating its state or descriptors; generated `Run` and
-call paths perform those checks. Handler contexts use this same function.
-`ConnectionFromContext` and generated callers return `ErrNoConnection` if no
-non-nil connection is bound.
-
-### Lifecycle state machine
-
-A connection has four states and a separate one-shot `Run` claim:
-
-```text
-new -> running -> stopping -> stopped
-  \----------------> stopping -> stopped
-```
-
-- **new:** Construction succeeded, `Run` is unclaimed, and no receive loop is
-  active.
-- **running:** A correctly bound `Run` has atomically claimed the connection,
-  installed its handler-root context, and is about to read or is reading frames.
-- **stopping:** The first terminal cause has been selected and teardown has
-  started.
-- **stopped:** Teardown and the owning receive loop have completed. Handlers may
-  still exist if they ignored cancellation, but they cannot start a write.
-
-After the common receiver and context checks, descriptor validation precedes
-the one-shot claim. The first correctly bound `Run` attempt consumes the claim
-even if the connection was explicitly closed while new. A later correctly
-bound attempt returns `ErrRunAlreadyCalled`; a wrongly bound attempt returns its
-binding error without consuming the claim.
-
-If no terminal cause already exists and its context is already canceled, the
-first `Run` claims the connection, selects the exact `ctx.Err()` as the terminal
-cause, and never enters running. Otherwise, a nonterminal `Run` transitions new
-to running before its first blocking read. There is exactly one receive loop,
-executed by the goroutine calling `Run`.
-
-A call in new returns `ErrNotRunning` without invoking its encoder or emitting a
-frame. A call in running may proceed. A call in stopping or stopped returns the
-stored terminal cause. `WaitRunning` returns nil when it observes running, the
-stored cause if termination wins first, or its own exact `ctx.Err()` if its wait
-is canceled first. It is the startup synchronization mechanism; callers must
-not use sleeps or assume that starting a `Run` goroutine makes the connection
-immediately callable.
-
-The following events terminate the connection:
-
-- cancellation of the `Run` context;
-- explicit `Connection.Close`;
-- any stream read, write, EOF, or half-close failure; and
-- a terminal structural or response protocol error.
-
-One lock-protected selection chooses the first terminal cause. That exact error
-wins permanently. Teardown closes the byte stream exactly once to unblock I/O,
-cancels the handler-root context, and wakes every unclaimed pending caller with
-the same cause. A stream `Close` cleanup error never replaces or joins the
-selected cause.
-
-`Close` selects `ErrClosed` only if no earlier terminal cause exists and is
-otherwise idempotent. For a valid connection it returns nil after invoking the
-one-time stream close, canceling the handler root, and waking pending calls. It
-does not wait for `Run` or handlers to exit. `Err` returns nil before selection
-and the exact first terminal cause afterward.
-
-`Run` closes the stream before returning, returns the first terminal cause, and
-never returns nil. It does not wait for provider goroutines. A provider that
-ignores cancellation may outlive `Run`, but its handler observes terminal state
-instead of writing a late response.
-
-Every handler context derives from the `Run` context, is bound to the current
-connection, and is canceled when its handler completes or the connection
+`WithConnection` uses one private root-runtime key and replaces any earlier
+binding. It follows `context.WithValue`: a nil parent or connection panics.
+`ConnectionFromContext` returns `ErrNoConnection` unless a nonnil connection is
+bound. Handler contexts are derived from the connection context, bound with the
+same function, and canceled when the handler finishes or the connection
 terminates.
 
-### Local errors
+### Lifecycle and local errors
 
-The root package exports stable sentinels suitable for direct comparison and
-`errors.Is`:
+A successfully constructed connection has only two lifecycle conditions:
+active and terminal. In addition to the receive loop, construction starts one
+context-observer goroutine. It waits for either the construction context's
+`Done` channel or the connection's terminal-selection channel. Context
+cancellation attempts terminal selection with the exact `ctx.Err()` value;
+the runtime never uses `context.Cause` or wraps that value. A nil `Done` channel,
+as from `context.Background`, simply disables the context case.
+
+Explicit `Close`, a read or write failure, EOF or half-close, and a terminal
+protocol error use the same lock-protected selection. The first selected error
+is permanent and closes the terminal-selection channel. Selection closes the
+stream exactly once, cancels handler contexts, and completes every unclaimed
+pending call with that cause. A stream cleanup error never replaces or joins
+it. If another event wins, the terminal-selection channel wakes the context
+observer; it rechecks terminal state under the same lock and exits without
+attempting a new cause. If context cancellation wins, the observer completes
+selection and teardown before exiting.
+
+`Close` selects `ErrClosed` if needed and otherwise does nothing. It returns nil
+without waiting for the receive loop, observer, or handlers. `Wait` waits for
+the receive loop, complete terminal teardown, and context-observer exit, then
+returns the permanent terminal cause; it never returns nil. Thus EOF under
+`context.Background` cannot strand the observer, `context.WithCancelCause`
+yields exactly `context.Canceled` rather than its cause, a cause-bearing deadline
+yields `context.DeadlineExceeded`, and Close/cancellation races retain whichever
+exact cause wins the common selection lock. Handlers that ignore cancellation
+may outlive both methods, but terminal state prevents them from beginning a
+later response write.
+
+The root package exports only these local classifications:
 
 ```go
+ErrInvalidArgument
 ErrNoConnection
-ErrInvalidByteStream
-ErrInvalidBinding
 ErrBindingMismatch
-ErrInvalidContext
-ErrInvalidConnection
-ErrInvalidCall
-ErrNotRunning
-ErrRunAlreadyCalled
 ErrClosed
 ErrRequestIDsExhausted
+ErrProtocol
 ```
 
-Binding mismatches use this exported structured error:
+It also exports the three wire-exception sentinels listed below. Sentinels work
+with direct comparison and `errors.Is`. The constructors and methods above, and
+`ConnectionFromContext`, return or wrap `ErrInvalidArgument` for a nil dispatch,
+context, receiver, stream interface, encoder, or decoder, a zero binding passed
+to `NewConnection`, or a zero procedure key. (`WithConnection` has the explicit
+panic contract above.) A zero or different import handle passed to `Call` on a
+valid connection returns `ErrBindingMismatch`. Argument and binding validation
+occurs before terminal-state inspection. After validation, an already selected
+terminal cause wins over an already canceled call context; otherwise the exact
+context error wins. Generated paths always pass valid arguments. A nil payload
+returned by a successful encoder is a valid empty payload.
 
-```go
-type BindingError struct {
-	Direction string // "export" or "import"
-	Expected  InterfaceDigest
-	Actual    InterfaceDigest
-	Err       error // wraps ErrBindingMismatch
-}
-```
+A terminal transport error adds a short operation prefix and wraps the stream
+error, preserving it for `errors.Is` and `errors.As`. A terminal framing or
+matched-response error wraps `ErrProtocol`; request IDs and detailed codec text
+may appear in its noncontractual message. There are no exported operation enums,
+structured diagnostic error records, loggers, panic hooks, or stack hooks.
 
-It implements `error` and `Unwrap() error`. `Expected` is the descriptor passed
-by generated code, and `Actual` is the descriptor stored on the connection.
-Invalid descriptors wrap `ErrInvalidBinding` instead.
+A per-call context cancellation returns that context's exact
+`context.Canceled` or `context.DeadlineExceeded` when cancellation claims the
+call. It does not terminate the connection. Concurrent connection-terminal
+events use first-cause selection; concurrent response, per-call cancellation,
+and terminal outcomes use the pending-call ownership rule below.
 
-Transport and terminal protocol failures use exported structured types:
+### Reading, dispatch, and response validation
 
-```go
-type TransportError struct {
-	Operation    string
-	RequestID    uint64
-	HasRequestID bool
-	Err          error
-}
+The receive loop is the only reader. It uses full-read semantics for each
+24-byte header and then allocates and reads the complete payload after checking
+its wire length against native `int`. An incomplete header or payload is a
+transport failure; impossible native size or structural frame failure is a
+protocol error. Decoders receive only the owned payload slice and cannot consume
+a later frame.
 
-type ProtocolError struct {
-	Operation    string
-	RequestID    uint64
-	HasRequestID bool
-	Err          error
-}
-```
+Each request transfers its complete payload to one new, unbounded handler
+goroutine. Before starting it, the receive loop reserves the incoming request ID
+in an active set. Reuse before the earlier response write completes is a
+terminal protocol error; reuse afterward is allowed. Incoming and outgoing ID
+spaces are independent.
 
-Both implement `error` and `Unwrap() error`; the wrapped transport or validation
-cause remains discoverable with `errors.Is` and `errors.As`. `Operation` is one
-of `read_header`, `read_payload`, `write_request`, `write_response`,
-`validate_frame`, `decode_response`, or `validate_incoming_id`. Request metadata
-is present whenever a complete header or an outgoing allocation supplied an ID.
-Local error strings other than wire exception sentinel strings are not
-compatibility promises; sentinel identity, structured fields, unwrapping, and
-first-cause behavior are promises.
+Generated dispatch is a static switch on procedure key. An unknown key receives
+`procedure_not_found` after its payload has been buffered. A known procedure
+whose arguments are malformed or leave trailing bytes receives
+`invalid_arguments`, without invoking the provider. One runtime recovery around
+the complete dispatch maps every escaped panic to `internal_exception`. The
+handler fully encodes its selected response before entering the shared write
+gate.
 
-A per-call context cancellation returns the exact `context.Canceled` or
-`context.DeadlineExceeded` from that context when cancellation wins. It does not
-terminate the connection. The runtime is silent: it has no logger, panic hook,
-or stack-reporting hook.
+A response is completely buffered before lookup. If its ID has no pending entry,
+the runtime consumes and ignores its exception key and payload as opaque bytes.
+For a pending ID, the receive loop removes the entry, thereby claiming the call,
+and invokes that call's generated decoder in the receive goroutine. Nil means
+the decoder accepted one declared exception or success value, consumed the
+payload exactly, and stored the typed result in its closure. It then completes
+the removed entry successfully. An error or panic terminates the connection and
+completes that entry with the permanent terminal cause. Consequently, unknown
+exception keys, invalid values, noncanonical NaNs, wrong zero-width payloads,
+and trailing bytes in a matched response always terminate the connection;
+canceled or otherwise unmatched responses remain opaque as required by
+`README.md`.
 
-## Runtime Wire and Concurrency Behavior
+The runtime never reuses a frame buffer. A generated decoder may retain owned
+byte subslices in the result, and channel or lock synchronization makes closure
+writes visible before the generated caller returns.
 
-### Frame reading and ownership
+### Calls, pending ownership, and IDs
 
-`Run` is the sole reader. It reads each 24-byte header and then the complete
-payload. Before converting or allocating, it checks `payload_length` against
-`maxInt`, checks all additions and multiplications for overflow, and checks
-available payload bounds during value decoding. An incomplete header or payload
-is a terminal `TransportError`. An impossible native size or other structural
-frame violation is a terminal `ProtocolError`.
+Outgoing IDs increase monotonically from `0` through
+`0x7fffffffffffffff` and are never reused, including after completion or local
+cancellation. After allocating the final ID, the next call returns
+`ErrRequestIDsExhausted` without writing a frame. Each peer allocates
+independently.
 
-The read loop allocates one owned payload buffer per frame after the checked
-conversion. It never lets a decoder read beyond that buffer. A request transfers
-sole ownership of its complete raw payload to one handler goroutine. The runtime
-treats it as immutable until generated decoding; generated codecs may transfer
-solely owned byte subslices into decoded Go values because the runtime never
-reuses the frame buffer.
+The generated caller passes a request-encoder closure to `Call`. `Call` then:
 
-A response is fully buffered before matching. A response whose ID is unknown,
-was canceled, or names a pending entry still in `registered` state is consumed
-and ignored as opaque bytes, without checking its exception key or payload. A
-registered entry remains registered. Only an entry in `writing` or `waiting`
-state is eligible for a response claim. An eligible response is claimed under
-the pending-call lock and decoded in the receive goroutine with that call's
-generated decoder. The runtime signals the caller only after that decoder
-returns, and it never reuses response storage retained by successfully decoded
-Go values. Unknown exception keys, invalid values, noncanonical NaNs, wrong
-empty/nonempty payloads, and trailing bytes are terminal response protocol
-errors. The runtime recovers a decoder panic and treats it as a terminal response
-protocol error.
+1. validates its receiver, context, exact import identity, procedure key,
+   encoder, and decoder;
+2. returns an already selected terminal cause or already available `ctx.Err()`;
+3. invokes the encoder exactly once to obtain one complete owned payload;
+4. returns the encoder's exact error, if any, without allocating an ID,
+   constructing a frame, or entering the write gate;
+5. rechecks terminal state and `ctx.Err()`, builds the owned contiguous frame,
+   and acquires the write gate while allowing either to win;
+6. rechecks both under the connection lock, allocates an ID, and inserts one
+   pending entry immediately before write admission;
+7. writes the whole buffered frame while holding the gate; and
+8. after write completion, waits for response, per-call cancellation, or
+   connection termination.
 
-### Incoming requests
+A binding mismatch, terminal connection, or cancellation visible at the
+pre-encode checks never invokes the encoder. If termination or cancellation
+happens while a successful encoder runs, the post-encode check returns it
+without an ID or frame. An encoder error itself returns directly as step 4
+specifies. No ID is allocated while waiting for the write gate. Insertion and
+write admission are one lock-protected action; that admission point defines the start
+of the write even if terminal teardown closes the stream before the subsequent
+`Write` call enters it. After admission, the per-call context cannot interrupt
+the write, close the stream, or claim the pending entry; this proof of concept
+has no transport cancellation. A response or connection termination may claim
+the entry during the full-duplex write. A write failure terminates the
+connection. If a response already removed the entry, that response remains this
+call's outcome; otherwise terminal teardown claims it.
 
-Incoming and outgoing ID spaces are independent. The runtime tracks every
-incoming request ID from admission until its complete response write succeeds.
-A request reusing an active incoming ID is a terminal protocol violation. The
-runtime may stop immediately after that duplicate header because it is closing
-the connection. Reuse after the earlier response write completes is allowed.
+The pending map is the state machine: presence means the admitted request is
+eligible for one outcome, and removal transfers exclusive ownership to exactly
+one response, per-call cancellation, or terminal teardown. There are no
+registered/writing/waiting/claimed enum states or tombstones. Cancellation
+removes the entry and permanently retires its ID, so a later response is
+unmatched and opaque.
 
-After buffering a request, the runtime atomically rejects an ID already in the
-active set or reserves the new ID before starting one unbounded handler
-goroutine. The handler uses generated static switch dispatch and codecs; it does
-not use reflection. A runtime recovery boundary surrounds the complete
-`DispatchFunc`, so any panic that escapes generated dispatch becomes
-`internal_exception`. The handler remains active until its response write
-succeeds or the connection becomes terminal.
+There is no cancellation frame, and local cancellation does not imply that the
+remote handler stops.
 
-After consuming an entire request payload, an unknown procedure key receives
-`procedure_not_found`. A known procedure whose arguments are malformed or do
-not consume the payload exactly receives `invalid_arguments`, and the provider
-is not invoked. A provider panic, undeclared, wrapped, ambiguous, or typed-nil
-application error, or result/exception encoding failure receives
-`internal_exception`.
+### Frame writing and generated codecs
 
-### Outgoing calls and request IDs
+Requests and responses share one connection-wide write gate. Every value is
+append-encoded into an owned payload, then combined with its header before the
+gate is acquired. While holding the gate, the runtime writes until the complete
+frame is accepted or the writer reports an error, an invalid byte count, or no
+progress. It never interleaves frames. Any error after a partial frame is
+terminal. Encoding cannot fail after a frame write begins, and mutable provider
+values are observed in one encoding pass.
 
-Outgoing request IDs are allocated monotonically from `0` through
-`0x7fffffffffffffff`. They are never reused within a connection, even after a
-response or cancellation. Once the final ID has been allocated, the next call
-returns `ErrRequestIDsExhausted` without emitting a frame. Both peers allocate
-this range independently.
+A handler's incoming ID remains active until its complete response write
+succeeds. A handler waiting for the gate abandons its response after terminal
+selection; a handler already writing is unblocked by stream closure.
 
-Under the public validation precedence above, `Connection.Call` rejects a nil or
-invalid binding with `ErrInvalidBinding`, a valid wrong binding with a
-`BindingError` wrapping `ErrBindingMismatch`, and procedure key zero or a nil
-encoder or decoder with `ErrInvalidCall`. A nil payload returned by an encoder
-is a valid empty payload. After receiver, context, argument, and binding
-validation, it performs these phases:
-
-1. check running or terminal state, then check for a pre-canceled context;
-2. invoke the generated encoder to produce a complete owned request payload;
-3. recheck terminal state and context, allocate and permanently retire an ID,
-   and register its pending entry;
-4. acquire the connection-wide write gate in a context-aware wait;
-5. claim write start under the pending/state lock;
-6. write the complete frame without allowing the per-call context to interrupt
-   that write; and
-7. resolve the pending result under the same lock arbitration.
-
-An encoding failure occurs before ID allocation, header construction, or gate
-acquisition and returns the encoder's exact error. A pending entry is in exactly
-one of `registered`, `writing`, `waiting`, or `claimed` state. While registered,
-only write start, per-call cancellation, and terminal teardown are eligible to
-claim or transition it. The lock winner determines the outcome. A cancellation
-claim removes the entry, returns the exact context error, emits no frame, and
-retires the allocated ID. A terminal claim also prevents the request write. A
-response received while registered is unmatched and opaque as described above;
-it neither completes nor changes the pending entry.
-
-A successful write-start claim changes `registered` to `writing`. From that
-atomic point until `Write` returns, response delivery and terminal teardown
-remain eligible, but per-call cancellation is ineligible. Cancellation may be
-observed and remembered only by the waiting call; it cannot claim the entry,
-interrupt `Write`, invoke stream `Close`, or select a connection terminal cause.
-The call does not return while its `Write` remains in progress.
-
-If `Write` returns the full byte count and no error, the writer records success
-under the lock. If the entry was already claimed by a response or terminal
-cause, that claim remains unchanged. Otherwise, the writer checks `ctx.Err()`
-while still holding the lock: a non-nil result must claim cancellation
-immediately, and a nil result transitions the entry to `waiting`. After a
-`waiting` transition, response, cancellation, and terminal teardown race
-normally; the first lock claim determines the result. A cancellation claim
-removes the entry, so it survives every later connection failure and makes a
-later response unmatched and opaque.
-
-If `Write` is partial or returns an error, the write failure terminates the
-connection. If the entry is still unclaimed, that terminal cause claims it. A
-cancellation merely observed during `writing` cannot survive the write failure
-because it was not eligible to claim. A response or an earlier terminal cause
-that already claimed the entry remains that call's result; in particular, a
-response may claim during full-duplex writing and survives a later write
-failure, although the write failure still terminates the connection for all
-other work.
-
-There is no cancellation frame. Retiring an ID or canceling a local wait does
-not imply that the remote handler stops.
-
-### Frame writing
-
-Generated request and handler response values are append-encoded completely
-into owned `[]byte` payloads. The runtime then builds one owned contiguous slice
-containing the 24-byte header and payload. Encoding therefore cannot fail after
-any header byte has been written, and mutable provider values are observed in
-one encoding pass rather than a size pass followed by an encoding pass.
-
-One connection-wide write gate serializes requests and responses. After its
-final terminal-state check, the runtime makes one `Write` call for the complete
-frame. Any returned error or byte count other than the full slice length is a
-terminal `TransportError`; it does not retry a partial frame. A handler does not
-complete until this write succeeds or terminal state prevents or interrupts it.
-A handler that finishes after terminal selection cannot begin a write.
-
-### Generated codecs
-
-Codecs are static generated code with checked, append-style encoding and
-bounded decoding. They implement the exact little-endian representations in
+Generated append encoders and bounded decoders implement the exact wire rules in
 `README.md`, including:
 
-- two's-complement exact-width integers;
-- canonical output NaNs and rejection of every noncanonical input NaN;
-- UTF-8 validation on both Go string encoding and wire string decoding;
-- checked `uint64` lengths and list counts before `int` conversion, arithmetic,
-  allocation, or iteration;
-- declaration-order record fields with no padding;
-- exact payload exhaustion; and
-- no per-element work for a list whose resolved element encoding is zero-width.
+- little-endian exact-width two's-complement integers;
+- canonical output NaNs and rejection of every other NaN encoding;
+- UTF-8 validation when encoding Go strings and decoding wire strings;
+- checked lengths, counts, additions, and multiplications before conversion,
+  allocation, slicing, or iteration;
+- declaration-order records without padding;
+- exact request and matched-response payload exhaustion; and
+- native-length allocation but no per-element loop for zero-width list elements.
 
-Nil slices encode with count or length zero. Empty decoded slices are allocated
-as non-nil empty slices. The proof of concept imposes no smaller policy limit
-than checked native representability and available input bytes.
+There is no pooling that exposes buffer reuse and no policy limit below native
+representability and available payload bytes.
 
 ## Fixed Go Runtime Exceptions
 
-The Go runtime wire exceptions are frozen for the proof of concept:
+The proof of concept fixes these no-payload wire exceptions:
 
-| Name | Key | Payload |
-| --- | --- | --- |
-| `procedure_not_found` | `0x970e76fcc5e2dacb` | none |
-| `invalid_arguments` | `0x3f5fc972f8477b07` | none |
-| `internal_exception` | `0x1aaec22e85996f50` | none |
+| Name | Key |
+| --- | --- |
+| `procedure_not_found` | `0x970e76fcc5e2dacb` |
+| `invalid_arguments` | `0x3f5fc972f8477b07` |
+| `internal_exception` | `0x1aaec22e85996f50` |
 
-Export inserts all three declarations into every interface. Their names are
-reserved across the entire global InterCall namespace, so an application type,
-procedure, or exception cannot use them. Their no-payload shapes and keys do not
-change during the proof of concept.
-
-Import maps recognized declarations to shared root sentinels:
+Export inserts all three into every interface. Their names are reserved across
+the global InterCall declaration namespace. Import accepts them only as
+no-payload exception declarations and maps them, when present, to shared root
+sentinels:
 
 ```go
 ErrProcedureNotFound
@@ -1153,21 +789,16 @@ ErrInvalidArguments
 ErrInternalException
 ```
 
-Each sentinel's `Error` string is exactly its wire name. Runtime conditions, not
-provider error matching, select these fixed export responses; a provider's
-non-nil error must directly match exactly one declared application exception or
-it becomes `internal_exception`.
+Each sentinel's `Error` string is its exact wire name. Runtime conditions, not
+provider matching, select these exceptions. A fully framed unknown request gets
+`procedure_not_found`; malformed or trailing arguments get `invalid_arguments`;
+and provider, matching, or response-encoding failures get
+`internal_exception`. A frame that cannot be safely buffered is terminal. Every
+malformed matched response is terminal.
 
-A malformed request frame whose payload cannot safely be framed is terminal. A
-fully framed request with unknown procedure or malformed/trailing arguments gets
-the runtime response described above. Any malformed matched response, including
-an undeclared exception key or trailing payload, terminates the connection.
-
-## CLI and Generated Output
+## CLI and Generated Artifacts
 
 ### Commands
-
-The CLI forms are:
 
 ```text
 intercall-go export --out DIR --interface FILE [--package NAME]
@@ -1176,212 +807,118 @@ intercall-go export --out DIR --interface FILE [--package NAME]
     PACKAGE_PATTERN...
 
 intercall-go import --out DIR [--package NAME]
-    [--go-name selector=GoIdentifier]...
+    [--go-name SELECTOR=GoIdentifier]...
     INTERFACE_FILE
 ```
 
-`--out` and `--interface` are distinct export destinations. Export requires at
-least one package pattern. Import requires exactly one file and reads its exact
-bytes; stdin is not an input form. Export's include/exclude and import's Go-name
-flags are repeatable.
+Export requires at least one package pattern and distinct binding and interface
+targets. Import requires exactly one file and reads its exact bytes; stdin is
+not supported. The shown filter and naming flags are repeatable.
 
-The generated package name is `--package` when supplied. Otherwise, it is an
-existing generator manifest's package name or, for a new output, the output
-directory's base name. Explicit and inferred names must match the ASCII pattern
-`[A-Za-z_][A-Za-z0-9_]*`, must not be `_` or `main`, and must not be a Go
-keyword. The CLI does not sanitize a name. This restriction matches the default
-ASCII native-name projection and keeps manifest package strings canonical
-without a Unicode encoding policy.
+`--package` sets the generated package name. Without it, an existing owned
+binding's package clause wins; a new output uses the output directory's base
+name. The name must match `[A-Za-z_][A-Za-z0-9_]*`, and cannot be `_`, `main`,
+or a Go keyword. The tool never sanitizes it. An explicit name must equal an
+existing owned binding's package name.
 
-### Output ownership and updates
+### One-file ownership and safe replacement
 
-Every generated `.go` file begins with:
+Every binding is one file named `binding_gen.go`; file partitioning is not a
+configuration or generator decision. Its first two lines have this exact form:
 
 ```go
 // Code generated by intercall-go; DO NOT EDIT.
+// intercall-go binding: import sha256:<artifact-id>
 ```
 
-The manifest is the exact file `.intercall-go.json`. Manifest schema version 1
-is a JSON object with exactly these keys and types:
+The second line says `export` for an export binding. `<artifact-id>` is the
+lowercase 64-hex-digit SHA-256 digest of the canonical interface body represented
+by the binding. It is a local update stamp only: the runtime does not store,
+compare, or exchange it. A fixed file removes the manifest, file-list schema,
+stale-file deletion, and update transaction. The generator never deletes a
+path.
 
-```json
-{
-  "version": 1,
-  "mode": "import",
-  "package": "example",
-  "files": [
-    "binding_gen.go"
-  ]
-}
+The exported interface starts with this exact ownership form followed by one
+blank line and the canonical interface body:
+
+```text
+/* Code generated by intercall-go; artifact sha256:<artifact-id>; DO NOT EDIT. */
 ```
 
-`mode` is exactly `import` or `export`; `package` is the generated ASCII Go
-package identifier; and `files` is the nonempty, complete owned Go-file set
-sorted by bytewise filename order. Every string value in this schema is ASCII.
-Canonical manifest bytes use the key order above, two-space JSON indentation,
-literal string bytes without optional escapes, and one final LF. They contain no
-timestamp, absolute path, temporary path, source path, or host-specific data. A
-prior manifest must have this canonical encoding. Duplicate JSON keys, missing
-or unknown keys, a noninteger or unsupported version, invalid UTF-8, and a mode
-or package mismatch are errors; there is no implicit manifest migration.
+Its stamp hashes the body, not the ownership line. The blank line leaves the
+marker semantically unattached, so importing the file discards the marker when
+constructing `_intercallSemantic`.
 
-Every `files` entry must equal its `path.Clean` result and be a direct-child
-ASCII basename matching `[a-z][a-z0-9_]*_gen[.]go`; no normalization is applied
-to an entry. Entries containing `/` or `\\`, absolute names, `.` or `..`,
-duplicates, directories, the manifest name, and every other reserved or
-unsupported name are invalid. Restricting ownership to these normalized
-generated-Go basenames means a manifest can never claim an unknown non-Go file.
+Before writing, the CLI validates all source, interface, projection, and
+generated bytes in memory. It creates `--out` if necessary; after that, the
+interface target's parent must exist. It resolves both target parents through
+the host filesystem and operates on the resolved directories. A target leaf is
+inspected with non-following file status; a symlink, directory, device, or other
+nonregular leaf is an error. The interface target must not have a `.go`
+filename and must not be the generated Go target under the host filesystem's
+filename equivalence.
 
-Before any containment, collision, replacement, or stale-deletion decision, the
-CLI resolves every relevant path into a filesystem coordinate. Relevant paths
-are `--out`, `--interface`, the manifest, every current or prior generated
-target, and every replacement destination. A coordinate is computed as follows:
+The output directory may contain non-Go entries, which are always preserved. It
+may contain no Go file or Go-named nonregular entry except
+`binding_gen.go`. An existing `binding_gen.go` is replaceable only when its two
+ownership lines and artifact stamp have valid syntax and its mode and package
+match this invocation. An existing interface target is replaceable only when it
+is a regular nonsymlink file with a valid ownership line and its stamp matches
+its canonical body. Every other collision is an error. Thus the tool never overwrites a
+handwritten or differently generated Go file and never overwrites an unmarked
+interface file.
 
-1. Make the requested path absolute and lexically clean it under the host
-   platform's filepath rules.
-2. Walk from its volume root until the path ends or the first missing component
-   is reached. Resolve each existing component that acts as a directory through
-   the filesystem, reject dangling links, loops, and lookup errors, and require
-   the result to be a directory. A symlink naming `--out` itself may resolve to
-   its directory. An existing file-target leaf is inspected without following
-   it; the ownership rules below reject a leaf symlink.
-3. Record the stable identity and OS-reported canonical spelling of every
-   existing directory and any existing file leaf. If a component is missing,
-   record the deepest existing directory identity and append that component and
-   the remaining, necessarily unresolved, suffix.
-4. Compare component names with the containing filesystem's native filename
-   equivalence when the platform exposes it. This includes case-insensitive and
-   normalization-insensitive aliases. On a filesystem that exposes only
-   byte-sensitive names, comparison is bytewise.
+The CLI formats and parses staged Go, reparses the staged interface, and writes
+temporary files in the destination directories before replacement. It replaces
+owned targets by rename rather than truncating them; hard links to an old target
+therefore retain the old inode and bytes. If the host cannot replace an existing
+file by rename, the command fails without first deleting it. An unchanged target
+is not replaced.
 
-Two nonexistent coordinates are equal when they have the same existing ancestor
-identity and equivalent remaining components. One coordinate contains another
-when those coordinates have the same canonical prefix by this rule. Existing
-entries are also compared by native stable file identity, regardless of
-spelling or hard links. `os.SameFile` is sufficient only where it exposes that
-identity; an implementation uses a stronger platform file-ID facility when
-needed. Any resolution ambiguity or failure is an error. Cleaned path strings
-alone never establish separation, containment, or ownership.
+Export has two independent owned targets, not a speculative cross-filesystem
+transaction. Before replacement, it compares the valid existing binding and
+interface stamps. Different stamps, or exactly one missing owned target, mean a
+prior update was interrupted; this is recoverable ownership state, not
+permission to touch an unowned collision. After both new targets are staged and
+validated, the tool replaces `binding_gen.go` and then the interface. A process
+or filesystem failure may again leave differing stamps, and the next successful
+invocation deterministically repairs both without a manifest or deletion. It
+never endangers an unowned file. Concurrent hostile filesystem mutation is
+outside the trusted local CLI threat model.
 
-The output directory must resolve to, or be created as, one actual directory.
-After creation, the CLI records its identity. Manifest and generated-file access
-is relative to that resolved directory and does not follow a leaf symlink. The
-CLI then validates existing ownership:
-
-- the manifest, when present, must be a regular non-symlink file;
-- every listed file that exists must be a regular non-symlink direct child whose
-  first line is the exact generated marker;
-- every direct child whose name has a `.go` suffix under native filename
-  equivalence must be listed by the valid manifest, so a handwritten, unowned,
-  directory, or symlink Go entry is an error;
-- distinct manifest, generated, and selected interface targets must have
-  distinct canonical coordinates and, when they exist, distinct filesystem
-  identities; and
-- every staged generated filename must satisfy the same basename rule and be
-  unique under the output directory's native filename equivalence.
-
-Unknown non-Go entries are preserved and cannot appear in `files`. The manifest
-itself is owned specially and is never listed or deleted as a stale file.
-
-The interface target is checked only after coordinate resolution. If it equals
-or is contained by the resolved output directory, it must not equal the manifest
-or any current or prior generated target. Its final component must not have a
-`.go` suffix under the containing directory's native filename equivalence. Thus
-`alias/binding_gen.go` is inside `out` when `alias` resolves to `out`, and a name
-such as `SCHEMA.GO` is a Go target on a case-insensitive filesystem. These rules
-also cover nested and not-yet-created targets. If the target exists, it must be
-a regular non-symlink file and must not share filesystem identity with any
-manifest or current or prior generated file, even when reached outside `--out`.
-An explicitly selected, otherwise valid non-Go interface target may be replaced
-and is the only exception to preserving an unknown non-Go entry.
-
-The generator stages every new file, formats Go source with the Go formatter,
-and validates the complete staged set before replacing destinations. Immediately
-before its first mutation and before each later deletion or replacement, it
-re-resolves the destination, verifies the recorded output-directory identity,
-and repeats the applicable containment, type, identity, ownership-marker, and
-collision checks. An entry that existed during validation must still have the
-same identity. An entry that was absent must still be absent.
-
-A stale file is eligible for deletion only if its name came from a fully
-validated prior manifest. If it existed during validation, deletion requires the
-same regular non-symlink identity and generated marker immediately before the
-operation. If it was absent, it remains untouched; its unexpected appearance
-aborts generation. Operations use the resolved output directory and direct-child
-basenames rather than reinterpreting an unresolved input path. The generator
-deletes no other path, writes the new manifest last, and applies the same checks
-to the separately staged export interface. A target whose bytes are unchanged
-is not rewritten.
-
-This is a trusted local CLI contract, not a sandbox against an attacker mutating
-the filesystem concurrently. Implementations use directory-relative,
-non-symlink operations or equivalent platform facilities where available and
-abort on detectable changes, but they need not promise protection from an
-unavoidable hostile mutation between the final check and operation. In the
-absence of such concurrent mutation, symlink, hard-link, case, and normalization
-aliases cannot cause an interface, manifest, generated file, or stale file to be
-mistaken for a distinct target.
-
-Generated file contents and ordering are deterministic for the same exact
-inputs and Go build configuration. They contain no timestamps or absolute source
-or temporary paths. Private helper names, import aliases, and file splitting may
-use deterministic collision-free mangling within the owned filename rule, but
-they do not alter public Go names or wire data. Generated artifacts are intended
-to be checked into version control.
+For identical semantic inputs and Go build configuration, generated interface
+and Go bytes are identical. On import, differences only in formatting and
+unattached comments are not semantic input differences. Output contains no
+timestamp, absolute source path, temporary path, or map-order-dependent data.
+Generated artifacts are intended to be checked into version control.
 
 ### Diagnostics
 
-CLI errors use `path:line:column: message`. Lines and columns are one-based. A
-source position starts at the zero-based byte offset of the first offending byte
-and is converted as follows:
+Source diagnostics use `path:line:column: message` with one-based `go/token`
+physical line and byte-column semantics. `//line` directives do not rewrite
+positions. Interface positions come from byte offsets in the exact input;
+invalid UTF-8 points to its first invalid byte, and EOF uses offset `len(input)`
+under the same rules. Go paths use canonical import path plus the file's
+package-relative path. Errors without a source span use line 1, column 1 of the
+relevant operand.
 
-- line is one plus the number of LF bytes before the offset;
-- column is one plus the number of bytes since the byte after the preceding LF,
-  or since offset zero on the first line;
-- UTF-8 multibyte code points therefore advance subsequent columns by their
-  encoded byte length, and each tab advances by one column without tab-stop
-  expansion;
-- in CRLF, only LF advances the line and CR counts as one byte on the preceding
-  line; a bare CR counts as one column and does not advance the line; and
-- EOF uses offset `len(input)`, so EOF after a final LF is on the next line at
-  column 1, while other EOF positions are one byte-column past the final
-  byte. Invalid UTF-8 points at its first invalid byte.
-
-These are the `go/token` byte-column rules and apply to Go and interface input.
-Go diagnostics use unadjusted physical positions equivalent to
-`token.File.PositionFor(pos, false)`; `//line` directives do not alter diagnostic
-paths or coordinates. A diagnostic for a span uses the span's starting byte. Go
-source paths use `import/path` plus the file path relative to that package;
-interface diagnostics use the cleaned input path supplied to the command. Errors
-without a source span use line 1, column 1 of the relevant operand.
-
-Diagnostics are sorted by logical path, line, column, and message and are stable
-for identical inputs. Diagnostics and generated files never include
-staging-directory paths. Generation reports all independent discovery,
-directive, projection, and interface-validation errors that can be determined
-safely in one run; it emits no output when any such error exists.
-
-## Non-Contractual Implementation Details
-
-Only details that do not affect interoperability, public APIs, generated public
-names, deterministic bytes, lifecycle outcomes, or diagnostics are left to the
-implementation. These include the private runtime map/channel types, buffer
-allocation strategy without pooling-visible aliasing, number of generated `.go`
-files, private helper identifiers, and private import aliases. Such choices must
-still obey the ownership, race, ordering, and output rules above.
+When a phase produces several diagnostics, the CLI sorts them by logical path,
+line, column, and message. It never reports a staging path. Source validation
+and generated-content validation finish before output-directory creation;
+ownership checks then finish before target-file creation or replacement. Any
+validation error emits no generated file.
 
 ## Deferred Features
 
-The following features are outside the Go proof of concept:
+The proof of concept does not include:
 
-- WebSocket and WebTransport adapters;
-- TypeScript and all other non-Go bindings;
-- handshake, protocol-version, or interface exchange and remote digest
+- TypeScript or any other non-Go binding;
+- WebSocket, WebTransport, or independent per-call stream adapters;
+- handshake, version, runtime interface-agreement digest, or remote interface
   verification;
-- authentication, authorization, policy, and procedure whitelists;
+- authentication, authorization, policy, or procedure whitelists;
 - configurable or fixed policy resource limits;
-- transport dialing, listening, TLS, encryption, and other transport setup;
+- dialing, listening, TLS, encryption, or other transport setup;
 - transport-level or wire-level cancellation;
-- streaming values or streaming procedure parameters and results;
-- one transport stream per call or any independent per-call stream binding; and
-- compatibility guarantees for Go toolchains older than Go 1.26.5.
+- streaming values, parameters, or results; or
+- compatibility promises for Go toolchains older than the version in `go.mod`.
