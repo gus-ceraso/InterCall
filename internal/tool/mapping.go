@@ -122,6 +122,19 @@ type NamedType struct {
 // emitted, the lexicographically smallest exact wire name is chosen.
 func MapValues(providers []*Provider, outPath string) (*TypeMap, error) {
 	m := newMapper(providers, outPath)
+	tm, err := m.mapProviders(providers)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.finalize(tm); err != nil {
+		return nil, err
+	}
+	return tm, nil
+}
+
+// mapProviders maps the wire values of the selected providers in
+// provider order.
+func (m *mapper) mapProviders(providers []*Provider) (*TypeMap, error) {
 	tm := &TypeMap{}
 	for _, p := range providers {
 		mp, err := m.mapProvider(p)
@@ -129,9 +142,6 @@ func MapValues(providers []*Provider, outPath string) (*TypeMap, error) {
 			return nil, err
 		}
 		tm.Providers = append(tm.Providers, mp)
-	}
-	if err := m.finalize(tm); err != nil {
-		return nil, err
 	}
 	return tm, nil
 }
@@ -153,6 +163,13 @@ type mapper struct {
 	types  map[typeKey]*NamedType // every reachable type record
 	byWire map[string]*NamedType  // exact wire name -> record
 	sems   map[*ast.File]*semResult
+
+	// Application exception facts of the export model: the tagged
+	// exception struct types of every explicit package and the exact
+	// wire name of every collected application exception. Role and
+	// global-collision checks consult these during value mapping.
+	excStructs map[typeKey]bool            // tagged payload-exception structs
+	excWire    map[string]*ExportException // application exception wire names
 }
 
 // semResult caches one file's semantic recovery, including failures.
@@ -165,13 +182,15 @@ type semResult struct {
 // transitive import closure of every provider package.
 func newMapper(providers []*Provider, outPath string) *mapper {
 	m := &mapper{
-		outPath: outPath,
-		exp:     make(map[*packages.Package]*ExplicitPackage, len(providers)),
-		pkgs:    make(map[string]*packages.Package),
-		pkgMaps: make(map[*packages.Package]*pkgMap),
-		types:   make(map[typeKey]*NamedType),
-		byWire:  make(map[string]*NamedType),
-		sems:    make(map[*ast.File]*semResult),
+		outPath:    outPath,
+		exp:        make(map[*packages.Package]*ExplicitPackage, len(providers)),
+		pkgs:       make(map[string]*packages.Package),
+		pkgMaps:    make(map[*packages.Package]*pkgMap),
+		types:      make(map[typeKey]*NamedType),
+		byWire:     make(map[string]*NamedType),
+		sems:       make(map[*ast.File]*semResult),
+		excStructs: make(map[typeKey]bool),
+		excWire:    make(map[string]*ExportException),
 	}
 	for _, p := range providers {
 		m.exp[p.Pkg.pkg] = p.Pkg
@@ -693,11 +712,14 @@ func (m *mapper) mapAlias(pkg *packages.Package, e ast.Expr, tn *types.TypeName,
 // mapNamedType maps one reachable ordinary defined type. The type must
 // be exported, nongeneric, and carry exactly one @intercall type
 // directive; its exact wire name comes from the directive or the
-// default projection and must be unique and nonreserved. Its underlying
-// structure is mapped once — aliases never reach this function — or
-// recovered from the trusted machine metadata of an intercall-generated
-// file. Every later reference reuses the recorded type, so recursive
-// graphs terminate here and are rejected by the emission-order check.
+// default projection and must be unique, nonreserved, and not reserved
+// for a fixed runtime exception. A tagged application exception struct
+// is never an ordinary wire type and cannot occur as a procedure value
+// or wire-type reference. Its underlying structure is mapped once —
+// aliases never reach this function — or recovered from the trusted
+// machine metadata of an intercall-generated file. Every later reference
+// reuses the recorded type, so recursive graphs terminate here and are
+// rejected by the emission-order check.
 func (m *mapper) mapNamedType(pkg *packages.Package, e ast.Expr, tn *types.TypeName, where string) (syntax.TypeExpr, error) {
 	if tn.Pkg() == nil {
 		// The predeclared named types error and comparable are
@@ -719,6 +741,9 @@ func (m *mapper) mapNamedType(pkg *packages.Package, e ast.Expr, tn *types.TypeN
 	spec := pm.specs[tn]
 	if spec == nil {
 		return nil, m.errAt(pkg, e.Pos(), "%s: internal error: no declaration for type %q", where, tn.Name())
+	}
+	if m.excStructs[key] {
+		return nil, m.errAt(apkg, spec.Name.Pos(), "type %q is a tagged application exception struct and cannot occur as a procedure value or wire-type reference", tn.Name())
 	}
 	af := pm.fileContaining(spec.Pos())
 	doc, err := m.docOf(apkg, af)
@@ -764,6 +789,12 @@ func (m *mapper) mapNamedType(pkg *packages.Package, e ast.Expr, tn *types.TypeN
 		}
 	}
 	rec.WireName = wire
+	if IsFixedRuntimeException(wire) {
+		return nil, m.errAt(apkg, spec.Name.Pos(), "type %q maps to wire name %q, which is reserved for a fixed runtime exception", tn.Name(), wire)
+	}
+	if prev := m.excWire[wire]; prev != nil {
+		return nil, m.errAt(apkg, spec.Name.Pos(), "wire name collision: exception %q and type %q both map to wire name %q", prev.GoName, tn.Name(), wire)
+	}
 	if prev := m.byWire[wire]; prev != nil {
 		return nil, m.errAt(apkg, spec.Name.Pos(), "wire name collision: types %q and %q both map to wire name %q", prev.GoName, tn.Name(), wire)
 	}
@@ -827,15 +858,21 @@ func (m *mapper) mapSemanticRefs(pkg *packages.Package, rec *NamedType, sem *Sem
 }
 
 // typeDirectiveOf returns the @intercall type directive of one type
-// declaration, or nil. Duplicate directives are already diagnostics of
+// declaration, or nil.
+func typeDirectiveOf(gd *GoDecl) *Directive {
+	return directiveOf(gd, TypeDir)
+}
+
+// directiveOf returns the first directive of one kind in a declaration's
+// doc comment, or nil. Duplicate directives are already diagnostics of
 // the source-directive grammar, so at most one can survive to this
 // check.
-func typeDirectiveOf(gd *GoDecl) *Directive {
-	if gd.Doc == nil {
+func directiveOf(gd *GoDecl, kind DirectiveKind) *Directive {
+	if gd == nil || gd.Doc == nil {
 		return nil
 	}
 	for _, d := range gd.Doc.Directives {
-		if d.Kind == TypeDir {
+		if d.Kind == kind {
 			return &d
 		}
 	}

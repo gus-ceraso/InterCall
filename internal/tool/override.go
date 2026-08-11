@@ -7,16 +7,27 @@ import (
 	"github.com/cerasos/intercall/internal/syntax"
 )
 
-// fixedRuntimeExceptions are the three fixed runtime exceptions
-// (SPEC.md "Application exceptions" and "Go Export Model"). They have no
-// generated package symbol and cannot be overridden; import shape
-// rejection for a fixed name used by another declaration kind or with a
-// payload is a later semantic phase.
-var fixedRuntimeExceptions = map[string]bool{
-	"procedure_not_found": true,
-	"invalid_arguments":   true,
-	"internal_exception":  true,
+// fixedExceptionNames are the three fixed no-payload runtime exception
+// wire names in exact byte order (SPEC.md "Fixed Go Runtime
+// Exceptions"): internal_exception sorts before invalid_arguments
+// before procedure_not_found. They have no generated package symbol and
+// cannot be overridden; import shape rejection for a fixed name used by
+// another declaration kind or with a payload is a later semantic phase.
+var fixedExceptionNames = []string{
+	"internal_exception",
+	"invalid_arguments",
+	"procedure_not_found",
 }
+
+// fixedRuntimeExceptions is the name set of the fixed runtime
+// exceptions, built from the byte-ordered list above.
+var fixedRuntimeExceptions = func() map[string]bool {
+	m := make(map[string]bool, len(fixedExceptionNames))
+	for _, name := range fixedExceptionNames {
+		m[name] = true
+	}
+	return m
+}()
 
 // IsFixedRuntimeException reports whether name is one of the three fixed
 // runtime exception wire names.
