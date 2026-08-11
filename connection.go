@@ -16,10 +16,21 @@ import (
 // *Connection zero value is invalid. Construction and the call and shutdown
 // methods are part of the generated-code SPI.
 type Connection struct {
-	// Terminal selection state, guarded by mu.
+	// Connection state, guarded by mu: terminal selection, outgoing request
+	// ID allocation, and the pending-call map.
 	mu       sync.Mutex
 	terminal chan struct{} // closed exactly once when the first cause is selected
 	cause    error         // permanent terminal cause; non-nil once terminal is closed
+
+	// Outgoing-call state, guarded by mu. nextID is the next monotonic
+	// 63-bit request ID, allocated from 0 through 0x7fffffffffffffff and
+	// never reused, including after completion or local cancellation.
+	// pending holds one entry per admitted outgoing request that is still
+	// eligible for its single outcome; presence means the request is
+	// eligible, and removal transfers exclusive ownership to exactly one
+	// response, per-call cancellation, or terminal teardown.
+	nextID  uint64
+	pending map[uint64]*pendingCall
 
 	// writeMu is the connection-wide write gate: requests and responses
 	// share it, exactly one frame write proceeds at a time, and frames never
@@ -68,6 +79,7 @@ func newConnection(ctx context.Context, stream ByteStream, export ExportBinding,
 	connCtx, cancel := context.WithCancel(ctx)
 	c := &Connection{
 		terminal:       make(chan struct{}),
+		pending:        make(map[uint64]*pendingCall),
 		stream:         stream,
 		export:         export,
 		imp:            imp,
@@ -84,9 +96,10 @@ func newConnection(ctx context.Context, stream ByteStream, export ExportBinding,
 // terminal events — explicit close, read or write failure, EOF or half-close,
 // protocol error, and context cancellation — use this same lock-protected
 // selection, and err must be non-nil. The first selector wins; it closes the
-// terminal channel, closes the owned stream exactly once, and cancels
-// handler contexts. A stream cleanup error never replaces or joins the
-// cause. Losers return immediately without attempting teardown.
+// terminal channel, completes every unclaimed pending call with that cause,
+// closes the owned stream exactly once, and cancels handler contexts. A
+// stream cleanup error never replaces or joins the cause. Losers return
+// immediately without attempting teardown.
 func (c *Connection) selectTerminal(err error) {
 	c.mu.Lock()
 	if c.cause != nil {
@@ -95,10 +108,24 @@ func (c *Connection) selectTerminal(err error) {
 	}
 	c.cause = err
 	close(c.terminal)
+	// Terminal teardown claims every unclaimed pending call under the same
+	// lock: removal transfers exclusive ownership to terminal selection,
+	// which completes each entry with the permanent cause. Entries already
+	// claimed by a response or per-call cancellation are absent and are
+	// completed by their owners.
+	claims := make([]*pendingCall, 0, len(c.pending))
+	for id, pc := range c.pending {
+		delete(c.pending, id)
+		claims = append(claims, pc)
+	}
 	c.mu.Unlock()
 
-	// Teardown, exactly once, by the winner, outside the lock. The stream
-	// cleanup error is suppressed.
+	// Teardown, exactly once, by the winner, outside the lock. Pending
+	// calls complete first so waiting callers wake without waiting for the
+	// stream cleanup; the cleanup error is suppressed.
+	for _, pc := range claims {
+		pc.complete(err)
+	}
 	_ = c.stream.Close()
 	c.cancelHandlers()
 }
