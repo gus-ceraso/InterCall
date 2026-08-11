@@ -337,7 +337,7 @@ Completed prerequisites:
 
 Implementation tasks:
 
-- [ ] [IC-01 — Scaffold the module and define the generated-code SPI](#ic-01--scaffold-the-module-and-define-the-generated-code-spi)
+- [x] [IC-01 — Scaffold the module and define the generated-code SPI](#ic-01--scaffold-the-module-and-define-the-generated-code-spi) — `9be3982`
 - [ ] [IC-02 — Parse interface syntax with exact positions and comments](#ic-02--parse-interface-syntax-with-exact-positions-and-comments)
 - [ ] [IC-03 — Implement connection lifecycle, binding, and context core](#ic-03--implement-connection-lifecycle-binding-and-context-core)
 - [ ] [IC-04 — Validate protocol semantics and calculate FNV-0 keys](#ic-04--validate-protocol-semantics-and-calculate-fnv-0-keys)
