@@ -68,11 +68,23 @@ type DiscoverConfig struct {
 }
 
 // DiscoverResult is the outcome of one discovery pass: the explicit
-// packages in canonical-path order and the selected providers in
-// package-path, then symbol, order.
+// packages in canonical-path order, the selected providers in
+// package-path then symbol order, and the canonical import path of
+// the resolved export output package.
+//
+// OutPath is the import path of the package the export output
+// directory resolves to: the import path of the resolved package, or
+// the import path a fresh output directory would have under Go's
+// nearest-go.mod resolution rule. It is always non-empty on success:
+// export requires an output directory, and the directory must resolve
+// to an importable package in the active module or workspace, or be a
+// fresh directory the active module or workspace can contain. The
+// command passes it to MapExport so the model's importability checks
+// run against the actual output package.
 type DiscoverResult struct {
 	Packages  []*ExplicitPackage
 	Providers []*Provider
+	OutPath   string
 }
 
 // ExplicitPackage is one package directly matched by an export operand.
@@ -190,11 +202,12 @@ func Discover(cfg DiscoverConfig) (*DiscoverResult, error) {
 		return nil, err
 	}
 
-	if err := checkOutputPackage(cfg, dir, env, selected); err != nil {
+	outPath, err := checkOutputPackage(cfg, dir, env, selected)
+	if err != nil {
 		return nil, err
 	}
 
-	return &DiscoverResult{Packages: explicit, Providers: selected}, nil
+	return &DiscoverResult{Packages: explicit, Providers: selected, OutPath: outPath}, nil
 }
 
 // validateOperands checks the export operands: at least one pattern is
@@ -413,21 +426,23 @@ func (p *ExplicitPackage) parseDocuments() error {
 	return nil
 }
 
-// checkOutputPackage validates the export output directory: it must
-// resolve to an importable package in the active module or workspace,
-// or be a fresh directory — one that does not yet exist or exists
-// without Go files — that can belong to the active module or workspace
-// (SPEC.md "One-file ownership and safe replacement": the artifact
-// write creates --out if necessary). The resolution runs the go
-// command from the discovery directory, so a directory outside the
+// checkOutputPackage validates the export output directory and returns
+// its canonical import path: the import path of the resolved package,
+// or the import path a fresh output directory would have. The
+// directory must resolve to an importable package in the active module
+// or workspace, or be a fresh directory — one that does not yet exist
+// or exists without Go files — that can belong to the active module or
+// workspace (SPEC.md "One-file ownership and safe replacement": the
+// artifact write creates --out if necessary). The resolution runs the
+// go command from the discovery directory, so a directory outside the
 // active module or workspace does not resolve and is an error; a fresh
 // directory is accepted only when its to-be-created path falls under
 // the active module or one of the workspace modules, and the
 // importability checks then run against the import path the directory
 // would have.
-func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers []*Provider) error {
+func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers []*Provider) (string, error) {
 	if cfg.OutDir == "" {
-		return &Error{
+		return "", &Error{
 			Filename: cfg.OutDir,
 			Pos:      Position{Line: 1, Column: 1},
 			Msg:      "export requires an output directory",
@@ -439,7 +454,7 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 	}
 	abs, err := filepath.Abs(abs)
 	if err != nil {
-		return fmt.Errorf("resolving output directory %q: %v", cfg.OutDir, err)
+		return "", fmt.Errorf("resolving output directory %q: %v", cfg.OutDir, err)
 	}
 
 	pkgs, err := packages.Load(&packages.Config{
@@ -448,10 +463,10 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 		Env:  env,
 	}, abs)
 	if err != nil {
-		return fmt.Errorf("resolving output directory %q: %v", cfg.OutDir, err)
+		return "", fmt.Errorf("resolving output directory %q: %v", cfg.OutDir, err)
 	}
 	if len(pkgs) == 0 {
-		return &Error{
+		return "", &Error{
 			Filename: cfg.OutDir,
 			Pos:      Position{Line: 1, Column: 1},
 			Msg:      fmt.Sprintf("output directory %q does not resolve to a package in the active module or workspace", cfg.OutDir),
@@ -465,30 +480,39 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 		// active module or workspace. Every other unresolved directory
 		// keeps the package-resolution diagnostic.
 		if outPath, ok := freshOutputPath(dir, env, abs); ok {
-			return checkOutputProviders(cfg, outPath, providers)
+			if err := checkOutputProviders(cfg, outPath, providers); err != nil {
+				return "", err
+			}
+			return outPath, nil
 		}
-		return &Error{
+		return "", &Error{
 			Filename: cfg.OutDir,
 			Pos:      Position{Line: 1, Column: 1},
 			Msg:      fmt.Sprintf("output directory %q: %s", cfg.OutDir, out.Errors[0].Msg),
 		}
 	}
 	if out.Name == "main" {
-		return &Error{
+		return "", &Error{
 			Filename: cfg.OutDir,
 			Pos:      Position{Line: 1, Column: 1},
 			Msg:      fmt.Sprintf("output directory %q resolves to the main package and is not importable", cfg.OutDir),
 		}
 	}
 	if len(out.GoFiles) == 0 {
-		return &Error{
+		return "", &Error{
 			Filename: cfg.OutDir,
 			Pos:      Position{Line: 1, Column: 1},
 			Msg:      fmt.Sprintf("output directory %q has no Go files and is not importable", cfg.OutDir),
 		}
 	}
 
-	return checkOutputProviders(cfg, out.PkgPath, providers)
+	if err := checkOutputProviders(cfg, out.PkgPath, providers); err != nil {
+		return "", err
+	}
+	if out.PkgPath == "" {
+		return "", fmt.Errorf("internal error: the resolved output package %q has no import path", cfg.OutDir)
+	}
+	return out.PkgPath, nil
 }
 
 // checkOutputProviders verifies that a binding in the output package
