@@ -16,6 +16,16 @@
 // SPEC.md "Safe import and re-export metadata", and is tested through
 // the compiled generated fixture.
 //
+// The import half implements SPEC.md "Go Import Model" and the import
+// side of "Safe import and re-export metadata": exact-input
+// parse/validation with the fixed runtime exception reservation,
+// --go-name overrides, the one canonical chunked base64url
+// _intercallSemantic constant, the named and anonymous inline record
+// declarations, the application and fixed exception symbols, the
+// per-procedure request encoders, response decoders, and callers, and
+// the immutable import binding singleton, through the GenerateImport
+// entry point.
+//
 // The source half parses handwritten and generated Go source files into
 // a document model: generated-file marker recognition, physical
 // positions that //line directives never rewrite, the complete

@@ -86,7 +86,14 @@ type TypeFact struct {
 // are computed from the validated wire structure. BuildModel reports the
 // first naming or fact error, which is deterministic for a given file.
 func BuildModel(f *syntax.File) (*Model, error) {
-	names, err := ProjectNames(f, nil)
+	return buildModel(f, nil)
+}
+
+// buildModel is BuildModel with import --go-name overrides applied: the
+// same generation records, with the given overrides projected into the
+// Go name table. Import is the only direction that accepts overrides.
+func buildModel(f *syntax.File, overrides []Override) (*Model, error) {
+	names, err := ProjectNames(f, overrides)
 	if err != nil {
 		return nil, err
 	}
