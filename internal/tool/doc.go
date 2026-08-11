@@ -23,4 +23,13 @@
 // duplicate, and resolution checks, and the extraction and normalization
 // of retained Go documentation, including the '*/' terminator
 // rejection.
+//
+// The discovery half loads the explicit packages of the export operands
+// with golang.org/x/tools/go/packages in the active module or workspace:
+// canonical-path deduplication, type-checking, importable non-main
+// packages, output-package importability with internal visibility and
+// import-cycle checks, eligible tagged functions, the exact
+// --include/--exclude filter grammar, and the exact provider signatures
+// (context.Context first, predeclared error last, named wire
+// parameters, and at most one data result).
 package tool
