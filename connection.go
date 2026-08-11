@@ -32,6 +32,15 @@ type Connection struct {
 	nextID  uint64
 	pending map[uint64]*pendingCall
 
+	// Incoming-call state, guarded by mu. incoming holds the request IDs of
+	// incoming calls whose response write has not yet completed. The
+	// receive loop reserves an ID before starting its handler goroutine,
+	// and the handler releases it after the complete response write
+	// succeeds; reuse before release is a terminal protocol error, while
+	// reuse afterward is allowed. Incoming and outgoing ID spaces are
+	// independent.
+	incoming map[uint64]struct{}
+
 	// writeMu is the connection-wide write gate: requests and responses
 	// share it, exactly one frame write proceeds at a time, and frames never
 	// interleave. It is acquired after mu whenever both are held, so the
@@ -48,8 +57,14 @@ type Connection struct {
 	connCtx        context.Context // parent of handler contexts
 	cancelHandlers context.CancelFunc
 
-	// observerExit closes when the context observer goroutine exits.
+	// Lifecycle completion channels. observerExit closes when the context
+	// observer goroutine exits, receiveExit when the sole receive-loop
+	// goroutine exits, and teardown when the terminal-selection winner
+	// finishes teardown: every unclaimed pending call completed, the stream
+	// closed exactly once, and handler contexts canceled.
 	observerExit chan struct{}
+	receiveExit  chan struct{}
+	teardown     chan struct{}
 }
 
 // newConnection is the construction core behind the public connection
@@ -58,7 +73,8 @@ type Connection struct {
 // binding, and an already available ctx.Err() are all rejected before the
 // stream is claimed. On success it stores exactly one export and one import
 // handle, derives the connection context, and starts the sole
-// context-observer goroutine.
+// context-observer goroutine. The public NewConnection additionally starts
+// the sole receive-loop goroutine after this core returns.
 func newConnection(ctx context.Context, stream ByteStream, export ExportBinding, imp ImportBinding) (*Connection, error) {
 	if ctx == nil {
 		return nil, ErrInvalidArgument
@@ -80,6 +96,7 @@ func newConnection(ctx context.Context, stream ByteStream, export ExportBinding,
 	c := &Connection{
 		terminal:       make(chan struct{}),
 		pending:        make(map[uint64]*pendingCall),
+		incoming:       make(map[uint64]struct{}),
 		stream:         stream,
 		export:         export,
 		imp:            imp,
@@ -87,9 +104,59 @@ func newConnection(ctx context.Context, stream ByteStream, export ExportBinding,
 		connCtx:        connCtx,
 		cancelHandlers: cancel,
 		observerExit:   make(chan struct{}),
+		receiveExit:    make(chan struct{}),
+		teardown:       make(chan struct{}),
 	}
 	go c.observeContext()
 	return c, nil
+}
+
+// NewConnection validates and constructs a connection, taking ownership of
+// the stream: a nil context or stream interface, a zero export or import
+// binding, and an already available ctx.Err() are all rejected before the
+// stream is claimed. On success the connection stores exactly one export
+// and one import handle — neither can change — and is fully initialized: the
+// context-observer goroutine and the sole receive-loop goroutine both start
+// before NewConnection returns, so a call is either on an active connection
+// or returns its terminal cause. There is no generated Run, startup state,
+// or startup wait.
+func NewConnection(ctx context.Context, stream ByteStream, export ExportBinding, imp ImportBinding) (*Connection, error) {
+	c, err := newConnection(ctx, stream, export, imp)
+	if err != nil {
+		return nil, err
+	}
+	go c.receiveLoop()
+	return c, nil
+}
+
+// Close terminates the connection by selecting ErrClosed if no permanent
+// cause is selected yet and otherwise does nothing. It returns nil without
+// waiting for the receive loop, the context observer, or handler goroutines;
+// Wait reports the permanent terminal cause after teardown completes.
+func (c *Connection) Close() error {
+	if c == nil {
+		return ErrInvalidArgument
+	}
+	c.selectTerminal(ErrClosed)
+	return nil
+}
+
+// Wait blocks until the sole receive loop exits, terminal teardown
+// completes, and the context observer exits, then returns the permanent
+// terminal cause; it never returns nil. Wait does not wait for handler
+// goroutines: handlers that ignore cancellation may outlive it, but terminal
+// state prevents them from beginning a later response write.
+func (c *Connection) Wait() error {
+	if c == nil {
+		return ErrInvalidArgument
+	}
+	<-c.teardown
+	<-c.receiveExit
+	<-c.observerExit
+	c.mu.Lock()
+	cause := c.cause
+	c.mu.Unlock()
+	return cause
 }
 
 // selectTerminal attempts to select err as the permanent terminal cause. All
@@ -122,12 +189,15 @@ func (c *Connection) selectTerminal(err error) {
 
 	// Teardown, exactly once, by the winner, outside the lock. Pending
 	// calls complete first so waiting callers wake without waiting for the
-	// stream cleanup; the cleanup error is suppressed.
+	// stream cleanup; the cleanup error is suppressed. teardown closes only
+	// after every teardown step, so Wait observes complete terminal
+	// teardown before returning.
 	for _, pc := range claims {
 		pc.complete(err)
 	}
 	_ = c.stream.Close()
 	c.cancelHandlers()
+	close(c.teardown)
 }
 
 // observeContext is the context-observer goroutine started by construction.
