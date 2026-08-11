@@ -345,8 +345,8 @@ Implementation tasks:
 - [x] [IC-06 — Attach semantic documentation and format canonical interfaces](#ic-06--attach-semantic-documentation-and-format-canonical-interfaces) — `0a83dea`
 - [x] [IC-07 — Implement outgoing calls, pending ownership, IDs, and cancellation](#ic-07--implement-outgoing-calls-pending-ownership-ids-and-cancellation) — `0c6d096`
 - [x] [IC-08 — Implement exact Go and wire naming projection](#ic-08--implement-exact-go-and-wire-naming-projection) — `bf90654`
-- [ ] [IC-09 — Integrate receive dispatch, incoming IDs, handlers, and shutdown](#ic-09--integrate-receive-dispatch-incoming-ids-handlers-and-shutdown)
-- [ ] [IC-10 — Build the direct code-generation model and wire codec emitter](#ic-10--build-the-direct-code-generation-model-and-wire-codec-emitter)
+- [x] [IC-09 — Integrate receive dispatch, incoming IDs, handlers, and shutdown](#ic-09--integrate-receive-dispatch-incoming-ids-handlers-and-shutdown) — `81c3206`
+- [x] [IC-10 — Build the direct code-generation model and wire codec emitter](#ic-10--build-the-direct-code-generation-model-and-wire-codec-emitter) — `5665a05`
 - [ ] [IC-11 — Parse Go documentation and InterCall directives](#ic-11--parse-go-documentation-and-intercall-directives)
 - [ ] [IC-12 — Discover packages and enforce procedure selection and signatures](#ic-12--discover-packages-and-enforce-procedure-selection-and-signatures)
 - [ ] [IC-13 — Map Go values, named types, and generated semantic metadata](#ic-13--map-go-values-named-types-and-generated-semantic-metadata)
