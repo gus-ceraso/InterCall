@@ -1,0 +1,2 @@
+offset 7
+testdata/invalid/unknown-reference.intercall:1:8: unresolved type reference "missing" in type a

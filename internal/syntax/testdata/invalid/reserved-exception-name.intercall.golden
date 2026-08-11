@@ -1,0 +1,2 @@
+offset 10
+testdata/invalid/reserved-exception-name.intercall:1:11: expected identifier, found 'list'

@@ -1,6 +1,7 @@
 type listlist uint8;
 type Procedure record {};
 type int8x string;
+type record_record uint8;
 type record_ list record_record;
 type _type bytes;
 procedure Procedure_ { listx uint8; };

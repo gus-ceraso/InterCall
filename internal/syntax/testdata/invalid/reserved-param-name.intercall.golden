@@ -1,0 +1,2 @@
+offset 14
+testdata/invalid/reserved-param-name.intercall:1:15: expected identifier, found 'string'

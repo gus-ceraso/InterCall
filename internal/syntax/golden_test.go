@@ -10,10 +10,12 @@ import (
 	"github.com/cerasos/intercall/internal/syntax"
 )
 
-// TestGoldenValid parses every testdata/valid/*.intercall file and compares
-// the canonical AST dump against its .golden file. The dump is a
-// deterministic rendering of the exact source structure: declaration and
-// comment order, names, token kinds, and byte spans.
+// TestGoldenValid parses and validates every testdata/valid/*.intercall
+// file and compares the canonical AST dump against its .golden file. The
+// dump is a deterministic rendering of the exact source structure:
+// declaration and comment order, names, token kinds, and byte spans. A
+// valid fixture must also pass semantic validation, so the suite covers
+// the full accept path.
 func TestGoldenValid(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "valid", "*.intercall"))
 	if err != nil {
@@ -32,6 +34,9 @@ func TestGoldenValid(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse failed on a valid fixture: %v", err)
 			}
+			if err := syntax.Validate(f); err != nil {
+				t.Fatalf("Validate failed on a valid fixture: %v", err)
+			}
 			got := dumpFile(f)
 			want, err := os.ReadFile(path + ".golden")
 			if err != nil {
@@ -44,9 +49,10 @@ func TestGoldenValid(t *testing.T) {
 	}
 }
 
-// TestGoldenInvalid parses every testdata/invalid/*.intercall file and
-// compares the exact diagnostic — error offset and the rendered
-// "path:line:column: message" — against its .golden file.
+// TestGoldenInvalid parses (then validates) every testdata/invalid/*.intercall
+// file and compares the exact diagnostic — error offset and the rendered
+// "path:line:column: message" — against its .golden file. Invalid fixtures
+// may fail at the lexical/grammar phase or at semantic validation.
 func TestGoldenInvalid(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "invalid", "*.intercall"))
 	if err != nil {
@@ -61,9 +67,12 @@ func TestGoldenInvalid(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = syntax.Parse(path, src)
+			f, err := syntax.Parse(path, src)
 			if err == nil {
-				t.Fatalf("Parse succeeded on an invalid fixture %s", path)
+				err = syntax.Validate(f)
+			}
+			if err == nil {
+				t.Fatalf("Parse/Validate succeeded on an invalid fixture %s", path)
 			}
 			e, ok := err.(*syntax.Error)
 			if !ok {

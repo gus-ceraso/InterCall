@@ -1,0 +1,26 @@
+/* Local names may equal global names; each procedure parameter list and
+   each record has its own local name scope. */
+type user record {
+    name string;
+    age uint8;
+};
+type age record {
+    value uint8;
+};
+procedure get_user {
+    user record {
+        id uint64;
+    };
+    age uint8;
+} user;
+procedure find {
+    user uint8;
+};
+type t record {
+    f record {
+        f uint8;
+    };
+    g list record {
+        f string;
+    };
+};
