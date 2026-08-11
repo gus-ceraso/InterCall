@@ -25,11 +25,16 @@ limits, dialing/listening/TLS, transport or wire cancellation, streaming
 values, or compatibility with older Go toolchains. These are out of scope, not
 backlog items. Nothing else in `SPEC.md` may be deferred.
 
-Completed prerequisites are commits `74a155f` (repository preparation),
+Implementation prerequisites are commits `74a155f` (repository preparation),
 `26ca2d4` (frozen specification), and `099ac83` (architectural simplification).
-The root module is `github.com/cerasos/intercall`, declares Go 1.26.5, and has no
-Go package yet. Every command below uses `/usr/local/go/bin/go`; `go` from
-`PATH` is not authoritative.
+The approved plan is commit `e79f6e1`. The root module is
+`github.com/cerasos/intercall` and declares Go 1.26.5. Every command below uses
+`/usr/local/go/bin/go`; `go` from `PATH` is not authoritative.
+
+Repository-wide role and engineering guidance is in [`AGENTS.md`](AGENTS.md).
+The step-by-step Orchestrator runbook is
+[`ORCHESTRADOR.md`](ORCHESTRADOR.md). Those documents operationalize this plan
+and do not override its task contracts or DAG.
 
 ## Mandatory loop protocol
 
@@ -39,7 +44,9 @@ Go package yet. Every command below uses `/usr/local/go/bin/go`; `go` from
   dependencies and handoffs, returns findings to the persistent sessions,
   stages an approved diff, commits it, records the hash, and integrates approved
   commits. It performs no technical validation, code assessment, test rerun,
-  conflict resolution, or implementation edit.
+  conflict resolution, or implementation edit. Its sole content-edit exception
+  is a factual [Progress](#progress) update after integration; that
+  administrative action grants no technical approval.
 - **Worker:** one persistent read/write session per task. It implements only the
   task, adds durable tests/fixtures/docs, runs the required evidence commands,
   and never commits or creates an evidence report.
@@ -311,6 +318,45 @@ because they share `internal/tool` contracts and fixtures.
 | `IC-18` | `ic-18-cli` | `IC-17` | none |
 | `IC-19` | `ic-19-e2e` | `IC-18` | none |
 | `IC-20` | `ic-20-hardening` | `IC-19` | none |
+
+## Progress
+
+`[ ]` means pending and `[x]` means integrated. Append the integrated commit hash
+to each completed task entry. Approval alone is not completion; in-progress and
+review state remains in session transcripts. Task Workers never edit this
+checklist. After parallel siblings integrate, the Orchestrator batches their
+factual checkbox/hash updates into one administrative progress commit to avoid
+branch conflicts.
+
+Completed prerequisites:
+
+- [x] `74a155f` — repository preparation
+- [x] `26ca2d4` — frozen specification
+- [x] `099ac83` — architectural simplification
+- [x] `e79f6e1` — approved loop-engineering plan
+
+Implementation tasks:
+
+- [ ] [IC-01 — Scaffold the module and define the generated-code SPI](#ic-01--scaffold-the-module-and-define-the-generated-code-spi)
+- [ ] [IC-02 — Parse interface syntax with exact positions and comments](#ic-02--parse-interface-syntax-with-exact-positions-and-comments)
+- [ ] [IC-03 — Implement connection lifecycle, binding, and context core](#ic-03--implement-connection-lifecycle-binding-and-context-core)
+- [ ] [IC-04 — Validate protocol semantics and calculate FNV-0 keys](#ic-04--validate-protocol-semantics-and-calculate-fnv-0-keys)
+- [ ] [IC-05 — Implement frame I/O and exclusive write ownership](#ic-05--implement-frame-io-and-exclusive-write-ownership)
+- [ ] [IC-06 — Attach semantic documentation and format canonical interfaces](#ic-06--attach-semantic-documentation-and-format-canonical-interfaces)
+- [ ] [IC-07 — Implement outgoing calls, pending ownership, IDs, and cancellation](#ic-07--implement-outgoing-calls-pending-ownership-ids-and-cancellation)
+- [ ] [IC-08 — Implement exact Go and wire naming projection](#ic-08--implement-exact-go-and-wire-naming-projection)
+- [ ] [IC-09 — Integrate receive dispatch, incoming IDs, handlers, and shutdown](#ic-09--integrate-receive-dispatch-incoming-ids-handlers-and-shutdown)
+- [ ] [IC-10 — Build the direct code-generation model and wire codec emitter](#ic-10--build-the-direct-code-generation-model-and-wire-codec-emitter)
+- [ ] [IC-11 — Parse Go documentation and InterCall directives](#ic-11--parse-go-documentation-and-intercall-directives)
+- [ ] [IC-12 — Discover packages and enforce procedure selection and signatures](#ic-12--discover-packages-and-enforce-procedure-selection-and-signatures)
+- [ ] [IC-13 — Map Go values, named types, and generated semantic metadata](#ic-13--map-go-values-named-types-and-generated-semantic-metadata)
+- [ ] [IC-14 — Model exported interfaces and application exceptions](#ic-14--model-exported-interfaces-and-application-exceptions)
+- [ ] [IC-15 — Write stamped generated artifacts safely and deterministically](#ic-15--write-stamped-generated-artifacts-safely-and-deterministically)
+- [ ] [IC-16 — Generate complete import bindings](#ic-16--generate-complete-import-bindings)
+- [ ] [IC-17 — Generate complete export bindings](#ic-17--generate-complete-export-bindings)
+- [ ] [IC-18 — Add CLI commands, options, and diagnostics](#ic-18--add-cli-commands-options-and-diagnostics)
+- [ ] [IC-19 — Exercise generated peers end to end](#ic-19--exercise-generated-peers-end-to-end)
+- [ ] [IC-20 — Document and harden the complete Go proof of concept](#ic-20--document-and-harden-the-complete-go-proof-of-concept)
 
 ## Executable tasks
 
