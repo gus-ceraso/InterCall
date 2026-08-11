@@ -21,6 +21,12 @@ type Connection struct {
 	terminal chan struct{} // closed exactly once when the first cause is selected
 	cause    error         // permanent terminal cause; non-nil once terminal is closed
 
+	// writeMu is the connection-wide write gate: requests and responses
+	// share it, exactly one frame write proceeds at a time, and frames never
+	// interleave. It is acquired after mu whenever both are held, so the
+	// lock order is mu then writeMu.
+	writeMu sync.Mutex
+
 	// Immutable ownership state, fixed at construction.
 	stream ByteStream
 	export ExportBinding
