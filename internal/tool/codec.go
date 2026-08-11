@@ -167,7 +167,7 @@ func (e *codecEmitter) emitPrimitivePairs() {
 		syntax.TokUint8, syntax.TokUint16, syntax.TokUint32, syntax.TokUint64,
 		syntax.TokFloat32, syntax.TokFloat64, syntax.TokString, syntax.TokBytes,
 	} {
-		e.emitPrimPair(k)
+		emitPrimPair(e.src, k)
 	}
 }
 
@@ -211,7 +211,7 @@ func (e *codecEmitter) emitDelegatePair(parts []string, gt, conv string, target 
 	e.src.open()
 	e.src.linef("var err error")
 	e.src.linef("buf, err = %s(buf, %s(v))", tenc, conv)
-	e.emitEncErr()
+	emitEncErr(e.src)
 	e.src.linef("return buf, nil")
 	e.src.close()
 	e.src.linef("}")
@@ -293,10 +293,10 @@ func (e *codecEmitter) emitEncBody(t syntax.TypeExpr, val string) {
 	switch t := t.(type) {
 	case *syntax.PrimType:
 		e.src.linef("buf, err = %s(buf, %s)", codecName("enc", primitiveParts(t.Kind)...), val)
-		e.emitEncErr()
+		emitEncErr(e.src)
 	case *syntax.NamedType:
 		e.src.linef("buf, err = %s(buf, %s)", codecName("enc", namedParts(t.Name.Name)...), val)
-		e.emitEncErr()
+		emitEncErr(e.src)
 	case *syntax.ListType:
 		e.emitEncList(t, val)
 	case *syntax.RecordType:
@@ -313,7 +313,7 @@ func (e *codecEmitter) emitEncBody(t syntax.TypeExpr, val string) {
 // Zero-width elements carry only the count, with no per-element loop.
 func (e *codecEmitter) emitEncList(t *syntax.ListType, val string) {
 	e.src.linef("buf, err = %s(buf, uint64(len(%s)))", codecName("enc", primitiveParts(syntax.TokUint64)...), val)
-	e.emitEncErr()
+	emitEncErr(e.src)
 	if zeroWidthOf(t.Elem, e.m.types) {
 		return
 	}
@@ -326,12 +326,12 @@ func (e *codecEmitter) emitEncList(t *syntax.ListType, val string) {
 }
 
 // emitEncErr emits the shared encoder error check.
-func (e *codecEmitter) emitEncErr() {
-	e.src.linef("if err != nil {")
-	e.src.open()
-	e.src.linef("return nil, err")
-	e.src.close()
-	e.src.linef("}")
+func emitEncErr(src *source) {
+	src.linef("if err != nil {")
+	src.open()
+	src.linef("return nil, err")
+	src.close()
+	src.linef("}")
 }
 
 // emitDecBody emits statements that decode one value of wire type t into
@@ -342,10 +342,10 @@ func (e *codecEmitter) emitDecBody(t syntax.TypeExpr, dst, errVal string) {
 	switch t := t.(type) {
 	case *syntax.PrimType:
 		e.src.linef("%s, src, err = %s(src)", dst, codecName("dec", primitiveParts(t.Kind)...))
-		e.emitDecErr(errVal)
+		emitDecErr(e.src, errVal)
 	case *syntax.NamedType:
 		e.src.linef("%s, src, err = %s(src)", dst, codecName("dec", namedParts(t.Name.Name)...))
-		e.emitDecErr(errVal)
+		emitDecErr(e.src, errVal)
 	case *syntax.ListType:
 		e.emitDecList(t, dst, errVal)
 	case *syntax.RecordType:
@@ -370,7 +370,7 @@ func (e *codecEmitter) emitDecList(t *syntax.ListType, dst, errVal string) {
 	// inside a nested block (a list element or record field loop).
 	e.src.linef("var %s uint64", count)
 	e.src.linef("%s, src, err = %s(src)", count, codecName("dec", primitiveParts(syntax.TokUint64)...))
-	e.emitDecErr(errVal)
+	emitDecErr(e.src, errVal)
 	if zeroWidthOf(t.Elem, e.m.types) {
 		e.src.linef("if %s > uint64(%s) {", count, maxIntName)
 		e.src.open()
@@ -395,143 +395,148 @@ func (e *codecEmitter) emitDecList(t *syntax.ListType, dst, errVal string) {
 }
 
 // emitDecErr emits the shared decoder error check.
-func (e *codecEmitter) emitDecErr(errVal string) {
-	e.src.linef("if err != nil {")
-	e.src.open()
-	e.src.linef("return %s, nil, err", errVal)
-	e.src.close()
-	e.src.linef("}")
+func emitDecErr(src *source, errVal string) {
+	src.linef("if err != nil {")
+	src.open()
+	src.linef("return %s, nil, err", errVal)
+	src.close()
+	src.linef("}")
 }
 
 // emitPrimPair emits one primitive codec pair with direct byte
 // operations: little-endian exact-width integers, canonical quiet NaN
 // output, rejection of every other NaN bit pattern, UTF-8 validation on
-// strings, and owned byte copies for bytes.
-func (e *codecEmitter) emitPrimPair(k syntax.TokenKind) {
+// strings, and owned byte copies for bytes. The emission is shared by
+// the import and export emitters, so both directions render the same
+// twelve pairs.
+func emitPrimPair(src *source, k syntax.TokenKind) {
 	enc, dec := codecName("enc", primitiveParts(k)...), codecName("dec", primitiveParts(k)...)
-	gt := goTypeOf(&syntax.PrimType{Kind: k}, e.m.names, e.m.types)
-	e.src.linef("func %s(buf []byte, v %s) ([]byte, error) {", enc, gt)
-	e.src.open()
+	gt := "[]byte"
+	if k != syntax.TokBytes {
+		gt = k.String()
+	}
+	src.linef("func %s(buf []byte, v %s) ([]byte, error) {", enc, gt)
+	src.open()
 	switch k {
 	case syntax.TokInt8, syntax.TokInt16, syntax.TokInt32, syntax.TokInt64,
 		syntax.TokUint8, syntax.TokUint16, syntax.TokUint32, syntax.TokUint64:
-		e.src.linef("return append(buf, %s), nil", encIntBytes(k))
+		src.linef("return append(buf, %s), nil", encIntBytes(k))
 	case syntax.TokFloat32:
-		e.src.linef("var bits uint32")
-		e.src.linef("if v != v {")
-		e.src.open()
-		e.src.linef("bits = 0x7fc00000")
-		e.src.close()
-		e.src.linef("} else {")
-		e.src.open()
-		e.src.linef("bits = math.Float32bits(v)")
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("return append(buf, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24)), nil")
+		src.linef("var bits uint32")
+		src.linef("if v != v {")
+		src.open()
+		src.linef("bits = 0x7fc00000")
+		src.close()
+		src.linef("} else {")
+		src.open()
+		src.linef("bits = math.Float32bits(v)")
+		src.close()
+		src.linef("}")
+		src.linef("return append(buf, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24)), nil")
 	case syntax.TokFloat64:
-		e.src.linef("var bits uint64")
-		e.src.linef("if v != v {")
-		e.src.open()
-		e.src.linef("bits = 0x7ff8000000000000")
-		e.src.close()
-		e.src.linef("} else {")
-		e.src.open()
-		e.src.linef("bits = math.Float64bits(v)")
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("return append(buf, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24), byte(bits>>32), byte(bits>>40), byte(bits>>48), byte(bits>>56)), nil")
+		src.linef("var bits uint64")
+		src.linef("if v != v {")
+		src.open()
+		src.linef("bits = 0x7ff8000000000000")
+		src.close()
+		src.linef("} else {")
+		src.open()
+		src.linef("bits = math.Float64bits(v)")
+		src.close()
+		src.linef("}")
+		src.linef("return append(buf, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24), byte(bits>>32), byte(bits>>40), byte(bits>>48), byte(bits>>56)), nil")
 	case syntax.TokString:
-		e.src.linef("if !utf8.ValidString(v) {")
-		e.src.open()
-		e.src.linef("return nil, %s", errUTF8Name)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("var err error")
-		e.src.linef("buf, err = %s(buf, uint64(len(v)))", codecName("enc", primitiveParts(syntax.TokUint64)...))
-		e.emitEncErr()
-		e.src.linef("return append(buf, v...), nil")
+		src.linef("if !utf8.ValidString(v) {")
+		src.open()
+		src.linef("return nil, %s", errUTF8Name)
+		src.close()
+		src.linef("}")
+		src.linef("var err error")
+		src.linef("buf, err = %s(buf, uint64(len(v)))", codecName("enc", primitiveParts(syntax.TokUint64)...))
+		emitEncErr(src)
+		src.linef("return append(buf, v...), nil")
 	case syntax.TokBytes:
-		e.src.linef("var err error")
-		e.src.linef("buf, err = %s(buf, uint64(len(v)))", codecName("enc", primitiveParts(syntax.TokUint64)...))
-		e.emitEncErr()
-		e.src.linef("return append(buf, v...), nil")
+		src.linef("var err error")
+		src.linef("buf, err = %s(buf, uint64(len(v)))", codecName("enc", primitiveParts(syntax.TokUint64)...))
+		emitEncErr(src)
+		src.linef("return append(buf, v...), nil")
 	}
-	e.src.close()
-	e.src.linef("}")
-	e.src.blank()
-	e.src.linef("func %s(src []byte) (%s, []byte, error) {", dec, gt)
-	e.src.open()
+	src.close()
+	src.linef("}")
+	src.blank()
+	src.linef("func %s(src []byte) (%s, []byte, error) {", dec, gt)
+	src.open()
 	switch k {
 	case syntax.TokInt8, syntax.TokInt16, syntax.TokInt32, syntax.TokInt64,
 		syntax.TokUint8, syntax.TokUint16, syntax.TokUint32, syntax.TokUint64:
 		width := primWidth(k)
-		e.src.linef("if len(src) < %d {", width)
-		e.src.open()
-		e.src.linef("return 0, nil, %s", errShortName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("return %s, src[%d:], nil", decIntExpr(k), width)
+		src.linef("if len(src) < %d {", width)
+		src.open()
+		src.linef("return 0, nil, %s", errShortName)
+		src.close()
+		src.linef("}")
+		src.linef("return %s, src[%d:], nil", decIntExpr(k), width)
 	case syntax.TokFloat32:
-		e.src.linef("if len(src) < 4 {")
-		e.src.open()
-		e.src.linef("return 0, nil, %s", errShortName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("bits := uint32(src[0]) | uint32(src[1])<<8 | uint32(src[2])<<16 | uint32(src[3])<<24")
-		e.src.linef("v := math.Float32frombits(bits)")
-		e.src.linef("if v != v && bits != 0x7fc00000 {")
-		e.src.open()
-		e.src.linef("return 0, nil, %s", errNaNName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("return v, src[4:], nil")
+		src.linef("if len(src) < 4 {")
+		src.open()
+		src.linef("return 0, nil, %s", errShortName)
+		src.close()
+		src.linef("}")
+		src.linef("bits := uint32(src[0]) | uint32(src[1])<<8 | uint32(src[2])<<16 | uint32(src[3])<<24")
+		src.linef("v := math.Float32frombits(bits)")
+		src.linef("if v != v && bits != 0x7fc00000 {")
+		src.open()
+		src.linef("return 0, nil, %s", errNaNName)
+		src.close()
+		src.linef("}")
+		src.linef("return v, src[4:], nil")
 	case syntax.TokFloat64:
-		e.src.linef("if len(src) < 8 {")
-		e.src.open()
-		e.src.linef("return 0, nil, %s", errShortName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("bits := uint64(src[0]) | uint64(src[1])<<8 | uint64(src[2])<<16 | uint64(src[3])<<24 |")
-		e.src.linef("	uint64(src[4])<<32 | uint64(src[5])<<40 | uint64(src[6])<<48 | uint64(src[7])<<56")
-		e.src.linef("v := math.Float64frombits(bits)")
-		e.src.linef("if v != v && bits != 0x7ff8000000000000 {")
-		e.src.open()
-		e.src.linef("return 0, nil, %s", errNaNName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("return v, src[8:], nil")
+		src.linef("if len(src) < 8 {")
+		src.open()
+		src.linef("return 0, nil, %s", errShortName)
+		src.close()
+		src.linef("}")
+		src.linef("bits := uint64(src[0]) | uint64(src[1])<<8 | uint64(src[2])<<16 | uint64(src[3])<<24 |")
+		src.linef("	uint64(src[4])<<32 | uint64(src[5])<<40 | uint64(src[6])<<48 | uint64(src[7])<<56")
+		src.linef("v := math.Float64frombits(bits)")
+		src.linef("if v != v && bits != 0x7ff8000000000000 {")
+		src.open()
+		src.linef("return 0, nil, %s", errNaNName)
+		src.close()
+		src.linef("}")
+		src.linef("return v, src[8:], nil")
 	case syntax.TokString:
-		e.src.linef("n64, src, err := %s(src)", codecName("dec", primitiveParts(syntax.TokUint64)...))
-		e.emitDecErr(`""`)
-		e.src.linef("if n64 > uint64(len(src)) {")
-		e.src.open()
-		e.src.linef("return \"\", nil, %s", errLongName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("n := int(n64)")
-		e.src.linef("b := src[:n]")
-		e.src.linef("if !utf8.Valid(b) {")
-		e.src.open()
-		e.src.linef("return \"\", nil, %s", errUTF8Name)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("return string(b), src[n:], nil")
+		src.linef("n64, src, err := %s(src)", codecName("dec", primitiveParts(syntax.TokUint64)...))
+		emitDecErr(src, `""`)
+		src.linef("if n64 > uint64(len(src)) {")
+		src.open()
+		src.linef("return \"\", nil, %s", errLongName)
+		src.close()
+		src.linef("}")
+		src.linef("n := int(n64)")
+		src.linef("b := src[:n]")
+		src.linef("if !utf8.Valid(b) {")
+		src.open()
+		src.linef("return \"\", nil, %s", errUTF8Name)
+		src.close()
+		src.linef("}")
+		src.linef("return string(b), src[n:], nil")
 	case syntax.TokBytes:
-		e.src.linef("n64, src, err := %s(src)", codecName("dec", primitiveParts(syntax.TokUint64)...))
-		e.emitDecErr("nil")
-		e.src.linef("if n64 > uint64(len(src)) {")
-		e.src.open()
-		e.src.linef("return nil, nil, %s", errLongName)
-		e.src.close()
-		e.src.linef("}")
-		e.src.linef("n := int(n64)")
-		e.src.linef("dst := make([]byte, n)")
-		e.src.linef("copy(dst, src[:n])")
-		e.src.linef("return dst, src[n:], nil")
+		src.linef("n64, src, err := %s(src)", codecName("dec", primitiveParts(syntax.TokUint64)...))
+		emitDecErr(src, "nil")
+		src.linef("if n64 > uint64(len(src)) {")
+		src.open()
+		src.linef("return nil, nil, %s", errLongName)
+		src.close()
+		src.linef("}")
+		src.linef("n := int(n64)")
+		src.linef("dst := make([]byte, n)")
+		src.linef("copy(dst, src[:n])")
+		src.linef("return dst, src[n:], nil")
 	}
-	e.src.close()
-	e.src.linef("}")
-	e.src.blank()
+	src.close()
+	src.linef("}")
+	src.blank()
 }
 
 // encIntBytes renders the little-endian byte list of one integer encoder.

@@ -109,14 +109,28 @@ func TestImportGeneratedFixtureCompiles(t *testing.T) {
 type moduleImporter struct {
 	fset   *token.FileSet
 	parsed map[string]*types.Package
+	dirs   map[string]string // import path -> source directory, defaulting to moduleSourceDirs
+}
+
+// moduleSourceDirs maps the module packages the in-memory binding type
+// checks load from source to their directories relative to the package
+// directory that go test runs in: the module root runtime package and
+// the export provider fixture package.
+var moduleSourceDirs = map[string]string{
+	"github.com/cerasos/intercall":                                  filepath.Join("..", ".."),
+	"github.com/cerasos/intercall/internal/tool/exportfixture/prov": filepath.Join("exportfixture", "prov"),
 }
 
 // Import implements types.Importer.
 func (mi *moduleImporter) Import(path string) (*types.Package, error) {
+	if mi.dirs == nil {
+		mi.dirs = moduleSourceDirs
+	}
 	if pkg := mi.parsed[path]; pkg != nil {
 		return pkg, nil
 	}
-	if path != "github.com/cerasos/intercall" {
+	dir, ok := mi.dirs[path]
+	if !ok {
 		pkg, err := importer.Default().Import(path)
 		if err != nil {
 			return nil, err
@@ -124,7 +138,7 @@ func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 		mi.parsed[path] = pkg
 		return pkg, nil
 	}
-	files, err := filepath.Glob(filepath.Join("..", "..", "*.go"))
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
 		return nil, err
 	}

@@ -90,7 +90,9 @@ type MappedValue struct {
 // documentation for generated types. Type is the underlying wire
 // structure with every nested documentation slot, ZeroWidth its codec
 // fact, and Generated reports whether the type was recovered from the
-// trusted machine metadata of an intercall-generated file.
+// trusted machine metadata of an intercall-generated file. TypeName
+// retains the type's go/types object so the export emitter can resolve
+// its Go type and the Go field names of its underlying structure.
 type NamedType struct {
 	GoName    string
 	WireName  string
@@ -99,6 +101,7 @@ type NamedType struct {
 	Filename  string
 	Pos       Position
 	Decl      *ast.TypeSpec
+	TypeName  *types.TypeName // the type's go/types object
 	Doc       string          // documentation slot
 	Type      syntax.TypeExpr // underlying wire structure, with nested docs
 	ZeroWidth bool            // codec fact
@@ -768,6 +771,7 @@ func (m *mapper) mapNamedType(pkg *packages.Package, e ast.Expr, tn *types.TypeN
 		Filename: doc.Name,
 		Pos:      doc.Position(doc.offset(spec.Name.Pos())),
 		Decl:     spec,
+		TypeName: tn,
 	}
 	m.types[key] = rec // in progress: recursive references reuse the wire name
 

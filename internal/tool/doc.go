@@ -26,6 +26,20 @@
 // the immutable import binding singleton, through the GenerateImport
 // entry point.
 //
+// The export half implements SPEC.md "Go Export Model" and the export
+// side of "Generated Binding SPI and Runtime": the export emitter
+// through the GenerateExport entry point renders one complete export
+// binding from the export model — the immutable export binding
+// singleton, the static procedure key switch with the fixed runtime
+// exception selection, the per-procedure request decoders over the
+// provider parameter types, the response encoders over the provider
+// result and exception payload types, and the direct
+// application-exception matcher with exactly-one-match semantics —
+// with deterministic provider imports and codec pairs. The checked-in
+// export fixture package is generated from the provider fixture
+// package through the complete discovery, model, and artifact
+// pipeline.
+//
 // The source half parses handwritten and generated Go source files into
 // a document model: generated-file marker recognition, physical
 // positions that //line directives never rewrite, the complete
