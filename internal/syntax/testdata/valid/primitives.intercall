@@ -1,0 +1,12 @@
+type t1 int8;
+type t2 int16;
+type t3 int32;
+type t4 int64;
+type t5 uint8;
+type t6 uint16;
+type t7 uint32;
+type t8 uint64;
+type t9 float32;
+type t10 float64;
+type t11 string;
+type t12 bytes;

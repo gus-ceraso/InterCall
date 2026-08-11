@@ -1,0 +1,8 @@
+file testdata/valid/utf8-comments.intercall (116 bytes)
+comment [0,42) " héllo 世界 — documentation text "
+comment [57,115) " emoji 😀 and BOM inside a comment is a scalar: \ufeff "
+decl 0 type-decl [43,56)
+  kw type [43,47)
+  name "t" [48,49)
+  prim bytes [50,55)
+  semi [55,56)

@@ -1,0 +1,2 @@
+offset 5
+testdata/invalid/reserved-name.intercall:1:6: expected identifier, found 'list'
