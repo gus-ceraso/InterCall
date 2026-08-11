@@ -342,9 +342,9 @@ Implementation tasks:
 - [x] [IC-03 — Implement connection lifecycle, binding, and context core](#ic-03--implement-connection-lifecycle-binding-and-context-core) — `9d168f1`
 - [x] [IC-04 — Validate protocol semantics and calculate FNV-0 keys](#ic-04--validate-protocol-semantics-and-calculate-fnv-0-keys) — `0392b3e`
 - [x] [IC-05 — Implement frame I/O and exclusive write ownership](#ic-05--implement-frame-io-and-exclusive-write-ownership) — `9972b5e`
-- [ ] [IC-06 — Attach semantic documentation and format canonical interfaces](#ic-06--attach-semantic-documentation-and-format-canonical-interfaces)
-- [ ] [IC-07 — Implement outgoing calls, pending ownership, IDs, and cancellation](#ic-07--implement-outgoing-calls-pending-ownership-ids-and-cancellation)
-- [ ] [IC-08 — Implement exact Go and wire naming projection](#ic-08--implement-exact-go-and-wire-naming-projection)
+- [x] [IC-06 — Attach semantic documentation and format canonical interfaces](#ic-06--attach-semantic-documentation-and-format-canonical-interfaces) — `0a83dea`
+- [x] [IC-07 — Implement outgoing calls, pending ownership, IDs, and cancellation](#ic-07--implement-outgoing-calls-pending-ownership-ids-and-cancellation) — `0c6d096`
+- [x] [IC-08 — Implement exact Go and wire naming projection](#ic-08--implement-exact-go-and-wire-naming-projection) — `bf90654`
 - [ ] [IC-09 — Integrate receive dispatch, incoming IDs, handlers, and shutdown](#ic-09--integrate-receive-dispatch-incoming-ids-handlers-and-shutdown)
 - [ ] [IC-10 — Build the direct code-generation model and wire codec emitter](#ic-10--build-the-direct-code-generation-model-and-wire-codec-emitter)
 - [ ] [IC-11 — Parse Go documentation and InterCall directives](#ic-11--parse-go-documentation-and-intercall-directives)
