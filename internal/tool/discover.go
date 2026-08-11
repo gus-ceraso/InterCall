@@ -378,28 +378,6 @@ func splitFilePos(pos string) (file string, line, col int, ok bool) {
 	return file, line, col, true
 }
 
-// firstError returns the earliest diagnostic of a deterministic
-// collection, ordered by path, line, column, and message.
-func firstError(diags []*Error) error {
-	if len(diags) == 0 {
-		return nil
-	}
-	sort.Slice(diags, func(i, j int) bool {
-		a, b := diags[i], diags[j]
-		if a.Filename != b.Filename {
-			return a.Filename < b.Filename
-		}
-		if a.Pos.Line != b.Pos.Line {
-			return a.Pos.Line < b.Pos.Line
-		}
-		if a.Pos.Column != b.Pos.Column {
-			return a.Pos.Column < b.Pos.Column
-		}
-		return a.Msg < b.Msg
-	})
-	return diags[0]
-}
-
 // parseDocuments parses every compiled file of one explicit package with
 // ParseGoSource and stores the document under its absolute path.
 // Directive and documentation diagnostics are reported in source order,

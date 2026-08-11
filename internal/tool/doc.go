@@ -32,4 +32,13 @@
 // --include/--exclude filter grammar, and the exact provider signatures
 // (context.Context first, predeclared error last, named wire
 // parameters, and at most one data result).
+//
+// The artifact half implements SPEC.md "One-file ownership and safe
+// replacement" and "Diagnostics": the exact ownership lines and
+// lowercase 64-hex-digit SHA-256 artifact stamps, package-name
+// resolution, non-following target-leaf checks, output-directory Go
+// collision checks under host filename equivalence, in-memory content
+// validation, same-filesystem temp staging and rename replacement, the
+// interrupted two-target export repair, deterministic bytes, and sorted
+// diagnostics.
 package tool
