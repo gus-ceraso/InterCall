@@ -351,7 +351,7 @@ Implementation tasks:
 - [x] [IC-12 — Discover packages and enforce procedure selection and signatures](#ic-12--discover-packages-and-enforce-procedure-selection-and-signatures) — `6e9da0a`
 - [x] [IC-13 — Map Go values, named types, and generated semantic metadata](#ic-13--map-go-values-named-types-and-generated-semantic-metadata) — `06a3233`
 - [x] [IC-14 — Model exported interfaces and application exceptions](#ic-14--model-exported-interfaces-and-application-exceptions) — `ec2bedc`
-- [ ] [IC-15 — Write stamped generated artifacts safely and deterministically](#ic-15--write-stamped-generated-artifacts-safely-and-deterministically)
+- [x] [IC-15 — Write stamped generated artifacts safely and deterministically](#ic-15--write-stamped-generated-artifacts-safely-and-deterministically) — `37e39ea`
 - [ ] [IC-16 — Generate complete import bindings](#ic-16--generate-complete-import-bindings)
 - [ ] [IC-17 — Generate complete export bindings](#ic-17--generate-complete-export-bindings)
 - [ ] [IC-18 — Add CLI commands, options, and diagnostics](#ic-18--add-cli-commands-options-and-diagnostics)
