@@ -529,7 +529,11 @@ var B = 1
 	})
 
 	t.Run("OutDirUnresolved", func(t *testing.T) {
-		_, err := discover(t, dir, []string{"."}, nil, nil, "missing")
+		// A fresh directory outside the active module cannot belong to
+		// it: only the artifact write creates --out, and only for a
+		// directory the active module or workspace can contain.
+		outside := filepath.Join(t.TempDir(), "missing")
+		_, err := discover(t, dir, []string{"."}, nil, nil, outside)
 		wantErr(t, err, "output directory", "missing")
 	})
 
@@ -593,6 +597,186 @@ func TestPackageDiscoveryWorkspace(t *testing.T) {
 			OutDir:   outside,
 		})
 		wantErr(t, err, "output directory", "go.work")
+	})
+}
+
+// TestOutputFreshDirectories covers the fresh-output-directory contract
+// of SPEC.md "One-file ownership and safe replacement": the artifact
+// write creates --out if necessary, so discovery accepts an output
+// directory that does not yet exist or exists without Go files when its
+// to-be-created path can belong to the active module, and rejects a
+// fresh directory outside it. The importability checks run against the
+// import path the directory would have.
+func TestOutputFreshDirectories(t *testing.T) {
+	dir := writeFixture(t, procFixture)
+
+	t.Run("NonexistentAccepted", func(t *testing.T) {
+		res, err := discover(t, dir, []string{"."}, nil, nil, "outfresh")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/proc.FindUser", "example.com/proc.LookupUser", "example.com/proc.Ping")
+	})
+
+	t.Run("NestedNonexistentAccepted", func(t *testing.T) {
+		// No ancestor of the fresh directory exists either.
+		res, err := discover(t, dir, []string{"."}, nil, nil, "a/b/c")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/proc.FindUser", "example.com/proc.LookupUser", "example.com/proc.Ping")
+	})
+
+	t.Run("EmptyExistingAccepted", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join(dir, "outempty"), 0o755); err != nil {
+			t.Fatalf("creating output directory: %v", err)
+		}
+		res, err := discover(t, dir, []string{"."}, nil, nil, "outempty")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/proc.FindUser", "example.com/proc.LookupUser", "example.com/proc.Ping")
+	})
+
+	t.Run("NonGoEntriesAccepted", func(t *testing.T) {
+		// Non-Go entries are always preserved by the write and do not
+		// stop a fresh directory from being accepted.
+		od := filepath.Join(dir, "outmixed")
+		if err := os.MkdirAll(od, 0o755); err != nil {
+			t.Fatalf("creating output directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(od, "README.md"), []byte("readme"), 0o644); err != nil {
+			t.Fatalf("writing README: %v", err)
+		}
+		res, err := discover(t, dir, []string{"."}, nil, nil, "outmixed")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/proc.FindUser", "example.com/proc.LookupUser", "example.com/proc.Ping")
+	})
+
+	t.Run("ArtifactPipelineCreates", func(t *testing.T) {
+		// The accepted fresh directory is then created by the artifact
+		// pipeline: package-name resolution falls back to the directory
+		// base name, and the write creates --out and both targets.
+		out := filepath.Join(dir, "outfresh")
+		if _, err := discover(t, dir, []string{"."}, nil, nil, "outfresh"); err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		pkg, err := ResolvePackageName(ExportMode, out, "")
+		if err != nil {
+			t.Fatalf("ResolvePackageName: %v", err)
+		}
+		if pkg != "outfresh" {
+			t.Errorf("ResolvePackageName = %q, want outfresh", pkg)
+		}
+		writeOnce(t, WriteConfig{
+			Mode:          ExportMode,
+			OutDir:        out,
+			Package:       pkg,
+			InterfacePath: filepath.Join(out, "interface.intercall"),
+			GoFile:        []byte("package outfresh\n\nconst maxInt = int(^uint(0) >> 1)\n"),
+			InterfaceBody: canonicalBody(t, testInterfaceSrc1),
+		})
+		if info, err := os.Stat(out); err != nil || !info.IsDir() {
+			t.Errorf("output directory after write: info=%v err=%v, want a directory", info, err)
+		}
+		for _, name := range []string{bindingFile, "interface.intercall"} {
+			if info, err := os.Stat(filepath.Join(out, name)); err != nil || !info.Mode().IsRegular() {
+				t.Errorf("%s after write: info=%v err=%v, want a regular file", name, info, err)
+			}
+		}
+		// The generated directory now resolves as an existing package,
+		// so regeneration runs the ordinary validation.
+		res, err := discover(t, dir, []string{"."}, nil, nil, "outfresh")
+		if err != nil {
+			t.Fatalf("rediscover: %v", err)
+		}
+		wantProviders(t, res, "example.com/proc.FindUser", "example.com/proc.LookupUser", "example.com/proc.Ping")
+	})
+
+	t.Run("FreshOutsideModuleRejected", func(t *testing.T) {
+		// A fresh directory in a directory tree without a go.mod cannot
+		// belong to the module.
+		outside := filepath.Join(t.TempDir(), "outfresh")
+		_, err := discover(t, dir, []string{"."}, nil, nil, outside)
+		wantErr(t, err, "output directory", "outfresh")
+	})
+
+	t.Run("FreshInOtherModuleRejected", func(t *testing.T) {
+		// A fresh directory inside another module is not inside the
+		// active module.
+		other := writeFixture(t, map[string]string{
+			"go.mod": "module example.com/other\n\ngo 1.26.5\n",
+			"o.go":   "package other\n",
+		})
+		_, err := discover(t, dir, []string{"."}, nil, nil, filepath.Join(other, "outfresh"))
+		wantErr(t, err, "output directory", "outfresh")
+	})
+
+	t.Run("FreshInternalVisibility", func(t *testing.T) {
+		// The provider checks run against the import path the fresh
+		// directory would have: inside the internal root it is
+		// allowed...
+		res, err := discover(t, dir, []string{"./sub/internal/hidden"}, nil, nil, "sub/freshout")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/proc/sub/internal/hidden.HiddenProc")
+		// ...and outside it is not.
+		_, err = discover(t, dir, []string{"./sub/internal/hidden"}, nil, nil, "freshout")
+		wantErr(t, err, "internal", "not visible", "example.com/proc/freshout")
+	})
+}
+
+// TestOutputFreshDirectoriesWorkspace covers fresh output directories in
+// an active workspace: a fresh directory inside a workspace module is
+// accepted, and a fresh directory outside the workspace modules is
+// rejected.
+func TestOutputFreshDirectoriesWorkspace(t *testing.T) {
+	dir := writeFixture(t, wsFixture)
+	env := discoverEnv(filepath.Join(dir, "go.work"))
+
+	t.Run("WorkspaceFreshAccepted", func(t *testing.T) {
+		res, err := Discover(DiscoverConfig{
+			Dir:      dir,
+			Env:      env,
+			Patterns: []string{"./b/..."},
+			OutDir:   "b/freshout",
+		})
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/wb.BProc")
+	})
+
+	t.Run("WorkspaceFreshOutsideRejected", func(t *testing.T) {
+		// A fresh directory in a directory tree without a go.mod cannot
+		// belong to any workspace module.
+		outside := filepath.Join(t.TempDir(), "outfresh")
+		_, err := Discover(DiscoverConfig{
+			Dir:      dir,
+			Env:      env,
+			Patterns: []string{"./b/..."},
+			OutDir:   outside,
+		})
+		wantErr(t, err, "output directory", "outfresh")
+	})
+
+	t.Run("WorkspaceFreshOtherModuleRejected", func(t *testing.T) {
+		// A fresh directory inside a module that is not listed in
+		// go.work is not part of the workspace.
+		other := writeFixture(t, map[string]string{
+			"go.mod": "module example.com/elsewhere\n\ngo 1.26.5\n",
+			"o.go":   "package elsewhere\n",
+		})
+		_, err := Discover(DiscoverConfig{
+			Dir:      dir,
+			Env:      env,
+			Patterns: []string{"./b/..."},
+			OutDir:   filepath.Join(other, "outfresh"),
+		})
+		wantErr(t, err, "output directory", "outfresh")
 	})
 }
 

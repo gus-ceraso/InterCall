@@ -1,8 +1,11 @@
 package tool
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -50,8 +53,11 @@ const outputMode = packages.NeedName | packages.NeedFiles
 // Go toolchain's bin directory prepended to PATH when PATH cannot find a
 // go executable. Patterns are the export operands; Includes and Excludes
 // are the --include and --exclude filter values in flag order. OutDir is
-// the export output directory, which must resolve to an importable
-// package in the active module or workspace.
+// the export output directory: it must resolve to an importable package
+// in the active module or workspace, or be a fresh directory — one that
+// does not yet exist or exists without Go files — whose to-be-created
+// path can belong to the active module or workspace; the artifact write
+// then creates it if necessary.
 type DiscoverConfig struct {
 	Dir      string
 	Env      []string
@@ -409,10 +415,16 @@ func (p *ExplicitPackage) parseDocuments() error {
 
 // checkOutputPackage validates the export output directory: it must
 // resolve to an importable package in the active module or workspace,
-// and the generated binding in it must be able to import every selected
-// provider. The resolution runs the go command from the discovery
-// directory, so a directory outside the active module or workspace does
-// not resolve and is an error.
+// or be a fresh directory — one that does not yet exist or exists
+// without Go files — that can belong to the active module or workspace
+// (SPEC.md "One-file ownership and safe replacement": the artifact
+// write creates --out if necessary). The resolution runs the go
+// command from the discovery directory, so a directory outside the
+// active module or workspace does not resolve and is an error; a fresh
+// directory is accepted only when its to-be-created path falls under
+// the active module or one of the workspace modules, and the
+// importability checks then run against the import path the directory
+// would have.
 func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers []*Provider) error {
 	if cfg.OutDir == "" {
 		return &Error{
@@ -446,11 +458,19 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 		}
 	}
 	out := pkgs[0]
-	for _, e := range out.Errors {
+	if len(out.Errors) > 0 {
+		// A fresh directory does not resolve to a package yet: the
+		// artifact write creates --out if necessary, so discovery
+		// accepts it when the to-be-created path can belong to the
+		// active module or workspace. Every other unresolved directory
+		// keeps the package-resolution diagnostic.
+		if outPath, ok := freshOutputPath(dir, env, abs); ok {
+			return checkOutputProviders(cfg, outPath, providers)
+		}
 		return &Error{
 			Filename: cfg.OutDir,
 			Pos:      Position{Line: 1, Column: 1},
-			Msg:      fmt.Sprintf("output directory %q: %s", cfg.OutDir, e.Msg),
+			Msg:      fmt.Sprintf("output directory %q: %s", cfg.OutDir, out.Errors[0].Msg),
 		}
 	}
 	if out.Name == "main" {
@@ -468,31 +488,168 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 		}
 	}
 
+	return checkOutputProviders(cfg, out.PkgPath, providers)
+}
+
+// checkOutputProviders verifies that a binding in the output package
+// outPath can import every selected provider: no selected procedure may
+// live in the output package, no provider package may import the output
+// package (which would form an import cycle), and every provider
+// package must be internal-visible from the output package.
+func checkOutputProviders(cfg DiscoverConfig, outPath string, providers []*Provider) error {
 	for _, p := range providers {
 		qualified := p.Pkg.Path + "." + p.Name
-		if p.Pkg.Path == out.PkgPath {
+		if p.Pkg.Path == outPath {
 			return &Error{
 				Filename: cfg.OutDir,
 				Pos:      Position{Line: 1, Column: 1},
 				Msg:      fmt.Sprintf("selected procedure %q is in the output package: the generated binding would import its own package", qualified),
 			}
 		}
-		if importsPath(out.PkgPath, p.Pkg.pkg) {
+		if importsPath(outPath, p.Pkg.pkg) {
 			return &Error{
 				Filename: cfg.OutDir,
 				Pos:      Position{Line: 1, Column: 1},
-				Msg:      fmt.Sprintf("selected procedure %q: provider package %q imports the output package %q, which would form an import cycle", qualified, p.Pkg.Path, out.PkgPath),
+				Msg:      fmt.Sprintf("selected procedure %q: provider package %q imports the output package %q, which would form an import cycle", qualified, p.Pkg.Path, outPath),
 			}
 		}
-		if !internalVisible(out.PkgPath, p.Pkg.Path) {
+		if !internalVisible(outPath, p.Pkg.Path) {
 			return &Error{
 				Filename: cfg.OutDir,
 				Pos:      Position{Line: 1, Column: 1},
-				Msg:      fmt.Sprintf("selected procedure %q: provider package %q is internal and not visible from the output package %q", qualified, p.Pkg.Path, out.PkgPath),
+				Msg:      fmt.Sprintf("selected procedure %q: provider package %q is internal and not visible from the output package %q", qualified, p.Pkg.Path, outPath),
 			}
 		}
 	}
 	return nil
+}
+
+// freshOutputPath returns the import path a fresh output directory
+// would have in the active module or workspace. ok is false unless the
+// directory is fresh — it does not exist, or exists as a directory
+// containing no Go file — and its to-be-created path can belong to the
+// active module or workspace under Go's nearest-go.mod resolution rule;
+// the caller then keeps the package-resolution diagnostic.
+func freshOutputPath(dir string, env []string, outDir string) (path string, ok bool) {
+	fresh, err := freshOutDir(outDir)
+	if err != nil || !fresh {
+		return "", false
+	}
+	roots, err := activeModuleRoots(dir, env)
+	if err != nil {
+		return "", false
+	}
+	goMod := nearestGoMod(outDir)
+	if goMod == "" {
+		return "", false
+	}
+	for root, prefix := range roots {
+		if filepath.Join(root, "go.mod") != goMod {
+			continue
+		}
+		rel, err := filepath.Rel(root, outDir)
+		if err != nil {
+			return "", false
+		}
+		if rel == "." {
+			return prefix, true
+		}
+		return prefix + "/" + filepath.ToSlash(rel), true
+	}
+	return "", false
+}
+
+// freshOutDir reports whether outDir is a fresh export output
+// directory: the path does not exist, or it exists as a directory whose
+// entries contain no Go filename. A path that exists and is not a
+// directory is not fresh, and a directory whose state cannot be
+// inspected is an error.
+func freshOutDir(outDir string) (fresh bool, err error) {
+	info, err := os.Stat(outDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	entries, err := os.ReadDir(outDir)
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".go") {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// activeModuleRoots returns the module root directories of the active
+// module or workspace mapped to their import paths, as the go command
+// reports them from dir: the main module in module mode, and every
+// workspace module in workspace mode. Only the roots of the active
+// module or workspace can contain a fresh output directory.
+func activeModuleRoots(dir string, env []string) (map[string]string, error) {
+	cmd := exec.Command(goTool(env), "list", "-m", "-json")
+	cmd.Dir = dir
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	roots := make(map[string]string)
+	for dec := json.NewDecoder(bytes.NewReader(out)); dec.More(); {
+		var mod struct {
+			Path string
+			Dir  string
+			Main bool
+		}
+		if err := dec.Decode(&mod); err != nil {
+			return nil, err
+		}
+		if !mod.Main || mod.Dir == "" || mod.Path == "" {
+			continue
+		}
+		root, err := filepath.Abs(mod.Dir)
+		if err != nil {
+			return nil, err
+		}
+		roots[root] = mod.Path
+	}
+	return roots, nil
+}
+
+// goTool returns the go executable of env's PATH, or "go" when the
+// PATH has none; buildEnv guarantees the caller's environment resolves
+// the toolchain's go command, so the subprocess runs the same toolchain
+// as the package loads.
+func goTool(env []string) string {
+	if p := findInPath(env, "go"); p != "" {
+		return p
+	}
+	return "go"
+}
+
+// nearestGoMod returns the path of the nearest go.mod walking up from
+// dir — the go.mod that governs a directory at dir under Go's module
+// resolution — or "" when no go.mod exists above it. dir itself need
+// not exist; the walk reaches the deepest existing ancestor.
+func nearestGoMod(dir string) string {
+	d := filepath.Clean(dir)
+	for {
+		cand := filepath.Join(d, "go.mod")
+		if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+			return cand
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return ""
+		}
+		d = parent
+	}
 }
 
 // importsPath reports whether the transitive import closure of pkg
