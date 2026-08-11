@@ -347,7 +347,7 @@ Implementation tasks:
 - [x] [IC-08 — Implement exact Go and wire naming projection](#ic-08--implement-exact-go-and-wire-naming-projection) — `bf90654`
 - [x] [IC-09 — Integrate receive dispatch, incoming IDs, handlers, and shutdown](#ic-09--integrate-receive-dispatch-incoming-ids-handlers-and-shutdown) — `81c3206`
 - [x] [IC-10 — Build the direct code-generation model and wire codec emitter](#ic-10--build-the-direct-code-generation-model-and-wire-codec-emitter) — `5665a05`
-- [ ] [IC-11 — Parse Go documentation and InterCall directives](#ic-11--parse-go-documentation-and-intercall-directives)
+- [x] [IC-11 — Parse Go documentation and InterCall directives](#ic-11--parse-go-documentation-and-intercall-directives) — `c4f0375`
 - [ ] [IC-12 — Discover packages and enforce procedure selection and signatures](#ic-12--discover-packages-and-enforce-procedure-selection-and-signatures)
 - [ ] [IC-13 — Map Go values, named types, and generated semantic metadata](#ic-13--map-go-values-named-types-and-generated-semantic-metadata)
 - [ ] [IC-14 — Model exported interfaces and application exceptions](#ic-14--model-exported-interfaces-and-application-exceptions)
