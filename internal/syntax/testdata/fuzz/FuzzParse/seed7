@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("type t int8; type t int16; type t int32; type t int64; type t uint8; type t uint16; type t uint32; type t uint64; type t float32; type t float64; type t string; type t bytes;")

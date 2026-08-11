@@ -1,0 +1,3 @@
+file testdata/valid/comments-only.intercall (36 bytes)
+comment [0,20) " only a comment "
+comment [22,35) " another "

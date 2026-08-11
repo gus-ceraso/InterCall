@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("type x record { f list list list list uint8; };")

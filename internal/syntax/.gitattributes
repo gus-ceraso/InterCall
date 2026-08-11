@@ -1,0 +1,4 @@
+# This fixture intentionally stores CRLF line endings to exercise CR/LF
+# byte accounting. Treat CR as a line terminator so the whitespace check
+# does not flag the fixture; the stored bytes are never normalized.
+testdata/valid/crlf.intercall whitespace=cr-at-eol
