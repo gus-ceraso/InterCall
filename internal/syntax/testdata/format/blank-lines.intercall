@@ -1,0 +1,16 @@
+/* a */
+/* b */
+type t uint8;
+
+/* c */
+
+/* d */
+type u int16;
+
+/* e */
+
+type v int32;
+
+/**/
+/* f */
+type w int64;

@@ -75,6 +75,52 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
+// FuzzParseFormat exercises the canonical formatter on arbitrary bytes.
+//
+// For every input that parses and validates, the invariants hold: the
+// canonical output of an empty interface is zero bytes and every nonempty
+// output ends in one LF; the output always parses and validates; the
+// output is idempotent under parse-validate-attach-format; and every
+// documentation slot survives the round trip byte for byte.
+func FuzzParseFormat(f *testing.F) {
+	seeds := []string{
+		"",
+		"/* only a comment */",
+		"type t uint8;",
+		"/* doc */ type t uint8;",
+		"type t /* t doc */ uint8;",
+		"type t list /* elem */ uint8;",
+		"type t /* rec */ record { /* f */ f list record { g uint8; }; };",
+		"procedure p { x /* xt */ int8; } /* r */ record {};",
+		"exception e;\nexception f /* p */ record {};",
+		"/* a */\n/* b */\ntype t int16;\ntype t2 int16; /* trailing */",
+		"type t uint8; /* trailing */\ntype u int16;",
+		"type t bytes;\r\n/* crlf */\r\ntype u int8;\r\n",
+		"/* 世界 😀 */ type t string;",
+	}
+	for _, seed := range seeds {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, src []byte) {
+		file, err := syntax.Parse("fuzz", src)
+		if err != nil {
+			e, ok := err.(*syntax.Error)
+			if !ok {
+				t.Fatalf("error type %T, want *syntax.Error", err)
+			}
+			if e.Pos.Offset < 0 || e.Pos.Offset > len(src) {
+				t.Fatalf("error offset %d out of range [0, %d]", e.Pos.Offset, len(src))
+			}
+			return
+		}
+		if err := syntax.Validate(file); err != nil {
+			return // only validated interfaces are formatted
+		}
+		syntax.AttachDocs(file)
+		checkCanonical(t, "fuzz", syntax.Format(file), file)
+	})
+}
+
 // checkSpan asserts that span is a valid in-range byte range.
 func checkSpan(t *testing.T, what string, i int, span syntax.Span, size int) {
 	t.Helper()

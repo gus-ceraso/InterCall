@@ -4,9 +4,17 @@
 // in README.md, including an empty file. The AST contains only source
 // structure: declarations and nested type occurrences in source order,
 // exact input byte spans, and one documentation slot on every declaration,
-// parameter, field, and type-specifier occurrence. Comment attachment and
-// normalization are a later phase; this package captures every comment in
-// source order with its exact span and raw body.
+// parameter, field, and type-specifier occurrence. Parse captures every
+// comment in source order with its exact span and raw body.
+//
+// AttachDocs attaches those comments to the documentation slots: eligible
+// anchors are the first token of every declaration, parameter, field, and
+// type occurrence, a documentation group is the maximal run of block
+// comments immediately before an anchor with no blank line within or
+// between the group and the anchor, and each comment attaches at most
+// once. Every attached group is normalized before storage. Format renders
+// the byte-exact canonical interface body of a validated file, preserving
+// declaration order and emitting every attached document.
 //
 // Validate checks protocol semantics on a parsed file: shared global
 // declaration names, per-procedure and per-record local scopes, earlier

@@ -1,0 +1,10 @@
+type a /* underlying */ uint8;
+type b /* payload */ record {};
+exception e /* named payload */ a;
+procedure f /* result */ {} /* named result */ a;
+procedure g {
+    x /* empty record */ record {};
+    y /* empty list */ list record {};
+};
+type h list /* element doc */ record {};
+type i /* record doc */ record { };
