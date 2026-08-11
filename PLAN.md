@@ -349,7 +349,7 @@ Implementation tasks:
 - [x] [IC-10 — Build the direct code-generation model and wire codec emitter](#ic-10--build-the-direct-code-generation-model-and-wire-codec-emitter) — `5665a05`
 - [x] [IC-11 — Parse Go documentation and InterCall directives](#ic-11--parse-go-documentation-and-intercall-directives) — `c4f0375`
 - [x] [IC-12 — Discover packages and enforce procedure selection and signatures](#ic-12--discover-packages-and-enforce-procedure-selection-and-signatures) — `6e9da0a`
-- [ ] [IC-13 — Map Go values, named types, and generated semantic metadata](#ic-13--map-go-values-named-types-and-generated-semantic-metadata)
+- [x] [IC-13 — Map Go values, named types, and generated semantic metadata](#ic-13--map-go-values-named-types-and-generated-semantic-metadata) — `06a3233`
 - [ ] [IC-14 — Model exported interfaces and application exceptions](#ic-14--model-exported-interfaces-and-application-exceptions)
 - [ ] [IC-15 — Write stamped generated artifacts safely and deterministically](#ic-15--write-stamped-generated-artifacts-safely-and-deterministically)
 - [ ] [IC-16 — Generate complete import bindings](#ic-16--generate-complete-import-bindings)
