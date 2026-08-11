@@ -1,24 +1,26 @@
-// Package tool implements the InterCall Go toolchain's naming projection,
-// import override selectors, identifier visibility rules, deterministic
-// private mangling, and scope collision checks from SPEC.md "Names and
-// native overrides".
+// Package tool implements the InterCall Go toolchain's naming
+// projection, import override selectors, identifier visibility rules,
+// deterministic private mangling, scope collision checks, codec
+// generation, and Go source-document and directive parsing.
 //
-// The package operates on pure name strings and on parsed and validated
-// interface files from internal/syntax. It never loads Go source, maps Go
-// types, parses source directives, or emits code; those phases live in
-// later tasks.
+// The naming half operates on pure name strings and on parsed and
+// validated interface files from internal/syntax. Name conversion is
+// ASCII-only and uses the fixed initialism set: wire-to-Go projection
+// (WireToGo) is PascalCase for declarations and fields and camelCase for
+// parameters, and Go-to-wire conversion (GoToWire) is the checked
+// inverse that rejects identifiers that do not survive the exact round
+// trip. Import overrides follow the exact --go-name selector grammar.
 //
-// Name conversion is ASCII-only and uses the fixed initialism set:
-// wire-to-Go projection (WireToGo) is PascalCase for declarations and
-// fields and camelCase for parameters, and Go-to-wire conversion
-// (GoToWire) is the checked inverse that rejects identifiers that do not
-// survive the exact round trip.
+// The codec half renders the generated Go binding codecs of one
+// interface model, including the exact @intercall type machine lines of
+// SPEC.md "Safe import and re-export metadata", and is tested through
+// the compiled generated fixture.
 //
-// Import overrides follow the exact --go-name selector grammar. A selector
-// names one generated Go identifier: a declaration root, a parameter, or
-// the final field of an inline record reached through a field path.
-// ProjectNames computes the complete projected name table for one
-// interface, applies the overrides, validates every resulting name, and
-// rejects collisions in each actual scope (package declarations, record
-// fields, and procedure parameters).
+// The source half parses handwritten and generated Go source files into
+// a document model: generated-file marker recognition, physical
+// positions that //line directives never rewrite, the complete
+// logical-line InterCall directive grammar with placement, contradiction,
+// duplicate, and resolution checks, and the extraction and normalization
+// of retained Go documentation, including the '*/' terminator
+// rejection.
 package tool
