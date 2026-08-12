@@ -18,6 +18,12 @@ import (
 // unmatched frame without terminating the connection; a deadline
 // returns the exact deadline error; and a pre-canceled call context
 // never reaches the wire.
+//
+// The final peer cause is a transport cause: the peer's receive loop
+// observes EOF when the closing end drains and closes the pipe, while a
+// handler that is still writing its late response at that moment reports
+// io.ErrClosedPipe. SPEC.md's first-cause selection makes either the
+// permanent terminal cause, so the assertion accepts both.
 func TestCancellation(t *testing.T) {
 	a, b := newPair(t)
 	ctxA, ctxB := bind(a), bind(b)
@@ -80,8 +86,8 @@ func TestCancellation(t *testing.T) {
 	}
 
 	closeAndWait(t, a)
-	if err := b.Wait(); !errors.Is(err, io.EOF) {
-		t.Fatalf("peer Wait = %v, want an io.EOF cause", err)
+	if err := b.Wait(); !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("peer Wait = %v, want an io.EOF or io.ErrClosedPipe transport cause", err)
 	}
 	requireNoLeaks(t)
 }

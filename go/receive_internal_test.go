@@ -594,6 +594,7 @@ func TestReceiveDecoderErrorTerminal(t *testing.T) {
 	}
 	waitTerminal(t, c)
 	waitReceiveExit(t, c)
+	waitTeardown(t, c)
 	if stream.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
 	}
@@ -697,6 +698,7 @@ func TestReceiveIncomingDuplicateBeforeWrite(t *testing.T) {
 	}
 
 	waitReceiveExit(t, c)
+	waitTeardown(t, c)
 	if stream.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
 	}

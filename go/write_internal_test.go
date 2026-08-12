@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // scriptedWriter records every accepted byte and delegates the byte count
@@ -244,14 +245,19 @@ func TestWriteFullInvalidCount(t *testing.T) {
 	}
 }
 
-// TestWriteFrameGateSerializes pins the connection-wide write gate: two
-// concurrent frame writes over a one-byte-at-a-time stream never interleave;
-// the recorded bytes are exactly one complete frame followed by the other.
-func TestWriteFrameGateSerializes(t *testing.T) {
-	frames := [][]byte{
-		buildFrame(requestFrame, 1, 0x1111, bytes.Repeat([]byte{0xaa}, 64)),
-		buildFrame(responseFrame, 2, 0x2222, bytes.Repeat([]byte{0xbb}, 64)),
-	}
+// TestWriteGateSerializes pins the connection-wide write gate for the
+// production paths: an outgoing request frame (Call) and an incoming
+// response frame (handleRequest) written concurrently over a
+// one-byte-at-a-time stream never interleave; the recorded bytes are
+// exactly one complete frame followed by the other.
+func TestWriteGateSerializes(t *testing.T) {
+	respID := uint64(9)
+	respKey := uint64(0x2222)
+	respPayload := bytes.Repeat([]byte{0xbb}, 64)
+	reqPayload := bytes.Repeat([]byte{0xaa}, 64)
+	wantReq := buildFrame(requestFrame, 0, 1, reqPayload)
+	wantResp := buildFrame(responseFrame, respID, respKey, respPayload)
+
 	var (
 		mu       sync.Mutex
 		recorded []byte
@@ -264,40 +270,70 @@ func TestWriteFrameGateSerializes(t *testing.T) {
 		return 1, nil
 	}}
 	c := newWriteTestConn(t, stream)
+	if !c.reserveIncoming(respID) {
+		t.Fatal("premise: incoming ID must be reservable")
+	}
+	export, err := NewExportBinding(func(context.Context, uint64, []byte) (uint64, []byte) {
+		return respKey, respPayload
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.export = export
 
+	callDone := make(chan error, 1)
+	handlerDone := make(chan struct{})
 	start := make(chan struct{})
-	errs := make([]error, len(frames))
-	var wg sync.WaitGroup
-	for i := range frames {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			errs[i] = c.writeFrame(frames[i])
-		}(i)
-	}
+	go func() {
+		<-start
+		callDone <- c.Call(context.Background(), c.imp, 1,
+			func() ([]byte, error) { return reqPayload, nil }, okDecoder)
+	}()
+	go func() {
+		<-start
+		c.handleRequest(respID, respKey, nil)
+		close(handlerDone)
+	}()
 	close(start)
-	wg.Wait()
 
-	for i, err := range errs {
-		if err != nil {
-			t.Errorf("writer %d: %v", i, err)
+	total := len(wantReq) + len(wantResp)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := append([]byte(nil), recorded...)
+		mu.Unlock()
+		if len(got) >= total {
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for both frames to be recorded")
+		}
+		time.Sleep(time.Millisecond)
 	}
+	<-handlerDone
+
 	mu.Lock()
 	got := append([]byte(nil), recorded...)
 	mu.Unlock()
-
-	joined1 := append(append([]byte(nil), frames[0]...), frames[1]...)
-	joined2 := append(append([]byte(nil), frames[1]...), frames[0]...)
+	joined1 := append(append([]byte(nil), wantReq...), wantResp...)
+	joined2 := append(append([]byte(nil), wantResp...), wantReq...)
 	if !bytes.Equal(got, joined1) && !bytes.Equal(got, joined2) {
-		t.Errorf("concurrent frames interleaved: got %d bytes, want %x or %x", len(got), joined1, joined2)
+		t.Errorf("concurrent request and response frames interleaved: got %d bytes, want %x or %x", len(got), joined1, joined2)
+	}
+
+	// The call's request was admitted; claim it so the call completes.
+	if !c.claimResponse(0, 0, nil) {
+		t.Fatal("claimResponse(0) did not match the pending call")
+	}
+	if err := <-callDone; err != nil {
+		t.Fatalf("call failed: %v", err)
 	}
 }
 
-// TestWriteFrameGateReleasedOnError pins that the write gate is released on
-// every path, including a failing write: the next frame still completes.
-func TestWriteFrameGateReleasedOnError(t *testing.T) {
+// TestWriteGateReleasedOnError pins that the write gate is released on
+// every path: a failing frame write releases the gate, so the next writer
+// can acquire it and complete a frame.
+func TestWriteGateReleasedOnError(t *testing.T) {
 	underlying := errors.New("first write fails")
 	var calls int
 	stream := &scriptedStream{write: func(p []byte) (int, error) {
@@ -310,10 +346,21 @@ func TestWriteFrameGateReleasedOnError(t *testing.T) {
 	c := newWriteTestConn(t, stream)
 	frame := buildFrame(requestFrame, 1, 2, []byte("payload"))
 
-	if err := c.writeFrame(frame); !errors.Is(err, underlying) {
+	if err := c.acquireWriteGate(context.Background()); err != nil {
+		t.Fatalf("first acquire: %v", err)
+	}
+	if err := writeFull(stream, frame); !errors.Is(err, underlying) {
 		t.Fatalf("first write err = %v, want the stream error", err)
 	}
-	if err := c.writeFrame(frame); err != nil {
-		t.Fatalf("second write after an error: %v; the gate must be released on every path", err)
+	c.releaseWriteGate()
+
+	// The gate is free again: the failing path released it, so a second
+	// writer acquires and completes a full frame.
+	if err := c.acquireWriteGate(context.Background()); err != nil {
+		t.Fatalf("second acquire: %v; the gate must be released on every path", err)
 	}
+	if err := writeFull(stream, frame); err != nil {
+		t.Fatalf("second write after an error: %v", err)
+	}
+	c.releaseWriteGate()
 }

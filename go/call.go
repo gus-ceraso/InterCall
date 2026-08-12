@@ -54,7 +54,8 @@ func (pc *pendingCall) complete(result error) {
 //  4. it returns the encoder's exact error, if any, without allocating an
 //     ID, constructing a frame, or entering the write gate;
 //  5. it rechecks terminal state and ctx.Err(), builds the owned contiguous
-//     frame, and acquires the write gate while allowing either to win;
+//     frame, and waits on the write gate while allowing terminal selection
+//     or the call context's Done to win;
 //  6. it rechecks both under the connection lock, allocates an ID, and
 //     inserts one pending entry immediately before write admission;
 //  7. it writes the whole buffered frame while holding the gate; and
@@ -65,10 +66,11 @@ func (pc *pendingCall) complete(result error) {
 // are never reused, including after completion or local cancellation. After
 // allocating the final ID, the next call returns ErrRequestIDsExhausted
 // without writing a frame. No ID is allocated while waiting for the write
-// gate, and insertion and write admission are one lock-protected action.
-// After admission the per-call context cannot interrupt the write; a
-// response or connection termination may claim the entry during the
-// full-duplex write, and that claim decides the outcome.
+// gate, the connection state lock is never held while waiting for the gate
+// or while calling stream Write, and insertion and write admission are one
+// lock-protected action. After admission the per-call context cannot
+// interrupt the write; a response or connection termination may claim the
+// entry during the full-duplex write, and that claim decides the outcome.
 //
 // A per-call context cancellation returns that context's exact
 // context.Canceled or context.DeadlineExceeded when cancellation claims the
@@ -120,22 +122,26 @@ func (c *Connection) Call(ctx context.Context, imp ImportBinding, procedureKey u
 	}
 	frame := buildFrame(requestFrame, 0, procedureKey, payload)
 
-	// Step 6: admission, one lock-protected action under the connection
-	// lock. Acquire the write gate while holding mu (the documented lock
-	// order is mu then writeMu), recheck both under the connection lock so a
-	// cancellation that fired while waiting for the gate wins without an ID
-	// or frame, check ID exhaustion, then allocate the next monotonic ID and
-	// insert one pending entry immediately before the write.
+	// Step 6: wait for the write gate without holding the connection state
+	// lock, allowing terminal selection and the call context's Done to win
+	// the wait. No ID is allocated while waiting for the gate. Once the
+	// gate is held, admission is one lock-protected action under the
+	// connection lock: a cancellation or termination that fired while
+	// waiting wins without an ID or frame, ID exhaustion is checked, then
+	// the next monotonic ID is allocated and one pending entry is inserted
+	// immediately before the write.
+	if err := c.acquireWriteGate(ctx); err != nil {
+		return err
+	}
 	c.mu.Lock()
-	c.writeMu.Lock()
 	if err := c.callReadyLocked(ctx); err != nil {
-		c.writeMu.Unlock()
 		c.mu.Unlock()
+		c.releaseWriteGate()
 		return err
 	}
 	if c.nextID > idMask {
-		c.writeMu.Unlock()
 		c.mu.Unlock()
+		c.releaseWriteGate()
 		return ErrRequestIDsExhausted
 	}
 	id := c.nextID
@@ -153,7 +159,7 @@ func (c *Connection) Call(ctx context.Context, imp ImportBinding, procedureKey u
 	// entry, that response remains this call's outcome; otherwise terminal
 	// teardown claims it.
 	werr := writeFull(c.stream, frame)
-	c.writeMu.Unlock()
+	c.releaseWriteGate()
 	if werr != nil {
 		c.selectTerminal(werr)
 	}

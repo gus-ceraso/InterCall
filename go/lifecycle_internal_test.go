@@ -75,6 +75,19 @@ func waitObserver(t *testing.T, c *Connection) {
 	}
 }
 
+// waitTeardown blocks until terminal teardown and stream cleanup complete,
+// with a timeout. Terminal publication is synchronous, but delivering the
+// terminal completions and closing the stream are the asynchronous cleanup
+// owner's job, so assertions on teardown state must wait for it.
+func waitTeardown(t *testing.T, c *Connection) {
+	t.Helper()
+	select {
+	case <-c.teardown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for terminal teardown")
+	}
+}
+
 // finish terminates c with cause and waits for selection and observer exit.
 func finish(t *testing.T, c *Connection, cause error) {
 	t.Helper()
@@ -195,6 +208,7 @@ func TestLifecycleContextCancellationSelectsExactCause(t *testing.T) {
 	if c.cause != ctx.Err() {
 		t.Errorf("cause = %v, want the exact ctx.Err() value %v", c.cause, ctx.Err())
 	}
+	waitTeardown(t, c)
 	if s.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
@@ -272,6 +286,7 @@ func TestLifecycleObserverExitsOnTerminalWithNilDone(t *testing.T) {
 	if c.cause != ErrClosed {
 		t.Errorf("cause = %v, want ErrClosed", c.cause)
 	}
+	waitTeardown(t, c)
 	if s.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
@@ -314,6 +329,7 @@ func TestLifecycleCancelAfterTerminalDoesNotReplaceCause(t *testing.T) {
 	if c.cause != ErrClosed {
 		t.Errorf("cause = %v, want ErrClosed to remain permanent", c.cause)
 	}
+	waitTeardown(t, c)
 	if s.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
@@ -347,6 +363,7 @@ func TestLifecycleCloseCancellationRace(t *testing.T) {
 		if c.cause != context.Canceled && c.cause != ErrClosed {
 			t.Fatalf("iteration %d: cause = %v, want exactly context.Canceled or ErrClosed", i, c.cause)
 		}
+		waitTeardown(t, c)
 		if s.closeCount() != 1 {
 			t.Fatalf("iteration %d: stream closed %d times, want exactly 1", i, s.closeCount())
 		}
@@ -372,11 +389,12 @@ func TestLifecycleStreamClosedExactlyOnce(t *testing.T) {
 	waitTerminal(t, c)
 	waitObserver(t, c)
 
-	if s.closeCount() != 1 {
-		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
-	}
 	if c.cause == nil {
 		t.Error("no terminal cause selected")
+	}
+	waitTeardown(t, c)
+	if s.closeCount() != 1 {
+		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
 }
 
@@ -400,6 +418,7 @@ func TestLifecycleCleanupErrorSuppressed(t *testing.T) {
 	if errors.Is(c.cause, cleanupErr) {
 		t.Error("cleanup error joined the terminal cause")
 	}
+	waitTeardown(t, c)
 	if s.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
@@ -441,6 +460,7 @@ func TestLifecycleHandlerContextsCanceledOnTerminal(t *testing.T) {
 	waitTerminal(t, c)
 	waitObserver(t, c)
 
+	waitTeardown(t, c)
 	select {
 	case <-hctx.Done():
 	case <-time.After(5 * time.Second):
@@ -463,6 +483,7 @@ func TestLifecycleCloseCancelsHandlerContexts(t *testing.T) {
 	waitTerminal(t, c)
 	waitObserver(t, c)
 
+	waitTeardown(t, c)
 	select {
 	case <-hctx.Done():
 	case <-time.After(5 * time.Second):

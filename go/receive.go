@@ -92,19 +92,25 @@ func (c *Connection) handleRequest(id, key uint64, payload []byte) {
 	ekey, epayload := c.invokeDispatch(hctx, key, payload)
 	frame := buildFrame(responseFrame, id, ekey, epayload)
 
-	// Write admission: acquire the gate, then recheck terminal state under
-	// the connection lock so a handler waiting for the gate abandons its
-	// response after terminal selection. The lock order is mu then writeMu.
+	// Write admission: wait for the connection-wide write gate without
+	// holding the connection state lock, observing terminal selection so a
+	// handler waiting for the gate abandons its response after terminal
+	// selection. Once the gate is held, recheck terminal state under the
+	// connection lock: if terminal selection won while the handler waited,
+	// the response is abandoned and the gate released. The lock order is
+	// gate first, then mu.
+	if err := c.acquireWriteGate(nil); err != nil {
+		return
+	}
 	c.mu.Lock()
-	c.writeMu.Lock()
 	if c.cause != nil {
-		c.writeMu.Unlock()
 		c.mu.Unlock()
+		c.releaseWriteGate()
 		return
 	}
 	c.mu.Unlock()
 	err := writeFull(c.stream, frame)
-	c.writeMu.Unlock()
+	c.releaseWriteGate()
 	if err != nil {
 		c.selectTerminal(err)
 		return

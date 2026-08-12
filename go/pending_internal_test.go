@@ -207,6 +207,7 @@ func TestPendingResponseDecoderErrorTerminal(t *testing.T) {
 		t.Errorf("terminal cause %v does not wrap ErrProtocol", cause)
 	}
 	waitTerminal(t, c)
+	waitTeardown(t, c)
 	if s.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
@@ -525,6 +526,7 @@ func TestPendingTerminalClaimsAll(t *testing.T) {
 	if claimed := c.claimResponse(0, 0, nil); claimed {
 		t.Fatal("response after teardown matched a claimed entry")
 	}
+	waitTeardown(t, c)
 	if s.closeCount() != 1 {
 		t.Errorf("stream closed %d times, want exactly 1", s.closeCount())
 	}
