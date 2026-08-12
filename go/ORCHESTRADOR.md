@@ -1,304 +1,377 @@
-# Orchestrator Runbook (`ORCHESTRADOR.md`)
+# Review-Remediation Orchestrator Runbook
 
-> **Hard boundary:** orchestrate only. Never perform technical validation,
-> review code, edit implementation, rerun even a “quick” test, or resolve a
-> conflict. The Reviewer owns every technical gate. The only permitted content
-> edit is a factual [`PLAN.md` progress](PLAN.md#progress) update after
-> integration.
+> **Hard boundary:** orchestrate only. Never assess code, edit implementation or
+> specification, run technical validation, resolve a conflict, or waive a gate.
+> The only permitted content edit is a factual [`PLAN.md` Progress](PLAN.md#progress)
+> update after successful integration of an unchanged approved task.
 
-This English-language runbook is self-contained for a future Orchestrator. It
-operationalizes [`PLAN.md`](PLAN.md) and [`AGENTS.md`](AGENTS.md); it does not
-replace either document.
+This runbook operationalizes [`PLAN.md`](PLAN.md) and [`AGENTS.md`](AGENTS.md)
+for the `RM-00` through `RM-15` remediation program. It is self-contained for a
+future Orchestrator but does not override either authority.
 
-## Durable operating facts
+## Durable facts
 
-- Subagents do not inherit parent messages. Every prompt must contain the task's
-  complete context and constraints.
-- Never rely on an inherited or shared current directory. Give every Worker and
-  Reviewer an absolute task-worktree path. Parallel tasks use different
-  worktrees; the Reviewer may inspect only its task's worktree and does so
-  read-only.
-- The module is `github.com/cerasos/intercall/go` on Go 1.26.5. Always specify
-  `/usr/local/go/bin/go`; `PATH` may select Go 1.24 or another older release.
-- Go validation suites run from `go/` within the task worktree; the git
-  snapshot helpers (`task_status`, `task_snapshot*`) run from the worktree root
-  or anywhere inside it.
-- Reviewer Go tests use the explicit positive `-count` in `PLAN.md`; the global
-  test gate uses `-count=1` to bypass the Worker's cache.
-- Plain `git diff` and `git diff --check` omit parts of a complete task state.
-  The Reviewer uses `task_snapshot_diff` and `task_snapshot_check`, whose
-  temporary index includes staged, unstaged, deleted, and untracked files.
-- Go fuzzing may write corpus files. The Reviewer invokes every fuzz command
-  through `reviewer_fuzz`, which runs in a disposable copy.
-- Lua and LPeg may be unavailable. The Lua validator is optional and
-  non-normative; `README.md` remains authoritative.
-- Evidence stays in Worker and Reviewer transcripts. Do not create evidence
-  files.
+- Subagents do not inherit parent messages. Every prompt must carry the complete
+  task contract, authority order, absolute worktree, base, commands, helpers,
+  and latest handoff.
+- The repository module is `github.com/cerasos/intercall/go`; use Go 1.26.5 only
+  through `/usr/local/go/bin/go`. Go commands run from `go/` in the task
+  worktree.
+- Each Worker has one isolated writable worktree and one persistent session.
+  Each task has a separate persistent read-only Reviewer session. Never reuse a
+  session for another task.
+- `task_snapshot_diff`, not plain `git diff`, is the review target. It includes
+  tracked, staged, deleted, and nonignored untracked paths. Reviewer fuzzing
+  runs only through `reviewer_fuzz` in a disposable copy.
+- Worker evidence is not approval. Reviewer Go tests are independent and use
+  every explicit positive `-count` from `PLAN.md`.
+- `README.md` is protocol authority. `SPEC.md` is Go authority after an
+  amendment is integrated. Review finding labels are traceability only.
+- The standalone review report is planning input, not task evidence or an
+  authority. Do not copy it into worktrees, snapshots, prompts, or commits when
+  the complete `PLAN.md` task contract suffices.
+- Evidence remains in session transcripts. Do not create evidence reports,
+  logs, coverage files, binaries, fuzz cache, or temporary output in the repo.
+- After approval, no file content in that task worktree may change. Any content
+  change invalidates approval and returns the complete snapshot to the same
+  Reviewer.
 
-## Lifecycle
+## Administrative readiness
 
-### 1. Read authority and progress
-
-From the integration checkout, read:
-
-1. [`README.md`](../README.md), the protocol authority;
-2. [`SPEC.md`](SPEC.md), the Go architecture authority;
-3. [`PLAN.md`](PLAN.md), especially [Progress](PLAN.md#progress), the [mandatory
-   loop protocol](PLAN.md#mandatory-loop-protocol), [validation
-   helpers](PLAN.md#validation-suites), [DAG](PLAN.md#dependency-dag-and-scheduling),
-   and the exact task section; and
-4. [`AGENTS.md`](AGENTS.md), the shared role and engineering rules.
-
-Stop and ask the user about unresolved conflicts. Never infer an implementation
-choice from document order beyond the authority rules in `AGENTS.md`.
-
-### 2. Select dependency-ready work
-
-Choose only a pending task whose listed dependencies have integrated commit
-hashes in `PLAN.md`. Use only the safe peers named by the DAG. Parallelize those
-peers only when each can start from the correct dependency-complete base and use
-an isolated worktree. Use ascending task ID for integration ties.
-
-Approval, an existing branch, or a Worker handoff does not make a dependency
-complete. Only integration and a factual progress entry do.
-
-### 3. Create the branch and worktree
-
-Derive paths rather than relying on the shell's current directory:
+Before scheduling work, derive paths rather than trusting the current directory:
 
 ```bash
 repo=/absolute/path/to/InterCall
-test "${repo#/}" != "$repo"
 repo=$(git -C "$repo" rev-parse --show-toplevel)
+go_dir=$repo/go
 worktree_root=$(dirname "$repo")/InterCall-worktrees
+integration_branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD)
+```
+
+Administratively establish all of the following without running tests:
+
+1. Ask the user to confirm `integration_branch`; record that exact ref and its
+   expected `HEAD` in the orchestration transcript. A detached `HEAD` or later
+   branch switch is an escalation.
+2. `bcb3a7a119e1090e188aff4ca21de8adb17f6097` is an ancestor of the confirmed
+   integration branch.
+3. The integration `HEAD` contains the approved remediation `go/PLAN.md`,
+   `go/ORCHESTRADOR.md`, and `go/AGENTS.md`.
+4. The integration checkout has no unrelated staged, unstaged, deleted, or
+   untracked path. Do not delete, stash, absorb, or ignore unexpected dirt;
+   stop and ask the user.
+5. Repository-local author identity already exists and is exactly
+   `Luiz Gustavo Ceraso Filho <gus@ceraso.dev>`:
+
+   ```bash
+   git -C "$repo" config --local --get user.name
+   git -C "$repo" config --local --get user.email
+   ```
+
+   Never set, copy, or invent identity. Missing or different values are an
+   escalation.
+6. Read `README.md`, `SPEC.md`, `PLAN.md` (authority, loop protocol, helpers,
+   DAG, Progress, selected task, final gate), and `AGENTS.md`. A conflict is an
+   escalation, not an invitation to interpret intent.
+
+Administrative commands such as `git status`, `git log`, `git branch`,
+`git worktree list`, `git rev-parse`, and ancestry checks are allowed. Technical
+commands such as `go test`, `go vet`, fuzzing, formatting, generation, or source
+analysis are never Orchestrator work.
+
+## Task lifecycle
+
+### 1. Select only dependency-ready work
+
+Read Progress. A dependency is complete only when its checkbox has `[x]` and an
+integrated hash. Approval, a task commit, or an existing branch is insufficient.
+Choose pending work according to the DAG and only parallelize peers explicitly
+listed safe there. All `internal/tool` tasks (`RM-06` through `RM-14`) remain
+serial.
+
+Use ascending task ID for ready integration ties. Immediately before selecting
+any base, verify that `$repo` is still on the confirmed `integration_branch` at
+the recorded expected `HEAD`; update the expected hash only after an integration
+or Progress commit performed by this runbook. Start each worktree from the
+latest integration commit that contains every listed dependency. Record:
+
+```text
+INTEGRATION BRANCH | EXPECTED HEAD
+TASK | SLUG | BASE | BRANCH | WORKTREE | WORKER SESSION | REVIEWER SESSION
+```
+
+### 2. Create an isolated branch and worktree
+
+```bash
+id=RM-NN
 slug=<exact-slug-from-PLAN>
+base=<latest-integrated-dependency-complete-hash>
 branch=task/$slug
-base=<dependency-complete-integration-hash>
 worktree=$worktree_root/$slug
 mkdir -p "$worktree_root"
 git -C "$repo" worktree add -b "$branch" "$worktree" "$base"
 ```
 
-The deterministic names are `task/<branch-slug>` and
-`../InterCall-worktrees/<branch-slug>`, using the slug in the DAG table. Verify
-administratively that the selected base contains every dependency. If the
-branch or path already exists, inspect its administrative status and escalate;
-do not delete, reset, or reuse it speculatively.
+Verify administratively that `base` contains the dependency hashes. If the path
+or branch already exists, inspect and escalate; never reset, delete, force, or
+reuse it speculatively.
 
-### 4. Launch the Worker
+### 3. Launch and preserve the Worker
 
-Launch one read/write Worker subagent with the [Worker prompt](#worker-prompt).
-Replace every placeholder, paste the exact task contract and commands, and give
-the absolute worktree path. Parent conversation context will not be copied into
-the subagent.
+Start one read/write subagent with the Worker prompt below. Record its exact
+session ID immediately. Resume that same session for every finding, conflict
+replay, or revised handoff. A Worker never commits and never edits Progress.
 
-### 5. Preserve the Worker session
+The Worker prompt must include:
 
-Immediately record the returned Worker session ID in the orchestration
-transcript with the task ID, branch, worktree, and base. Resume that exact
-session for every finding, rebase, conflict, or revised handoff. Do not create a
-fresh Worker to handle revisions.
+- absolute repository/worktree paths and `go/` command directory;
+- branch, base, toolchain, and authority order;
+- the complete selected task section copied verbatim from `PLAN.md`;
+- dependencies and integrated hashes;
+- expected paths and explicit non-goals;
+- complete definitions of `task_status`, `task_snapshot*`, and, where needed,
+  Worker `fuzz_gate`;
+- exact baseline and focused commands; and
+- the complete Worker handoff template and escalation rules.
 
-### 6. Launch the Reviewer
+Do not summarize away acceptance details.
 
-After a complete Worker handoff, launch a separate persistent Reviewer session
-with the [Reviewer prompt](#reviewer-prompt). Supply the complete Worker handoff,
-absolute worktree path, base, task contract, authorities, helper definitions,
-and exact commands. The Reviewer is read-only and independently renders the
-complete snapshot and runs the gates. Record its session ID separately.
+### 4. Require a complete Worker handoff
 
-Only a handoff whose first line is exactly `APPROVED` and that contains the
-required independent evidence is approval. A findings handoff must not contain
-the word `APPROVED`.
+A valid handoff inventories every path, names durable tests, reports each exact
+command and exit status, includes snapshot/check facts, and states blockers.
+A failure or missing gate returns to the same Worker. The Orchestrator does not
+judge whether a partial result is “close enough.”
 
-### 7. Relay revisions without changing sessions
+### 5. Launch and preserve the Reviewer
 
-Send Reviewer findings verbatim to the same Worker session with the [relay
-prompt](#finding-relay). Send the Worker's complete revised handoff to the same
-Reviewer session. Repeat until that Reviewer returns exact `APPROVED`.
+Start a distinct read-only subagent only after a complete Worker handoff. Record
+its session ID. Supply:
 
-The Orchestrator neither interprets findings nor suggests fixes. If either
-session becomes unavailable, follow [Failures and escalation](#failures-and-escalation).
+- the complete current Worker handoff;
+- absolute worktree, branch, and base;
+- authority order and the complete task contract;
+- all helper definitions, with Reviewer `fuzz_gate` using `reviewer_fuzz`;
+- every exact Reviewer command;
+- required relevant local/global reading; and
+- the exact findings/approval handoff format.
 
-### 8. Commit the unchanged approved state
+The Reviewer independently runs all gates and reviews the complete snapshot.
+For `RM-00`, require complete `README.md` and `SPEC.md` reading. For `RM-15`,
+require review of all remediation changes from the reviewed baseline through the
+current snapshot and the full Final Definition of Done.
 
-After approval, allow no file modification in the task worktree. Any change,
-including an automatic rewrite or corpus file, invalidates approval.
-Administrative status and staging operations are permitted; technical checks
-are not.
+Only a response whose first line is exactly `APPROVED`, with complete evidence,
+is approval. A findings handoff must not contain that word.
 
-Before committing, verify the existing repository-local identity:
+### 6. Relay revisions verbatim
+
+Send every finding verbatim to the same Worker session. Do not interpret,
+prioritize, propose a fix, or drop a minor finding. The Worker revises, reruns
+all evidence, and returns a complete replacement handoff. Send that handoff to
+the same Reviewer, who rereads the entire current snapshot and reruns every
+required gate. Repeat until exact approval.
+
+### 7. Freeze and commit the approved task
+
+After approval, permit no content-changing command in the task worktree.
+Administrative status and staging are allowed. Reconfirm the pre-existing local
+author configuration; do not alter it.
+
+Stage exactly the approved complete snapshot and commit with the exact subject
+from the task section:
 
 ```bash
-git -C "$worktree" config --local --get user.name
-git -C "$worktree" config --local --get user.email
+git -C "$worktree" add -A
+git -C "$worktree" commit -m '<exact PLAN commit subject>'
+task_commit=$(git -C "$worktree" rev-parse HEAD)
 ```
 
-The established identity is `Luiz Gustavo Ceraso Filho <gus@ceraso.dev>`. Do not
-set, copy, or invent identity. If either value is absent or inconsistent, stop
-and ask the user. Then stage the exact approved state, commit with the exact
-`PLAN.md` task subject, and record the resulting task commit hash. Do not amend
-or modify the worktree after approval.
+Do not amend. Record `task_commit`. If staging reveals an undeclared path or
+content changed after approval, stop and return the entire state to the same
+Reviewer.
 
-### 9. Integrate in DAG order
+### 8. Integrate in DAG order
 
-Integrate approved commits only after their dependencies, with ascending task ID
-breaking ties. A clean integration of the exact approved commit is
-administrative. Record the resulting integrated hash, which may differ from the
-task-branch hash.
+Immediately verify that `$repo` is on the confirmed `integration_branch` at the
+recorded expected `HEAD`. If not, stop. If the task commit descends directly
+from that `HEAD`, a fast-forward is administrative. Otherwise integrate the
+exact approved commit in DAG order with a clean cherry-pick. Record the resulting
+integrated hash and update the recorded expected `HEAD`; the integrated hash may
+differ from the task hash.
 
-If integration conflicts or an integrated sibling invalidates an assumption,
-stop. Do not edit conflict markers or choose a resolution. Return the work to
-the same Worker session against the current integrated base, then require the
-same Reviewer session to review the complete resulting snapshot and approve it
-again. Only the reapproved state may be committed and integrated.
+A conflict is not administrative resolution. Abort the in-progress integration
+without choosing file content and preserve the original branch, worktree,
+commit, and sessions. Create a replay branch and fresh worktree from current
+integration `HEAD`:
 
-### 10. Update factual progress
+```bash
+n=<next-positive-replay-number>
+replay_branch=task/$slug-replay-$n
+replay_worktree=$worktree_root/$slug-replay-$n
+git -C "$repo" worktree add -b "$replay_branch" "$replay_worktree" \
+    "$integration_branch"
+```
 
-Only after successful integration, edit the matching `PLAN.md` checkbox from
-`[ ]` to `[x]` and append the integrated commit hash. This is factual
-administration, not technical approval. Never mark approved-but-unintegrated
-work complete, and never encode in-progress or review state in `PLAN.md`.
+Resume the same Worker session in `replay_worktree`. Give it the original base,
+approved task commit, and latest integrated base. The Worker, not the
+Orchestrator, renders and reapplies the old task diff, resolves it against the
+new base, runs the complete task evidence, and returns a new handoff without
+committing. Resume the same Reviewer session against the replay worktree for a
+complete snapshot review and every independent gate. After approval, freeze and
+commit the replay snapshot, then retry integration. Record both generations in
+the transcript. A safe peer that invalidates an assumption uses the same replay
+procedure even without a Git conflict; never self-certify disjointness beyond
+the DAG.
 
-Task Workers must not edit the checklist. After integrating parallel siblings,
-batch all factual checkbox/hash updates for that wave into one administrative
-progress commit so sibling branches do not conflict over `PLAN.md`. For a
-serial wave, make the progress commit after that integration. Verify the same
-repository-local author configuration before every administrative commit.
+### 9. Record factual Progress
 
-### 11. Clean up and continue
+Verify again that `$repo` is on the confirmed `integration_branch` at the
+recorded integrated `HEAD`. Only after successful integration, change the
+matching checkbox from `[ ]` to
+`[x]` and append the integrated hash. This is the Orchestrator's sole content
+edit. Do not alter task prose, finding disposition, commands, or dependencies.
 
-Retain sessions and task state until the integrated hash and progress update are
-recorded and no conflict replay can be needed. Administrative `git status`,
-`git worktree list`, `git branch`, and ancestry checks are allowed. Remove a worktree
-only when it has no unique uncommitted changes; avoid forced removal. Delete a
-branch only when integration is recorded and Git can establish that no unique
-work would be lost; otherwise retain it and escalate. Never guess that a dirty
-or unmerged branch is disposable.
+For concurrently developed peers, integrate in ascending ID and batch their
+checkbox/hash edits in one administrative commit after that wave. For a serial
+task, record progress immediately. Use the established identity and an
+administrative subject such as:
 
-Archive or release the recorded session references when safe, then return to
-step 2 and launch the next dependency-ready task.
+```text
+record RM-NN progress
+```
+
+or, for a batch:
+
+```text
+record remediation wave progress
+```
+
+After the Progress commit, record its hash as the new expected integration
+`HEAD`. A Progress commit provides no technical approval.
+
+### 10. Retain state, then clean up safely
+
+Keep task worktrees, branches, and both sessions until task and integrated hashes
+and Progress are recorded and no replay can be needed. Remove a worktree only
+when administrative inspection proves it has no unique uncommitted content.
+Delete a branch only when Git proves no unique work would be lost. Never force
+cleanup to make status look clean.
+
+Then select the next dependency-ready task. After `RM-15` integration and its
+Progress update, confirm administratively that every remediation task is `[x]`
+and no unaccounted task output remains. The Orchestrator does not rerun the final
+suite; the `RM-15` Reviewer evidence is the gate.
 
 ## Prompt templates
 
 ### Worker prompt
 
 ```text
-You are the Worker for <IC-NN — exact title>.
+You are the persistent Worker for <RM-NN — exact title>.
 
-WORKTREE (absolute; use it for every command): <absolute path>
-BRANCH: task/<slug>
-BASE: <dependency-complete hash>
+WORKTREE (absolute; use for every command): <absolute path>
+GO COMMAND DIRECTORY: <absolute path>/go
+BRANCH: <actual initial-or-replay branch>
+BASE: <dependency-complete integrated hash>
 MODULE/TOOLCHAIN: github.com/cerasos/intercall/go; Go 1.26.5; use only /usr/local/go/bin/go.
 
 AUTHORITIES:
-1. README.md is authoritative for the language and wire protocol.
-2. SPEC.md is authoritative for the Go architecture and mapping; README wins on protocol conflicts.
-3. PLAN.md controls this task's scope, dependencies, commands, handoff, and execution order.
-4. AGENTS.md supplies repository-wide role and engineering rules.
-Stop and report any unresolved conflict; do not silently choose or redesign.
-The Lua validator is optional and non-normative; Lua/LPeg absence is an allowed SKIP only where PLAN says so.
+1. README.md defines the InterCall language and wire protocol.
+2. Integrated SPEC.md defines the Go implementation; README wins on protocol conflicts.
+3. PLAN.md defines this task's scope, dependencies, acceptance, commands, and commit subject.
+4. AGENTS.md defines shared role and engineering rules.
+Stop on unresolved conflict, pre-existing blocker, unrelated dirt, or required scope expansion.
+The review IDs are traceability only. Lua/LPeg is optional and non-normative.
 
-EXACT TASK CONTRACT (verbatim from PLAN.md):
-<paste the complete IC-NN task section, including commit subject>
+EXACT TASK CONTRACT (verbatim):
+<paste complete PLAN RM-NN section>
 
-ALLOWED/EXPECTED PATHS:
-<paste task paths or the narrow path set derived from its deliverables>
+INTEGRATED DEPENDENCIES:
+<paste IDs and integrated hashes>
 
-INTEGRATED DEPENDENCY CONTEXT:
-<paste dependency hashes and any relevant approved handoff facts>
+EXPECTED PATHS / NON-GOALS:
+<paste verbatim from task and disposition constraints>
 
-REQUIRED HELPERS AND COMMANDS:
-<paste the complete PLAN helper definitions needed by this task, initialize the Worker fuzz_gate when applicable, and paste every exact Worker command>
+HELPERS AND COMMANDS:
+<paste complete required helper definitions, initialize Worker fuzz_gate if applicable, and paste all exact Worker commands>
 
-Implement only this task in the specified worktree. Add durable tests, fixtures,
-or documentation required by the contract. Do not commit. Do not edit PLAN.md's
-progress checklist. Do not create evidence files. Before handoff, inventory all
-paths with task_status, render the complete temporary-index snapshot, and run
-task_snapshot_check. Return the exact PLAN Worker handoff format with command
-exit status and salient results. Report blockers under PLAN's escalation rules;
-do not hide known task-scope failures as residual risk.
+Implement only this task. Add durable deterministic tests/fixtures/docs. Never
+hand-edit generated files; change the owning generator and regenerate. Do not
+commit, edit PLAN Progress, or add evidence output. Use channel/barrier
+synchronization rather than sleeps. Before handoff, run task_status, inspect the
+complete task_snapshot_diff, and run task_snapshot_check. Return the exact PLAN
+Worker handoff with all command statuses and blockers. Do not hide a known
+failure as residual risk.
 ```
 
 ### Reviewer prompt
 
 ```text
-You are the separate, read-only Reviewer for <IC-NN — exact title>.
+You are the separate persistent read-only Reviewer for <RM-NN — exact title>.
 
 WORKTREE TO REVIEW (absolute): <absolute path>
-BRANCH: task/<slug>
+GO COMMAND DIRECTORY: <absolute path>/go
+BRANCH: <actual initial-or-replay branch>
 BASE: <base hash>
-WORKER SESSION/HANDOFF: <paste the complete latest handoff; do not rely on parent context>
-MODULE/TOOLCHAIN: github.com/cerasos/intercall/go; Go 1.26.5; use only /usr/local/go/bin/go.
+LATEST WORKER HANDOFF:
+<paste complete handoff>
 
-AUTHORITIES AND TASK CONTRACT:
-<paste the authority rules and complete IC-NN task section verbatim>
+AUTHORITIES AND EXACT TASK CONTRACT:
+<paste authority order, complete RM-NN section, dependencies, finding disposition, and relevant integrated SPEC facts>
 
-REQUIRED HELPERS AND COMMANDS:
+HELPERS AND COMMANDS:
 <paste task_status, task_snapshot, task_snapshot_diff, task_snapshot_check,
-reviewer_fuzz, the Reviewer fuzz_gate initialization when applicable, and every
-exact Reviewer gate command>
+reviewer_fuzz, Reviewer fuzz_gate initialization if applicable, and every exact
+Reviewer gate>
 
-Remain read-only: never edit, stage, or commit. Read the governing README.md and
-SPEC.md sections, relevant local code, and enough global context to trace the
-contract. Independently inventory all files, render and review the complete
-snapshot including untracked files, run task_snapshot_check, and run every gate
-without relying on Worker results. Go test commands must use PLAN's explicit
-positive -count. Run fuzz only in reviewer_fuzz and record original status before
-and after.
+Remain read-only: do not edit, stage, commit, regenerate in place, or run fuzz
+outside reviewer_fuzz. Independently inventory every path, render and inspect
+the complete snapshot including untracked files, read governing README/SPEC and
+enough repository context to prove behavior, run task_snapshot_check, and run
+every gate with PLAN's positive -count. Worker evidence is not your evidence.
+Record original status before and after reviewer_fuzz.
 
-If there is any actionable finding, return the exact PLAN findings format and do
-not use the word APPROVED. If there are zero actionable findings, the first line
-must be exactly APPROVED, followed by the task/base/complete diff reviewed,
-independent evidence, snapshot facts, and residual risks as PLAN requires.
+Return PLAN's exact findings format if any actionable issue exists; do not use
+the word reserved for approval. With zero actionable findings, first line must
+be exactly APPROVED and include complete independent evidence, snapshot facts,
+and residual risks.
 ```
 
 ### Finding relay
 
 ```text
-Resume Worker session <worker-session-id> for <IC-NN> in <absolute worktree>.
-The separate Reviewer returned the following findings. They are relayed
-verbatim; address them within the task contract, update durable tests as needed,
-rerun all Worker evidence, and return a complete new Worker handoff. Do not
-commit or edit PLAN progress.
+Resume Worker session <worker-session-id> for <RM-NN> in <absolute worktree>.
+The separate Reviewer returned the findings below. They are relayed verbatim.
+Address every finding within the exact task contract, update durable tests,
+rerun all Worker evidence, and return a complete replacement handoff. Do not
+commit or edit Progress.
 
 <verbatim Reviewer handoff>
 ```
 
-After the revised Worker handoff, resume Reviewer session
-`<reviewer-session-id>` with the complete handoff and instruct it to reread the
-complete current snapshot and rerun every gate. Never summarize away either
-handoff.
+Resume Reviewer session `<reviewer-session-id>` with the Worker's complete new
+handoff and require a full reread and all independent gates. Never replace a
+handoff with an Orchestrator summary.
 
-## Failures and escalation
+## Failure and escalation matrix
 
-- **Task-introduced finding:** relay it verbatim to the same Worker, then return
-  the complete revision to the same Reviewer.
-- **Pre-existing blocker:** pause affected tasks and schedule a separately
-  scoped Worker/Reviewer prerequisite repair loop. Integrate it, rebase affected
-  work, and obtain fresh approval.
-- **Nonblocking pre-existing issue:** schedule a separate follow-up at the
-  earliest dependency-correct point. If it is outside `README.md`/`SPEC.md`
-  scope, ask the user rather than expanding work or creating a generic backlog.
-- **`SPEC.md` defect or blocking ambiguity:** pause affected tasks. Run a
-  dedicated specification amendment -> review -> commit loop, integrate it,
-  rebase, and resume with fresh task review. Never redesign in implementation or
-  in an administrative progress edit.
-- **Integration conflict or invalidated assumption:** do not resolve it. Route
-  the current integrated context to the same Worker and require the same
-  Reviewer to approve the complete resolved state before a new commit.
-- **Optional oracle unavailable:** record the allowed SKIP from the Worker and
-  Reviewer. Do not install ad hoc dependencies or block work solely for missing
-  Lua/LPeg.
-- **Worker tool or session failure:** preserve the worktree and session ID, then
-  resume the same session. If it cannot be resumed, escalate; a replacement
-  Worker must receive the complete context and restart the Worker loop.
-- **Reviewer tool or session failure:** do not approve. Preserve state and resume
-  the same Reviewer. If replacement is unavoidable, give the new separate
-  Reviewer the complete context and require a full review and all independent
-  gates from the beginning.
-- **Required validation tool unavailable:** the Reviewer cannot approve. Report
-  the blocker; only an explicitly optional gate may be skipped.
-- **Approval becomes stale:** after any file-content change, return the complete
-  state to the same Reviewer and rerun the whole review gate. The Orchestrator
-  must not decide that a change is too small to matter.
+- **Task-introduced defect:** relay to the same Worker and same Reviewer loop.
+- **Pre-existing blocker:** pause affected tasks; create a separately approved,
+  dependency-correct prerequisite task only through a plan amendment.
+- **Specification ambiguity/defect:** pause implementation; run a dedicated
+  specification amendment and review. Rebase and reapprove affected snapshots.
+- **Scope expansion or skipped finding becomes reachable:** stop and ask the
+  user for an approved plan change. Do not create a generic backlog.
+- **Integration conflict:** do not resolve. Abort administratively, then return
+  latest integrated context to the same Worker and same Reviewer.
+- **Optional Lua/LPeg unavailable:** record the allowed skip only where a task
+  invokes it; do not install ad hoc dependencies.
+- **Required command/tool unavailable:** no approval is possible; report the
+  blocker.
+- **Worker session failure:** preserve worktree and ID and resume. If impossible,
+  escalate; a replacement receives complete context and restarts Worker duties.
+- **Reviewer session failure:** preserve state and resume. If replacement is
+  unavoidable, it starts the complete independent review and all gates anew.
+- **Approval stale for any reason:** return the whole current snapshot to the
+  same Reviewer. The Orchestrator never decides a changed byte is harmless.
