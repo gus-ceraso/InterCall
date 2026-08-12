@@ -359,6 +359,7 @@ Implementation tasks:
 - [x] [IC-18 — Add CLI commands, options, and diagnostics](#ic-18--add-cli-commands-options-and-diagnostics) — `8673b58`
 - [x] [IC-19 — Exercise generated peers end to end](#ic-19--exercise-generated-peers-end-to-end) — `45395d3`
 - [x] [IC-20 — Document and harden the complete Go proof of concept](#ic-20--document-and-harden-the-complete-go-proof-of-concept) — `9698c37`
+- [x] R-02 — move Go implementation into `go/` and change module path to `github.com/cerasos/intercall/go` — `f0d0f50`
 
 ## Executable tasks
 
