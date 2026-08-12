@@ -20,16 +20,22 @@ procedure, and exception form in `README.md`. It provides:
 - a shared Go runtime for one bidirectional connection over an established byte
   stream.
 
-This is a trusted-local-tooling, trusted-peer proof of concept. It has no policy
-resource limits, but it still rejects malformed data, checks arithmetic, and
-checks every wire `uint64` before converting it to `int`, allocating, or
+This is a trusted-local-tooling, trusted-peer proof of concept. It has no
+policy resource limits: the fixed ceilings in this document are mandatory
+implementation-safety and representability bounds, not configurable policy. The
+maximum accepted frame payload is exactly 64 MiB (67,108,864 bytes) as defined
+under Reading, dispatch, and response validation, and the strict Go projection
+has a maximum resolved type depth of exactly 4,096 occurrences as defined under
+Strict Go projection depth. It still rejects malformed data, checks arithmetic,
+and checks every wire `uint64` before converting it to `int`, allocating, or
 iterating.
 
 The repository is the module declared by `go.mod`. The root package
 `github.com/cerasos/intercall/go` is the public runtime, `cmd/intercall-go` is the
 CLI, `internal/syntax` owns interface syntax, and `internal/tool` owns Go
 package discovery and generation. The runtime and syntax packages use only the
-standard library. The tool may use `golang.org/x/tools/go/packages`.
+standard library. The tool uses `golang.org/x/tools/go/packages` only for
+package discovery; everything else uses the standard library.
 
 Each command writes one binding into a dedicated generator-owned Go package.
 Import and export bindings are separate packages and cannot share an output
@@ -47,6 +53,11 @@ The parser accepts exactly the grammar, lexical rules, and UTF-8 rules in
 declarations and nested type occurrences in source order, source spans, and the
 documentation slots below. It does not contain Go names, Go objects, generated
 helper names, or runtime state.
+
+The parser, validator, documentation attachment, and canonical formatter use
+Go call-stack space independent of unrestricted type nesting: every
+syntax-owned walk uses an explicit stack or another bounded-call-stack
+algorithm. The grammar has no nesting limit.
 
 Protocol validation resolves earlier named-type references and checks all
 scopes, reserved words, declaration keys, key zero, and key collisions. It
@@ -72,13 +83,20 @@ reference, and an inline record. An omitted exception payload or procedure
 return has no type slot.
 
 For interface input, eligible anchors are the first token of a declaration,
-parameter, field, or type occurrence. A documentation group is the maximal run
-of block comments in the trivia immediately before an anchor, with no blank
-line within the group or between the group and anchor. A blank line contains
-only spaces or tabs between line terminators. A comment after a completed node
-on the same line is trailing and does not attach to a later node. A comment
-between a parameter, field, exception, or type-declaration name and its type
-anchors that type. A comment after `list` anchors its element.
+parameter, field, or type occurrence. Physical source lines are defined by LF
+bytes: a CRLF sequence has one LF terminator, and a bare CR is whitespace, not
+a physical line terminator. Body normalization below is independent of that
+classification and still converts CRLF and bare CR to LF. A documentation group
+is the maximal run of block comments in the trivia immediately before an
+anchor, with no blank line within the group or between the group and anchor. A
+blank line contains only spaces or tabs between physical lines. A comment after
+a completed node on the same physical line is trailing and does not attach to a
+later node, except that a candidate type prefix (a `type` name, an exception
+name, a parameter or field name, `list`, or a procedure `}`) makes an
+intervening comment eligible for that type even when the prefix follows an
+earlier node on the same physical line. A comment between a parameter, field,
+exception, or type-declaration name and its type anchors that type. A comment
+after `list` anchors its element.
 These rules apply recursively. Each comment attaches at most once; all
 unattached comments are discarded by formatting.
 
@@ -158,13 +176,20 @@ Each generated named type has a machine line in its Go doc:
 // @intercall type <exact-wire-name>
 ```
 
-When export reaches such a type in generated import source, it decodes and
-parses `_intercallSemantic`, finds that exact type declaration, and verifies
-that the generated Go type still projects to the declaration's
-documentation-free wire structure. It then takes the declaration and its
-complete nested documentation tree from the parsed semantic source. Missing,
-duplicate, malformed, noncanonical, or structurally conflicting metadata is an
-error.
+On first use of a table-backed type in a marked generated import file (a
+generated named type carrying a machine line), export validates the complete
+marked file before consuming any row: a row is a top-level type spec carrying
+exactly one valid `@intercall type <wire-name>` machine line, and the rows must
+be in bijection with the decoded semantic type declarations; generated helper
+and exception types without a machine line are permitted. Every malformed,
+unknown, misplaced, duplicate, missing, extra, or structurally conflicting row
+(including an otherwise unreached row) is an error at its exact physical
+position. Export then decodes and parses `_intercallSemantic`, finds that exact
+type declaration, and verifies that the generated Go type still projects to the
+declaration's documentation-free wire structure. It then takes the declaration
+and its complete nested documentation tree from the parsed semantic source.
+Missing, duplicate, malformed, noncanonical, or structurally conflicting
+metadata is an error.
 
 The exact generated-file marker is the trust boundary for this metadata. An
 unmarked handwritten `_intercallSemantic` constant is ordinary Go, and
@@ -200,10 +225,14 @@ provider, application exception package, and reachable named-type package.
 inaccessible or unexported required declarations are errors. Active workspaces
 may make packages from several modules eligible.
 
-Generated Go files recognized by Go's standard generated-file marker do not
-supply selectable procedures or application exceptions. A selected signature
-may nevertheless reach a generated named type; export then validates its field
-tags, type machine line, source metadata, and type graph.
+Ordinary third-party files recognized by Go's standard generated-file marker
+are inert for source directive selection: they supply no selectable procedures,
+no application exceptions, and no directive interpretations. A selected
+signature may nevertheless reach a generated named type; on first use, export
+validates the complete marked file under the rules defined under Safe import
+and re-export metadata, together with the type's field tags, machine line,
+source metadata, and type graph. The exact InterCall generated-file marker
+remains the metadata trust boundary.
 
 Only exported package-level functions with `@intercall procedure` are eligible.
 With no `--include`, export selects every eligible function in every explicit
@@ -236,12 +265,16 @@ comment markers and surrounding whitespace are removed:
 Brackets denote an optional operand and are not literal. An optional wire name
 replaces default source-to-wire conversion.
 
+Each declaration directive applies to exactly one declared object. A
+group-level InterCall declaration directive on a declaration group containing
+multiple specs, or on one spec that declares multiple objects, is an error.
 `@intercall procedure` applies only to an eligible function.
 `@intercall exception` applies only to one exported package variable or one
-exported named struct type. `@intercall type` applies exactly once to every
-reachable ordinary defined type. `@intercall param` names a wire parameter in
-the tagged function. `@param` supplies that parameter node's documentation, and
-`@return` supplies the optional return type's documentation. The context
+exported named struct type; parentheses around a legal named struct declaration
+do not change exception eligibility. `@intercall type` applies exactly once to
+every reachable ordinary defined type. `@intercall param` names a wire
+parameter in the tagged function. `@param` supplies that parameter node's
+documentation, and `@return` supplies the optional return type's documentation. The context
 parameter and final `error` are not wire values and cannot be named or
 documented by these directives.
 
@@ -323,6 +356,19 @@ Nil slices encode as empty lists or bytes. Decoding an empty list or bytes value
 produces a nonnil zero-length slice. A codec decodes a list of zero-width values
 to the requested native length without per-element work.
 
+### Strict Go projection depth
+
+The strict Go projection has a maximum resolved type depth of exactly 4,096
+occurrences. This is a native representability boundary, not a protocol grammar
+rule and not a configurable resource policy. A root (a type declaration's
+underlying type, an exception payload, a procedure parameter, or a procedure
+return) has depth 1. Each list-element, record-field,
+named-reference-to-underlying, defined-type-to-underlying, or alias-expansion
+edge adds 1. Import and export run an iterative, cycle-safe preflight and
+reject the first source occurrence exceeding 4,096 with a normal physical
+diagnostic before any recursive mapping or emission; recursive graphs keep
+their existing recursive-type diagnostics, which still own cycles.
+
 ### Names and native overrides
 
 Default source-to-wire conversion is lower snake case. Default wire-to-Go
@@ -369,6 +415,12 @@ This accepts `HTTPServer`, `HTTPURL`, `HTTPSClient`, `UserID`, `Version42ID`,
 `User_ID`. In particular, `HTTPS` is chosen before its `HTTP` prefix in
 `HTTPSClient`. A declaration directive, `@intercall param`, or field tag
 bypasses this conversion for that wire name.
+
+Go source identifiers, selector symbols, directive references, field
+eligibility, and exportness follow Go's Unicode-aware lexical rules. The
+default Go/wire projection remains ASCII-only, so an explicit declaration
+directive, `@intercall param`, or field tag is required wherever the projection
+cannot represent the source name.
 
 All resulting wire names, FNV-0 keys, Go package names, Go declarations, struct
 fields, and parameter names must be valid and collision-free in their actual
@@ -597,18 +649,23 @@ as from `context.Background`, simply disables the context case.
 
 Explicit `Close`, a read or write failure, EOF or half-close, and a terminal
 protocol error use the same lock-protected selection. The first selected error
-is permanent and closes the terminal-selection channel. Selection closes the
-stream exactly once, cancels handler contexts, and completes every unclaimed
-pending call with that cause. A stream cleanup error never replaces or joins
-it. If another event wins, the terminal-selection channel wakes the context
-observer; it rechecks terminal state under the same lock and exits without
-attempting a new cause. If context cancellation wins, the observer completes
-selection and teardown before exiting.
+is permanent and closes the terminal-selection channel. Publication under the
+state lock fixes the cause and transfers every existing pending entry away from
+later response or per-call-cancellation claims; closing the stream exactly once,
+canceling handler contexts, and delivering the terminal completion of each
+transferred entry may then proceed asynchronously. A stream cleanup error never
+replaces or joins the published cause. If another event wins, the
+terminal-selection channel wakes the context observer; it rechecks terminal
+state under the same lock and exits without attempting a new cause. If context
+cancellation wins, the observer completes selection and teardown before
+exiting.
 
-`Close` selects `ErrClosed` if needed and otherwise does nothing. It returns nil
-without waiting for the receive loop, observer, or handlers. `Wait` waits for
-the receive loop, complete terminal teardown, and context-observer exit, then
-returns the permanent terminal cause; it never returns nil. Thus EOF under
+`Close` selects `ErrClosed` if needed and otherwise does nothing; in either
+case, terminal publication completes under the state lock before `Close`
+returns. `Close` never waits for the receive loop, observer, handlers, blocked
+gate waiters, or stream cleanup. `Wait` waits for the receive loop, complete
+terminal teardown and stream cleanup, and context-observer exit, then returns
+the permanent terminal cause; it never returns nil. Thus EOF under
 `context.Background` cannot strand the observer, `context.WithCancelCause`
 yields exactly `context.Canceled` rather than its cause, a cause-bearing deadline
 yields `context.DeadlineExceeded`, and Close/cancellation races retain whichever
@@ -655,16 +712,32 @@ and terminal outcomes use the pending-call ownership rule below.
 
 The receive loop is the only reader. It uses full-read semantics for each
 24-byte header and then allocates and reads the complete payload after checking
-its wire length against native `int`. An incomplete header or payload is a
-transport failure; impossible native size or structural frame failure is a
-protocol error. Decoders receive only the owned payload slice and cannot consume
-a later frame.
+its wire length against native `int` and against the maximum accepted frame
+payload of exactly 64 MiB (67,108,864 bytes). The ceiling is a mandatory
+implementation-safety bound, not configurable policy: it is checked after the
+header and before conversion or allocation, and a larger frame is terminal
+`ErrProtocol` without consuming its payload. An incomplete header or payload is
+a transport failure; impossible native size, an over-ceiling payload, or
+structural frame failure is a protocol error. Decoders receive only the owned
+payload slice and cannot consume a later frame.
 
 Each request transfers its complete payload to one new, unbounded handler
 goroutine. Before starting it, the receive loop reserves the incoming request ID
-in an active set. Reuse before the earlier response write completes is a
-terminal protocol error; reuse afterward is allowed. Incoming and outgoing ID
-spaces are independent.
+in an active set, and request admission is ordered against terminal publication:
+a buffered frame is never dispatched after terminal has won. Incoming and
+outgoing ID spaces are independent.
+
+README permits a peer to reuse a request ID as soon as it has received the
+complete prior response, but `ByteStream` exposes no peer-delivery
+acknowledgement, so the runtime orders reuse locally. A duplicate incoming ID
+observed before the prior response enters write admission is a terminal
+protocol error. A duplicate observed while that response write is active is
+fully buffered and reserved as one deferred next generation without parking the
+sole receive loop; a further same-ID request cannot also queue. A successful
+response write admits the deferred request even if it arrived before the final
+local `Write` returned; a write failure or terminal selection discards it. The
+runtime is not required to detect a peer's early reuse once the prior response
+write is active.
 
 Generated dispatch is a static switch on procedure key. An unknown key receives
 `procedure_not_found` after its payload has been buffered. A known procedure
@@ -708,7 +781,7 @@ The generated caller passes a request-encoder closure to `Call`. `Call` then:
 4. returns the encoder's exact error, if any, without allocating an ID,
    constructing a frame, or entering the write gate;
 5. rechecks terminal state and `ctx.Err()`, builds the owned contiguous frame,
-   and acquires the write gate while allowing either to win;
+   and waits on the write gate while allowing either to win;
 6. rechecks both under the connection lock, allocates an ID, and inserts one
    pending entry immediately before write admission;
 7. writes the whole buffered frame while holding the gate; and
@@ -743,15 +816,20 @@ remote handler stops.
 
 Requests and responses share one connection-wide write gate. Every value is
 append-encoded into an owned payload, then combined with its header before the
-gate is acquired. While holding the gate, the runtime writes until the complete
-frame is accepted or the writer reports an error, an invalid byte count, or no
-progress. It never interleaves frames. Any error after a partial frame is
+gate is acquired. A gate wait observes terminal selection and, for outgoing
+calls, the call context's `Done`; the connection state lock is never held while
+waiting for the gate or while calling stream `Write` or `Close`. While holding
+the gate, the runtime writes until the complete frame is accepted or the writer
+reports an error, an invalid byte count, or no progress. It never interleaves
+frames. Any error after a partial frame is
 terminal. Encoding cannot fail after a frame write begins, and mutable provider
 values are observed in one encoding pass.
 
 A handler's incoming ID remains active until its complete response write
-succeeds. A handler waiting for the gate abandons its response after terminal
-selection; a handler already writing is unblocked by stream closure.
+succeeds; a duplicate observed during that write becomes the deferred next
+generation defined under Reading, dispatch, and response validation. A handler
+waiting for the gate abandons its response after terminal selection; a handler
+already writing is unblocked by stream closure.
 
 Generated append encoders and bounded decoders implement the exact wire rules in
 `README.md`, including:
@@ -765,8 +843,10 @@ Generated append encoders and bounded decoders implement the exact wire rules in
 - exact request and matched-response payload exhaustion; and
 - native-length allocation but no per-element loop for zero-width list elements.
 
-There is no pooling that exposes buffer reuse and no policy limit below native
-representability and available payload bytes.
+There is no pooling that exposes buffer reuse and no configurable policy limit
+below native representability and available payload bytes; the only fixed
+ceilings are the 64 MiB frame-payload safety bound and the strict Go
+projection's 4,096-occurrence depth boundary.
 
 ## Fixed Go Runtime Exceptions
 
@@ -793,8 +873,9 @@ Each sentinel's `Error` string is its exact wire name. Runtime conditions, not
 provider matching, select these exceptions. A fully framed unknown request gets
 `procedure_not_found`; malformed or trailing arguments get `invalid_arguments`;
 and provider, matching, or response-encoding failures get
-`internal_exception`. A frame that cannot be safely buffered is terminal. Every
-malformed matched response is terminal.
+`internal_exception`. A frame that cannot be safely buffered, including a
+payload above the 64 MiB ceiling, is terminal `ErrProtocol`. Every malformed
+matched response is terminal.
 
 ## CLI and Generated Artifacts
 
@@ -850,8 +931,15 @@ marker semantically unattached, so importing the file discards the marker when
 constructing `_intercallSemantic`.
 
 Before writing, the CLI validates all source, interface, projection, and
-generated bytes in memory. It creates `--out` if necessary; after that, the
-interface target's parent must exist. It resolves both target parents through
+generated bytes in memory and parses and type-checks the complete generated Go
+in memory before any filesystem mutation. Generated Go must have complete
+collision-free package and local scopes. Export checking reuses the exact
+`*types.Package` identities from the one combined discovery load. Import
+checking may use one synthetic runtime SPI package only when a durable parity
+test compares every modeled exported generated-code bridge object and signature
+with the actual root package. Type checking uses the standard library. It
+creates `--out` if necessary; after that, the interface target's parent must
+exist. It resolves both target parents through
 the host filesystem and operates on the resolved directories. A target leaf is
 inspected with non-following file status; a symlink, directory, device, or other
 nonregular leaf is an error. The interface target must not have a `.go`
@@ -895,18 +983,23 @@ Generated artifacts are intended to be checked into version control.
 ### Diagnostics
 
 Source diagnostics use `path:line:column: message` with one-based `go/token`
-physical line and byte-column semantics. `//line` directives do not rewrite
-positions. Interface positions come from byte offsets in the exact input;
-invalid UTF-8 points to its first invalid byte, and EOF uses offset `len(input)`
-under the same rules. Go paths use canonical import path plus the file's
-package-relative path. Errors without a source span use line 1, column 1 of the
-relevant operand.
+physical line and byte-column semantics. Position parsing accepts both
+`file:line` and `file:line:column`, scans numeric suffixes from the right so
+colons in filenames are preserved, and defaults a missing column to 1. `//line`
+directives do not rewrite positions. Interface positions come from byte offsets
+in the exact input; invalid UTF-8 points to its first invalid byte, and EOF uses
+offset `len(input)` under the same rules. A physical Go source under the package
+directory uses the slash-normalized package-relative path under its canonical
+import path. An external compiler-generated source uses
+`<import-path>/.intercall-generated/<base-name>`; duplicate external base names
+are a package-load invariant error rather than silently conflated. Errors
+without a source span use line 1, column 1 of the relevant operand.
 
 When a phase produces several diagnostics, the CLI sorts them by logical path,
-line, column, and message. It never reports a staging path. Source validation
-and generated-content validation finish before output-directory creation;
-ownership checks then finish before target-file creation or replacement. Any
-validation error emits no generated file.
+line, column, and message. It never reports a staging path. Source validation,
+generated-content validation, and generated-Go type checking finish before
+output-directory creation; ownership checks then finish before target-file
+creation or replacement. Any validation error emits no generated file.
 
 ## Deferred Features
 
@@ -917,7 +1010,9 @@ The proof of concept does not include:
 - handshake, version, runtime interface-agreement digest, or remote interface
   verification;
 - authentication, authorization, policy, or procedure whitelists;
-- configurable or fixed policy resource limits;
+- configurable policy resource limits; the fixed 64 MiB frame-payload safety
+  ceiling and the strict Go projection's 4,096-occurrence depth boundary are
+  mandatory implementation bounds, not policy;
 - dialing, listening, TLS, encryption, or other transport setup;
 - transport-level or wire-level cancellation;
 - streaming values, parameters, or results; or
