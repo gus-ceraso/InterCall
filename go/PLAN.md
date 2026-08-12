@@ -311,7 +311,7 @@ Baseline:
 
 Remediation tasks:
 
-- [ ] [RM-00 — Clarify remediation contracts in the Go specification](#rm-00--clarify-remediation-contracts-in-the-go-specification)
+- [x] [RM-00 — Clarify remediation contracts in the Go specification](#rm-00--clarify-remediation-contracts-in-the-go-specification) — `c7669e7422c083213aa3e7ad8e56b08241c7c1a3`
 - [ ] [RM-01 — Bound frame buffering and correct write diagnostics](#rm-01--bound-frame-buffering-and-correct-write-diagnostics)
 - [ ] [RM-02 — Make write admission and terminal teardown live](#rm-02--make-write-admission-and-terminal-teardown-live)
 - [ ] [RM-03 — Order incoming request admission and ID reuse](#rm-03--order-incoming-request-admission-and-id-reuse)
