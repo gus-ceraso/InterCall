@@ -356,7 +356,7 @@ Implementation tasks:
 - [x] [IC-17 — Generate complete export bindings](#ic-17--generate-complete-export-bindings) — `fd3084f`
 - [x] [IC-18 — Add CLI commands, options, and diagnostics](#ic-18--add-cli-commands-options-and-diagnostics) — `8673b58`
 - [x] [IC-19 — Exercise generated peers end to end](#ic-19--exercise-generated-peers-end-to-end) — `45395d3`
-- [ ] [IC-20 — Document and harden the complete Go proof of concept](#ic-20--document-and-harden-the-complete-go-proof-of-concept)
+- [x] [IC-20 — Document and harden the complete Go proof of concept](#ic-20--document-and-harden-the-complete-go-proof-of-concept) — `9698c37`
 
 ## Executable tasks
 
