@@ -169,6 +169,97 @@ func (s *gatedStream) closeCount() int {
 	return s.closes
 }
 
+// stagedFrameStream serves one complete request frame to the receive loop
+// across the two reads of readFrame (the 24-byte header, then the payload)
+// and parks the payload read until releasePayload, so a test can select
+// terminal while the frame is still being buffered and then let the loop
+// finish buffering it. Every later read parks until releaseReads and then
+// returns io.EOF. Writes are recorded and Close is counted.
+type stagedFrameStream struct {
+	frame []byte
+
+	mu       sync.Mutex
+	recorded []byte
+	closes   int
+
+	headerRead     chan struct{} // closed when the header is served
+	payloadRelease chan struct{} // the payload read parks here
+	payloadServed  chan struct{} // closed when the payload is served
+	readRelease    chan struct{} // later reads park here
+	servedHeader   bool
+	servedPayload  bool
+	payloadOnce    sync.Once
+	readOnce       sync.Once
+}
+
+var _ ByteStream = (*stagedFrameStream)(nil)
+
+func newStagedFrameStream(frame []byte) *stagedFrameStream {
+	return &stagedFrameStream{
+		frame:          frame,
+		headerRead:     make(chan struct{}),
+		payloadRelease: make(chan struct{}),
+		payloadServed:  make(chan struct{}),
+		readRelease:    make(chan struct{}),
+	}
+}
+
+func (s *stagedFrameStream) Read(p []byte) (int, error) {
+	s.mu.Lock()
+	if !s.servedHeader {
+		s.servedHeader = true
+		n := copy(p, s.frame[:frameHeaderSize])
+		s.mu.Unlock()
+		close(s.headerRead)
+		return n, nil
+	}
+	if !s.servedPayload {
+		s.mu.Unlock()
+		<-s.payloadRelease
+		s.mu.Lock()
+		s.servedPayload = true
+		n := copy(p, s.frame[frameHeaderSize:])
+		s.mu.Unlock()
+		close(s.payloadServed)
+		return n, nil
+	}
+	s.mu.Unlock()
+	<-s.readRelease
+	return 0, io.EOF
+}
+
+func (s *stagedFrameStream) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	s.recorded = append(s.recorded, p...)
+	s.mu.Unlock()
+	return len(p), nil
+}
+
+func (s *stagedFrameStream) Close() error {
+	s.mu.Lock()
+	s.closes++
+	s.mu.Unlock()
+	return nil
+}
+
+// releasePayload lets the parked payload read complete, exactly once.
+func (s *stagedFrameStream) releasePayload() { s.payloadOnce.Do(func() { close(s.payloadRelease) }) }
+
+// releaseReads lets later parked reads complete with io.EOF, exactly once.
+func (s *stagedFrameStream) releaseReads() { s.readOnce.Do(func() { close(s.readRelease) }) }
+
+func (s *stagedFrameStream) bytes() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.recorded...)
+}
+
+func (s *stagedFrameStream) closeCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closes
+}
+
 // probeStream counts Read and Close calls so a rejected construction can
 // prove that no receive loop started and the stream was never owned.
 type probeStream struct {
@@ -641,34 +732,35 @@ func TestReceiveDecoderPanicTerminal(t *testing.T) {
 }
 
 // TestReceiveIncomingDuplicateBeforeWrite pins that reuse of an incoming
-// request ID before the earlier response write completes is a terminal
-// protocol error: the second request never reaches dispatch, the first
-// handler's response remains the only frame ever written, and Wait reports
-// the exact protocol cause.
+// request ID before the prior response enters write admission is a
+// terminal protocol error: the first request's handler is still inside
+// dispatch, the duplicate never reaches dispatch, the first handler
+// abandons its response at write admission after terminal selection, and
+// Wait reports the exact protocol cause.
 func TestReceiveIncomingDuplicateBeforeWrite(t *testing.T) {
 	stream := newPipeStream()
-	writeEntered := make(chan struct{})
-	writeRelease := make(chan struct{})
-	stream.write = func(p []byte) (int, error) {
-		close(writeEntered)
-		<-writeRelease
-		return len(p), nil
-	}
+	dispatchEntered := make(chan struct{})
+	dispatchRelease := make(chan struct{})
 	var dispatched atomic.Int32
-	c := newReceiveTestConn(t, stream, func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+	dispatch := func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
 		dispatched.Add(1)
+		close(dispatchEntered)
+		<-dispatchRelease
 		return 0, nil
-	})
+	}
+	c := newReceiveTestConn(t, stream, dispatch)
 
-	// The first request's response write is still in flight, so ID 5 is
-	// active when the second request reuses it.
+	// The first request's handler is reserved but has not entered write
+	// admission: its dispatch is still running.
 	stream.feed(t, buildFrame(requestFrame, 5, 0x42, []byte("one")))
 	select {
-	case <-writeEntered:
+	case <-dispatchEntered:
 	case <-time.After(5 * time.Second):
-		t.Fatal("first handler never reached its response write")
+		t.Fatal("first handler never reached dispatch")
 	}
 
+	// Reuse of ID 5 before the prior response enters write admission is a
+	// terminal protocol error; the duplicate never reaches dispatch.
 	stream.feed(t, buildFrame(requestFrame, 5, 0x43, []byte("two")))
 	waitTerminal(t, c)
 	c.mu.Lock()
@@ -681,30 +773,21 @@ func TestReceiveIncomingDuplicateBeforeWrite(t *testing.T) {
 		t.Errorf("dispatch ran %d times, want exactly once", dispatched.Load())
 	}
 
-	// The first handler's blocked write completes and its response is the
-	// only frame ever written.
-	close(writeRelease)
-	waitBytes(t, stream.bytes, frameHeaderSize)
-	frames := splitFrames(t, stream.bytes())
-	if len(frames) != 1 {
-		t.Fatalf("recorded %d frames, want exactly the first response", len(frames))
-	}
-	hdr, err := parseFrameHeader(frames[0][:frameHeaderSize])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hdr.kind != responseFrame || hdr.requestID != 5 || hdr.key != 0 {
-		t.Errorf("recorded response = %+v, want responseFrame id 5 key 0", hdr)
-	}
-
+	// The first handler finishes dispatch, but terminal state prevents its
+	// response write: no bytes are ever written.
+	close(dispatchRelease)
 	waitReceiveExit(t, c)
 	waitTeardown(t, c)
-	if stream.closeCount() != 1 {
-		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
+	if got := len(stream.bytes()); got != 0 {
+		t.Errorf("handler wrote %d bytes after terminal selection, want none", got)
 	}
 	if got := c.Wait(); got != cause {
 		t.Errorf("Wait() = %v, want the exact protocol cause %v", got, cause)
 	}
+	if stream.closeCount() != 1 {
+		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
+	}
+	waitIncoming(t, c, 0)
 }
 
 // TestReceiveIncomingReuseAfterWrite pins that reuse of an incoming request
@@ -758,6 +841,496 @@ func TestReceiveIncomingReuseAfterWrite(t *testing.T) {
 
 	stream.closeWriter()
 	waitTerminal(t, c)
+}
+
+// TestReceiveIncomingReuseAtDelivery pins the ordered admission point for
+// reuse during an active response write: a controllable stream exposes the
+// complete response bytes to the simulated peer while delaying the writer's
+// return; the peer immediately sends the reused ID; the duplicate is fully
+// buffered as the one deferred next generation without terminating the
+// connection, does not dispatch before the write completes, and is admitted
+// after the successful write completion even though it arrived before the
+// final local Write returned.
+func TestReceiveIncomingReuseAtDelivery(t *testing.T) {
+	stream := newPipeStream()
+	writeEntered := make(chan struct{})
+	writeRelease := make(chan struct{})
+	var blocked atomic.Bool
+	var peerMu sync.Mutex
+	var peerBytes []byte
+	stream.write = func(p []byte) (int, error) {
+		// The simulated peer accepts the complete frame bytes before the
+		// writer's return is delayed.
+		peerMu.Lock()
+		peerBytes = append(peerBytes, p...)
+		peerMu.Unlock()
+		if blocked.CompareAndSwap(false, true) {
+			close(writeEntered)
+			<-writeRelease
+		}
+		return len(p), nil
+	}
+	var dispatched atomic.Int32
+	c := newReceiveTestConn(t, stream, func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+		dispatched.Add(1)
+		return key, payload
+	})
+
+	// The first generation's response write is active: the peer already
+	// has the complete first response, but the writer has not returned.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x42, []byte("one")))
+	select {
+	case <-writeEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first response write never started")
+	}
+	if got := len(stream.bytes()); got != 0 {
+		t.Fatalf("writer returned early: %d bytes recorded", got)
+	}
+	peerMu.Lock()
+	peerSaw := append([]byte(nil), peerBytes...)
+	peerMu.Unlock()
+	if want := buildFrame(responseFrame, 5, 0x42, []byte("one")); !bytes.Equal(peerSaw, want) {
+		t.Fatalf("peer received %d bytes, want the complete first response (%d)", len(peerSaw), len(want))
+	}
+
+	// The peer immediately sends the reused ID while the write is active:
+	// the duplicate is deferred, never dispatched early, and does not
+	// terminate the connection.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x43, []byte("two")))
+	if got := dispatched.Load(); got != 1 {
+		t.Fatalf("deferred request dispatched before the prior write completed (%d dispatches)", got)
+	}
+	c.mu.Lock()
+	active := c.cause == nil
+	c.mu.Unlock()
+	if !active {
+		t.Fatal("duplicate during an active response write terminated the connection")
+	}
+
+	// Successful write completion admits the deferred request even though
+	// it arrived before the final local Write returned.
+	close(writeRelease)
+	waitBytes(t, stream.bytes, 2*(frameHeaderSize+3))
+	waitIncoming(t, c, 0)
+	if got := dispatched.Load(); got != 2 {
+		t.Errorf("dispatch ran %d times, want exactly 2", got)
+	}
+	frames := splitFrames(t, stream.bytes())
+	if len(frames) != 2 {
+		t.Fatalf("recorded %d frames, want 2", len(frames))
+	}
+	for i, f := range frames {
+		hdr, err := parseFrameHeader(f[:frameHeaderSize])
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantKey := uint64(0x42 + i)
+		wantPayload := []byte("one")
+		if i == 1 {
+			wantPayload = []byte("two")
+		}
+		if hdr.kind != responseFrame || hdr.requestID != 5 || hdr.key != wantKey || !bytes.Equal(f[frameHeaderSize:], wantPayload) {
+			t.Errorf("frame %d = %+v payload %q, want id 5 key %#x payload %q", i, hdr, f[frameHeaderSize:], wantKey, wantPayload)
+		}
+	}
+	c.mu.Lock()
+	active = c.cause == nil
+	c.mu.Unlock()
+	if !active {
+		t.Error("deferred reuse terminated the connection")
+	}
+
+	stream.closeWriter()
+	waitTerminal(t, c)
+}
+
+// TestReceiveIncomingWriteFailureWithDuplicate pins that a duplicate
+// waiting on a response write that then fails is discarded under the exact
+// terminal cause and never dispatches: the write failure is the permanent
+// cause, the deferred generation is dropped under terminal state, and the
+// connection settles with exactly the first dispatch and no frames.
+func TestReceiveIncomingWriteFailureWithDuplicate(t *testing.T) {
+	writeErr := errors.New("response write failure")
+	stream := newPipeStream()
+	writeEntered := make(chan struct{})
+	writeRelease := make(chan struct{})
+	stream.write = func(p []byte) (int, error) {
+		close(writeEntered)
+		<-writeRelease
+		return 0, writeErr
+	}
+	var dispatched atomic.Int32
+	c := newReceiveTestConn(t, stream, func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+		dispatched.Add(1)
+		return key, payload
+	})
+
+	stream.feed(t, buildFrame(requestFrame, 5, 0x42, []byte("one")))
+	select {
+	case <-writeEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first response write never started")
+	}
+
+	// The duplicate is deferred while the write is active; the write then
+	// fails.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x43, []byte("two")))
+	close(writeRelease)
+	waitTerminal(t, c)
+	c.mu.Lock()
+	cause := c.cause
+	c.mu.Unlock()
+	if !errors.Is(cause, writeErr) {
+		t.Fatalf("terminal cause = %v, want the exact write failure", cause)
+	}
+
+	// The deferred duplicate is discarded under the exact terminal cause
+	// and never dispatches; nothing was ever written.
+	if got := dispatched.Load(); got != 1 {
+		t.Errorf("dispatch ran %d times, want exactly once (the deferred request must never dispatch)", got)
+	}
+	if got := len(stream.bytes()); got != 0 {
+		t.Errorf("stream recorded %d bytes, want none", got)
+	}
+	waitReceiveExit(t, c)
+	waitTeardown(t, c)
+	if got := c.Wait(); got != cause {
+		t.Errorf("Wait() = %v, want the exact write-failure cause %v", got, cause)
+	}
+	if stream.closeCount() != 1 {
+		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
+	}
+	waitIncoming(t, c, 0)
+}
+
+// TestReceiveDeferredReuseDoesNotBlockResponses pins that deferring a
+// duplicate does not park the sole receive loop: a matched response placed
+// after the deferred duplicate is claimed, decoded, and completed while the
+// prior response writer is still blocked, and the deferred generation is
+// admitted only after that writer completes.
+func TestReceiveDeferredReuseDoesNotBlockResponses(t *testing.T) {
+	stream := newPipeStream()
+	var dispatched atomic.Int32
+	dispatch := func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+		dispatched.Add(1)
+		return key, payload
+	}
+	c := newReceiveTestConn(t, stream, dispatch)
+
+	// One outgoing call whose request frame is on the wire before the
+	// first generation's write, so its matched response can be placed
+	// right after the deferred duplicate.
+	done := make(chan error, 1)
+	go func() {
+		done <- c.Call(context.Background(), c.imp, 0x10,
+			func() ([]byte, error) { return []byte("call"), nil }, okDecoder)
+	}()
+	waitBytes(t, stream.bytes, frameHeaderSize+4)
+
+	// Install the blocking write hook only after the call's request frame
+	// is recorded: it exposes the complete response bytes to the peer
+	// while delaying the writer's return.
+	writeEntered := make(chan struct{})
+	writeRelease := make(chan struct{})
+	var blocked atomic.Bool
+	stream.write = func(p []byte) (int, error) {
+		if blocked.CompareAndSwap(false, true) {
+			close(writeEntered)
+			<-writeRelease
+		}
+		return len(p), nil
+	}
+
+	// The first generation (ID 5) writes; a duplicate of ID 5 is deferred
+	// while that write is active.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x42, []byte("one")))
+	select {
+	case <-writeEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first response write never started")
+	}
+	stream.feed(t, buildFrame(requestFrame, 5, 0x43, []byte("two")))
+
+	// The matched response placed after the deferred duplicate is
+	// processed before the prior response writer may return: the receive
+	// loop did not park on the deferred generation.
+	stream.feed(t, buildFrame(responseFrame, 0, 0, nil))
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("call failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("matched response was not processed while the prior response writer was blocked")
+	}
+	if got := dispatched.Load(); got != 1 {
+		t.Fatalf("deferred request dispatched before the prior write completed (%d dispatches)", got)
+	}
+
+	// The prior writer completes; the deferred request is admitted and its
+	// response follows on the wire.
+	close(writeRelease)
+	waitBytes(t, stream.bytes, 2*(frameHeaderSize+3)+frameHeaderSize+4)
+	waitIncoming(t, c, 0)
+	if got := dispatched.Load(); got != 2 {
+		t.Errorf("dispatch ran %d times, want exactly 2", got)
+	}
+	frames := splitFrames(t, stream.bytes())
+	if len(frames) != 3 {
+		t.Fatalf("recorded %d frames, want 3", len(frames))
+	}
+	// The recorded frames are exactly the call's request, the first
+	// generation's response, and the deferred generation's response, in
+	// that order, never interleaved.
+	reqHdr, err := parseFrameHeader(frames[0][:frameHeaderSize])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reqHdr.kind != requestFrame || reqHdr.requestID != 0 || reqHdr.key != 0x10 || !bytes.Equal(frames[0][frameHeaderSize:], []byte("call")) {
+		t.Errorf("frame 0 = %+v payload %q, want the call's request", reqHdr, frames[0][frameHeaderSize:])
+	}
+	for i, f := range frames[1:] {
+		hdr, err := parseFrameHeader(f[:frameHeaderSize])
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantKey := uint64(0x42 + i)
+		wantPayload := []byte("one")
+		if i == 1 {
+			wantPayload = []byte("two")
+		}
+		if hdr.kind != responseFrame || hdr.requestID != 5 || hdr.key != wantKey || !bytes.Equal(f[frameHeaderSize:], wantPayload) {
+			t.Errorf("frame %d = %+v payload %q, want id 5 key %#x payload %q", i+1, hdr, f[frameHeaderSize:], wantKey, wantPayload)
+		}
+	}
+	c.mu.Lock()
+	active := c.cause == nil
+	c.mu.Unlock()
+	if !active {
+		t.Error("deferred reuse with a matched response terminated the connection")
+	}
+
+	stream.closeWriter()
+	waitTerminal(t, c)
+}
+
+// TestReceiveThirdIncomingGenerationRejected pins that a further same-ID
+// request cannot queue while one generation is deferred: the third request
+// is a terminal protocol error, the deferred generation never dispatches
+// even after the blocked write completes, and the first response remains
+// the only frame ever written.
+func TestReceiveThirdIncomingGenerationRejected(t *testing.T) {
+	stream := newPipeStream()
+	writeEntered := make(chan struct{})
+	writeRelease := make(chan struct{})
+	var blocked atomic.Bool
+	stream.write = func(p []byte) (int, error) {
+		if blocked.CompareAndSwap(false, true) {
+			close(writeEntered)
+			<-writeRelease
+		}
+		return len(p), nil
+	}
+	var dispatched atomic.Int32
+	c := newReceiveTestConn(t, stream, func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+		dispatched.Add(1)
+		return key, payload
+	})
+
+	stream.feed(t, buildFrame(requestFrame, 5, 0x42, []byte("one")))
+	select {
+	case <-writeEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first response write never started")
+	}
+	// The second same-ID request is deferred while the write is active.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x43, []byte("two")))
+	// The third same-ID request cannot queue: it is terminal.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x44, []byte("three")))
+	waitTerminal(t, c)
+	c.mu.Lock()
+	cause := c.cause
+	c.mu.Unlock()
+	if !errors.Is(cause, ErrProtocol) {
+		t.Fatalf("terminal cause = %v, want a protocol error wrapping ErrProtocol", cause)
+	}
+	if got := dispatched.Load(); got != 1 {
+		t.Errorf("dispatch ran %d times, want exactly once", got)
+	}
+
+	// The blocked write completes and its response is the only frame ever
+	// written; the deferred and third generations never dispatch.
+	close(writeRelease)
+	waitBytes(t, stream.bytes, frameHeaderSize+3)
+	frames := splitFrames(t, stream.bytes())
+	if len(frames) != 1 {
+		t.Fatalf("recorded %d frames, want exactly the first response", len(frames))
+	}
+	hdr, err := parseFrameHeader(frames[0][:frameHeaderSize])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.kind != responseFrame || hdr.requestID != 5 || hdr.key != 0x42 || !bytes.Equal(frames[0][frameHeaderSize:], []byte("one")) {
+		t.Errorf("recorded response = %+v payload %q, want id 5 key 0x42 payload %q", hdr, frames[0][frameHeaderSize:], "one")
+	}
+	if got := dispatched.Load(); got != 1 {
+		t.Errorf("deferred generation dispatched after terminal (%d dispatches)", got)
+	}
+	waitReceiveExit(t, c)
+	waitTeardown(t, c)
+	if got := c.Wait(); got != cause {
+		t.Errorf("Wait() = %v, want the exact protocol cause %v", got, cause)
+	}
+	if stream.closeCount() != 1 {
+		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
+	}
+	waitIncoming(t, c, 0)
+}
+
+// TestReceiveStopsAfterTerminal pins that terminal selection and request
+// admission are one ordered decision: Close wins the race against a request
+// frame that is still being buffered, and once the frame is fully buffered
+// after terminal has won it is never dispatched — no dispatch and no
+// provider launch, and the receive loop stops processing.
+func TestReceiveStopsAfterTerminal(t *testing.T) {
+	stream := newStagedFrameStream(buildFrame(requestFrame, 9, 0x42, []byte("buffered")))
+	t.Cleanup(stream.releasePayload)
+	t.Cleanup(stream.releaseReads)
+	var dispatched atomic.Int32
+	c := newReceiveTestConn(t, stream, func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+		dispatched.Add(1)
+		return 0, nil
+	})
+
+	// The receive loop has consumed the header; the payload read is parked,
+	// so the request frame is not yet fully buffered.
+	select {
+	case <-stream.headerRead:
+	case <-time.After(5 * time.Second):
+		t.Fatal("receive loop never read the frame header")
+	}
+
+	// Close wins the race: terminal is selected while the request frame is
+	// still being buffered.
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+
+	// The loop finishes buffering the complete frame, then observes
+	// terminal at admission: the buffered request is never dispatched and
+	// the loop stops processing.
+	stream.releasePayload()
+	select {
+	case <-stream.payloadServed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("receive loop never finished buffering the frame")
+	}
+	waitReceiveExit(t, c)
+	if got := c.Wait(); got != ErrClosed {
+		t.Errorf("Wait() = %v, want exactly ErrClosed", got)
+	}
+	if got := dispatched.Load(); got != 0 {
+		t.Errorf("dispatch ran %d times after terminal selection, want none", got)
+	}
+	if got := len(stream.bytes()); got != 0 {
+		t.Errorf("handler wrote %d bytes after terminal selection, want none", got)
+	}
+	if stream.closeCount() != 1 {
+		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
+	}
+}
+
+// TestReceiveTerminalDrainsIncoming pins that teardown leaves no incoming
+// or deferred entries, even when a handler ignores cancellation: terminal
+// publication drains the reserved ID and the deferred generation under the
+// connection lock before Close returns; the blocked write completes and
+// discards its deferred generation under terminal state; and the handler
+// that ignores cancellation finishes and abandons its response at write
+// admission. Only the first generation ever dispatches or writes.
+func TestReceiveTerminalDrainsIncoming(t *testing.T) {
+	stream := newPipeStream()
+	writeEntered := make(chan struct{})
+	writeRelease := make(chan struct{})
+	var blocked atomic.Bool
+	stream.write = func(p []byte) (int, error) {
+		if blocked.CompareAndSwap(false, true) {
+			close(writeEntered)
+			<-writeRelease
+		}
+		return len(p), nil
+	}
+	dispatchEntered := make(chan struct{})
+	dispatchRelease := make(chan struct{})
+	var dispatched atomic.Int32
+	dispatch := func(_ context.Context, key uint64, payload []byte) (uint64, []byte) {
+		dispatched.Add(1)
+		if key == 0x45 {
+			close(dispatchEntered)
+			<-dispatchRelease // deliberately ignores handler-context cancellation
+		}
+		return 0, nil
+	}
+	c := newReceiveTestConn(t, stream, dispatch)
+
+	// Generation 1 (ID 5): the response write is active and blocked.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x42, []byte("one")))
+	select {
+	case <-writeEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first response write never started")
+	}
+	// A duplicate of ID 5 during that write is the one deferred generation.
+	stream.feed(t, buildFrame(requestFrame, 5, 0x43, []byte("two")))
+	// A fresh request (ID 6) whose provider ignores cancellation.
+	stream.feed(t, buildFrame(requestFrame, 6, 0x45, nil))
+	select {
+	case <-dispatchEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second handler never reached dispatch")
+	}
+
+	// Terminal publication drains every incoming and deferred entry under
+	// the connection lock before Close returns.
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+	c.mu.Lock()
+	left := len(c.incoming)
+	c.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d incoming/deferred entries remain after terminal publication, want none", left)
+	}
+
+	// The handler that ignores cancellation finishes and abandons its
+	// response at write admission; the blocked write completes and its
+	// deferred generation is discarded under terminal state.
+	close(dispatchRelease)
+	close(writeRelease)
+	waitReceiveExit(t, c)
+	waitTeardown(t, c)
+	if got := c.Wait(); got != ErrClosed {
+		t.Errorf("Wait() = %v, want exactly ErrClosed", got)
+	}
+	if got := dispatched.Load(); got != 2 {
+		t.Errorf("dispatch ran %d times, want exactly 2 (the deferred request must never dispatch)", got)
+	}
+	waitBytes(t, stream.bytes, frameHeaderSize)
+	frames := splitFrames(t, stream.bytes())
+	if len(frames) != 1 {
+		t.Fatalf("recorded %d frames, want exactly the first response", len(frames))
+	}
+	hdr, err := parseFrameHeader(frames[0][:frameHeaderSize])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.kind != responseFrame || hdr.requestID != 5 || hdr.key != 0 || len(frames[0]) != frameHeaderSize {
+		t.Errorf("recorded response = %+v with %d-byte payload, want id 5 key 0 with an empty payload", hdr, len(frames[0])-frameHeaderSize)
+	}
+	if stream.closeCount() != 1 {
+		t.Errorf("stream closed %d times, want exactly 1", stream.closeCount())
+	}
+	waitIncoming(t, c, 0)
 }
 
 // TestHandlerDispatch pins the handler contract: the runtime invokes the

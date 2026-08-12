@@ -32,14 +32,18 @@ type Connection struct {
 	nextID  uint64
 	pending map[uint64]*pendingCall
 
-	// Incoming-call state, guarded by mu. incoming holds the request IDs of
-	// incoming calls whose response write has not yet completed. The
-	// receive loop reserves an ID before starting its handler goroutine,
-	// and the handler releases it after the complete response write
-	// succeeds; reuse before release is a terminal protocol error, while
-	// reuse afterward is allowed. Incoming and outgoing ID spaces are
-	// independent.
-	incoming map[uint64]struct{}
+	// Incoming-call state, guarded by mu. incoming holds one entry per
+	// incoming request ID from ordered admission until its response write
+	// completes: a fresh request reserves its ID before its handler starts,
+	// the handler marks the ID as writing at write admission, and a
+	// successful write releases the ID or hands it to the one deferred next
+	// generation. Reuse of an ID before the prior response enters write
+	// admission is a terminal protocol error; reuse during that write is
+	// fully buffered as one deferred generation; reuse after the successful
+	// write is allowed. Terminal publication drains every entry, including
+	// a deferred generation, so teardown leaves no incoming state behind.
+	// Incoming and outgoing ID spaces are independent.
+	incoming map[uint64]*incomingCall
 
 	// gate is the connection-wide write gate: requests and responses share
 	// it, exactly one frame write proceeds at a time, and frames never
@@ -98,7 +102,7 @@ func newConnection(ctx context.Context, stream ByteStream, export ExportBinding,
 	c := &Connection{
 		terminal:       make(chan struct{}),
 		pending:        make(map[uint64]*pendingCall),
-		incoming:       make(map[uint64]struct{}),
+		incoming:       make(map[uint64]*incomingCall),
 		gate:           newWriteGate(),
 		stream:         stream,
 		export:         export,
@@ -192,6 +196,14 @@ func (c *Connection) selectTerminal(err error) {
 		delete(c.pending, id)
 		claims = append(claims, pc)
 	}
+	// Terminal publication also drains every incoming and deferred request
+	// entry under the same lock: a buffered or deferred request is never
+	// dispatched after terminal wins, and teardown leaves no incoming state
+	// behind. Handlers already admitted abandon their response at write
+	// admission; a write already in flight is unblocked by stream closure,
+	// and its completion discards the deferred generation under terminal
+	// state.
+	clear(c.incoming)
 	c.mu.Unlock()
 
 	// Teardown, exactly once, by the one asynchronous cleanup owner the

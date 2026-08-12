@@ -270,9 +270,11 @@ func TestWriteGateSerializes(t *testing.T) {
 		return 1, nil
 	}}
 	c := newWriteTestConn(t, stream)
-	if !c.reserveIncoming(respID) {
-		t.Fatal("premise: incoming ID must be reservable")
-	}
+	// Simulate the receive loop's ordered admission: the request ID is
+	// reserved (present in the active set) before its handler starts.
+	c.mu.Lock()
+	c.incoming[respID] = &incomingCall{}
+	c.mu.Unlock()
 	export, err := NewExportBinding(func(context.Context, uint64, []byte) (uint64, []byte) {
 		return respKey, respPayload
 	})
