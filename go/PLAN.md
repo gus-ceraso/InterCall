@@ -489,7 +489,11 @@ Remediation tasks:
 - **Reviewer:** draw the lock/channel ownership graph, inspect every gate release
   and terminal path, and independently run the same commands. A timeout-only
   test or transport that violates the specified unblock contract is inadequate.
-- **Expected paths:** root lifecycle/call/receive/write implementation and tests.
+- **Expected paths:** root lifecycle/call/receive/write implementation and tests;
+  `go/internal/integration/cancellation_test.go` for the disclosed pre-existing
+  integration-race conformance fix only (peer terminal-cause assertion accepts
+  `io.ErrClosedPipe` in addition to `io.EOF`, per SPEC first-cause selection; no
+  runtime behavior change; all other integration tests untouched).
 - **Commit:** `make connection writes and teardown live`
 
 ### RM-03 — Order incoming request admission and ID reuse
