@@ -220,7 +220,7 @@ type Document struct {
 
 	src   []byte
 	lines []int       // offsets of every line start; lines[0] is always 0
-	tok   *token.File // the file's token.File, for physical offsets
+	tok   *token.File // the token.File of the FileSet whose positions offset() converts
 }
 
 // intercallGeneratedMarker is the exact generated-file marker that forms
@@ -344,7 +344,12 @@ func (d *Document) Position(offset int) Position {
 }
 
 // offset returns the physical byte offset of a token position of the
-// file's own token.File.
+// document's paired token.File. For a document parsed by ParseGoSource
+// the positions come from its own parse FileSet; the mapping retargets
+// the token.File to the load FileSet's file of the paired syntax, so
+// physical positions always resolve through the FileSet that produced
+// the positions (SPEC.md "Diagnostics": //line directives never
+// rewrite them, because File.Offset ignores line tables).
 func (d *Document) offset(pos token.Pos) int {
 	return d.tok.Offset(pos)
 }

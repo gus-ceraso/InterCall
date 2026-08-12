@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"go/types"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -243,27 +242,49 @@ func newPkgMap(pkg *packages.Package, exp *ExplicitPackage) *pkgMap {
 		gds:    make(map[*ast.TypeSpec]*GoDecl),
 		gdErr:  make(map[*ast.TypeSpec]error),
 	}
-	// pkg.Syntax and pkg.CompiledGoFiles correspond positionally, so
-	// the explicit package's parsed documents line up with its syntax.
-	for i, af := range pkg.Syntax {
-		if exp != nil {
-			if i < len(exp.files) {
-				pm.docs[af] = exp.docs[exp.files[i]]
-			}
-			if pm.docs[af] == nil {
-				pm.docErr[af] = fmt.Errorf("internal error: no parsed document for a file of %s", pkg.PkgPath)
-			}
+	// The syntax files of a load all live in the package's own load
+	// FileSet. Documents are paired with their syntax by filename — the
+	// token.File name is the exact compiled-file path — and the
+	// document's offset conversion is retargeted to that same token.File,
+	// so physical positions resolve through the load FileSet. A syntax
+	// file without a parsed document is an invariant break and fails
+	// rather than trusting positional slice correspondence.
+	if err := checkExternalBases(pkg.PkgPath, pkg.Dir, compiledNames(pkg)); err != nil {
+		// The invariant failure applies to every file of the package:
+		// no document is built and every reachable declaration fails
+		// with the invariant error instead of a conflated logical path.
+		for _, af := range pkg.Syntax {
+			pm.docErr[af] = err
+		}
+		return pm
+	}
+	for _, af := range pkg.Syntax {
+		tf := pkg.Fset.File(af.Pos())
+		if tf == nil {
+			pm.docErr[af] = fmt.Errorf("internal error: no token.File for a syntax file of %s", pkg.PkgPath)
 			continue
 		}
-		name := pkg.Fset.File(af.Pos()).Name()
+		if exp != nil {
+			doc := exp.docs[tf.Name()]
+			if doc == nil {
+				pm.docErr[af] = fmt.Errorf("internal error: no parsed document for file %s of %s", tf.Name(), pkg.PkgPath)
+				continue
+			}
+			// The parsed document's own offsets come from the load
+			// FileSet's file, never from the document's parse-time
+			// FileSet.
+			doc.tok = tf
+			pm.docs[af] = doc
+			continue
+		}
+		name := tf.Name()
 		src, err := os.ReadFile(name)
 		if err != nil {
 			pm.docErr[af] = fmt.Errorf("reading %s: %v", name, err)
 			continue
 		}
-		tf := pkg.Fset.File(af.Pos())
 		pm.docs[af] = &Document{
-			Name:               pkg.PkgPath + "/" + filepath.Base(name),
+			Name:               logicalFilePath(pkg.PkgPath, pkg.Dir, name),
 			Size:               len(src),
 			Generated:          ast.IsGenerated(af),
 			IntercallGenerated: firstLine(src) == intercallGeneratedMarker,
@@ -289,6 +310,18 @@ func newPkgMap(pkg *packages.Package, exp *ExplicitPackage) *pkgMap {
 		}
 	}
 	return pm
+}
+
+// compiledNames returns the compiled-file names of one package's
+// syntax, in syntax order.
+func compiledNames(pkg *packages.Package) []string {
+	names := make([]string, 0, len(pkg.Syntax))
+	for _, af := range pkg.Syntax {
+		if tf := pkg.Fset.File(af.Pos()); tf != nil {
+			names = append(names, tf.Name())
+		}
+	}
+	return names
 }
 
 // fileContaining returns the package file containing pos, or nil.
@@ -389,7 +422,7 @@ func (m *mapper) errAt(pkg *packages.Package, pos token.Pos, format string, args
 		}
 	}
 	f := pkg.Fset.PositionFor(pos, false)
-	return &Error{Filename: pkg.PkgPath, Pos: Position{Offset: f.Offset, Line: f.Line, Column: f.Column}, Msg: fmt.Sprintf(format, args...)}
+	return &Error{Filename: logicalFilePath(pkg.PkgPath, pkg.Dir, f.Filename), Pos: Position{Offset: f.Offset, Line: f.Line, Column: f.Column}, Msg: fmt.Sprintf(format, args...)}
 }
 
 // semanticOf recovers the machine metadata of one intercall-generated

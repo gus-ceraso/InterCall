@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -80,7 +79,7 @@ func selectProviders(pkgs []*ExplicitPackage, inc, exc []*selector) ([]*Provider
 		for _, c := range cs {
 			if !isExported(c.decl.Name) {
 				diags = append(diags, &Error{
-					Filename: p.Path + "/" + fileOf(p, c.decl),
+					Filename: fileOf(p, c.decl),
 					Pos:      c.decl.Pos,
 					Msg:      "contradictory @intercall procedure directive: it applies only to an exported function",
 				})
@@ -147,12 +146,12 @@ func selectProviders(pkgs []*ExplicitPackage, inc, exc []*selector) ([]*Provider
 	return providers, nil
 }
 
-// fileOf returns the package-relative file name of a declaration.
+// fileOf returns the logical path of the file holding one declaration.
 func fileOf(p *ExplicitPackage, decl *GoDecl) string {
-	for file, doc := range p.docs {
+	for _, doc := range p.docs {
 		for _, d := range doc.Decls {
 			if d == decl {
-				return filepath.Base(file)
+				return doc.Name
 			}
 		}
 	}
@@ -331,7 +330,7 @@ func buildProvider(c *candidate) (*Provider, error) {
 	fn := c.fn
 	bad := func(format string, args ...any) (*Provider, error) {
 		msg := fmt.Sprintf("procedure %q: %s", c.pkg.Path+"."+c.decl.Name, fmt.Sprintf(format, args...))
-		return nil, &Error{Filename: c.pkg.Path + "/" + fileOf(c.pkg, c.decl), Pos: c.decl.Pos, Msg: msg}
+		return nil, &Error{Filename: fileOf(c.pkg, c.decl), Pos: c.decl.Pos, Msg: msg}
 	}
 
 	if fn.Recv != nil {

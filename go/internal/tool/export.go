@@ -430,7 +430,7 @@ func (m *mapper) exportProcs(providers []*MappedProvider) ([]*ExportProc, error)
 	procWire := make(map[string]*ExportProc)
 	for _, mp := range providers {
 		p := mp.Provider
-		filename := p.Pkg.Path + "/" + fileOf(p.Pkg, p.Doc)
+		filename := fileOf(p.Pkg, p.Doc)
 		bad := func(format string, args ...any) error {
 			return &Error{Filename: filename, Pos: p.Doc.Pos, Msg: fmt.Sprintf("procedure %q: %s", p.Pkg.Path+"."+p.Name, fmt.Sprintf(format, args...))}
 		}

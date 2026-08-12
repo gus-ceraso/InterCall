@@ -132,6 +132,35 @@ func TestCommandDiagnostics(t *testing.T) {
 		}
 	})
 
+	t.Run("GoSourceLogicalPath", func(t *testing.T) {
+		// A Go type error of a subdirectory file is reported at the
+		// canonical logical path — import path plus slash-normalized
+		// package-relative path — never the resolved physical path.
+		root := writeModule(t, map[string]string{
+			"go.mod": "module example.com/cli\n\ngo 1.26.5\n",
+			"bad/sub/bad.go": `package bad
+
+var X = undefinedName
+`,
+		})
+		cliEnv(t, root)
+		intf := filepath.Join(root, "api.intercall")
+		if err := os.WriteFile(intf, []byte("exception seed;\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		status, _, stderr := runCLI(t, "export", "--out", filepath.Join(root, "out"), "--interface", intf, "./bad/...")
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		want := "example.com/cli/bad/sub/bad.go:3:9: undefined: undefinedName"
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to contain the logical path diagnostic %q", stderr, want)
+		}
+		if strings.Contains(stderr, root) {
+			t.Errorf("stderr = %q, want no resolved physical path", stderr)
+		}
+	})
+
 	t.Run("WrongCommandOptions", func(t *testing.T) {
 		root := t.TempDir()
 		status, _, stderr := runCLI(t, "import", "--out", root, "--interface", "api.intercall", "f.intercall")

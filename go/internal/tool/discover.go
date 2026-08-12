@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -155,6 +156,16 @@ func Discover(cfg DiscoverConfig) (*DiscoverResult, error) {
 	explicit, err := collectExplicit(pkgs)
 	if err != nil {
 		return nil, err
+	}
+
+	// External compiler-generated files of one package must have
+	// distinct base names, or their canonical logical paths would be
+	// silently conflated (SPEC.md "Diagnostics"). This package-load
+	// invariant is checked before any other package diagnostic.
+	for _, p := range explicit {
+		if err := checkExternalBases(p.Path, p.Dir, p.files); err != nil {
+			return nil, err
+		}
 	}
 
 	// Every explicit package must type-check. Package diagnostics from
@@ -355,16 +366,15 @@ func collectExplicit(pkgs []*packages.Package) ([]*ExplicitPackage, error) {
 }
 
 // packageError converts one go/packages diagnostic into an *Error. A
-// positioned diagnostic uses the canonical import path plus the file's
-// package-relative path; a diagnostic without a position uses the
-// package path (the raw operand text for an unmatched pattern) at line
-// 1, column 1.
+// positioned diagnostic uses the canonical logical path of its file; a
+// diagnostic without a position uses the package path (the raw operand
+// text for an unmatched pattern) at line 1, column 1.
 func packageError(p *ExplicitPackage, e packages.Error) *Error {
 	pos := Position{Line: 1, Column: 1}
 	filename := p.Path
 	if e.Pos != "" {
 		if file, line, col, ok := splitFilePos(e.Pos); ok {
-			filename = p.Path + "/" + filepath.Base(file)
+			filename = logicalFilePath(p.Path, p.Dir, file)
 			pos = Position{Line: line, Column: col}
 		}
 	}
@@ -372,29 +382,89 @@ func packageError(p *ExplicitPackage, e packages.Error) *Error {
 }
 
 // splitFilePos parses a go/token position string of the form
-// "file:line:column".
+// "file:line" or "file:line:column", scanning numeric suffixes from
+// the right so colons in filenames are preserved, and defaults a
+// missing column to 1 (SPEC.md "Diagnostics").
 func splitFilePos(pos string) (file string, line, col int, ok bool) {
 	i := strings.LastIndexByte(pos, ':')
 	if i < 0 {
 		return "", 0, 0, false
 	}
-	j := strings.LastIndexByte(pos[:i], ':')
-	if j < 0 {
+	col, err := strconv.Atoi(pos[i+1:])
+	if err != nil {
 		return "", 0, 0, false
 	}
-	file = pos[:j]
+	if j := strings.LastIndexByte(pos[:i], ':'); j >= 0 {
+		if ln, err := strconv.Atoi(pos[j+1 : i]); err == nil {
+			// The "file:line:column" form: the suffix before the last
+			// colon is the line and the rest is the file.
+			file = pos[:j]
+			if file == "" {
+				return "", 0, 0, false
+			}
+			return file, ln, col, true
+		}
+	}
+	// The "file:line" form: the last suffix is the line and the column
+	// defaults to 1.
+	file = pos[:i]
 	if file == "" {
 		return "", 0, 0, false
 	}
-	_, err := fmt.Sscanf(pos[j+1:i], "%d", &line)
-	if err != nil {
-		return "", 0, 0, false
+	return file, col, 1, true
+}
+
+// logicalFilePath renders the canonical logical path of one compiled
+// file of a package (SPEC.md "Diagnostics"): a physical source under
+// the package directory uses the slash-normalized package-relative
+// path under the package's canonical import path, and an external
+// compiler-generated source uses
+// "<import-path>/.intercall-generated/<base-name>". A relative file
+// name is resolved against the package directory first.
+func logicalFilePath(pkgPath, pkgDir, file string) string {
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(pkgDir, file)
 	}
-	_, err = fmt.Sscanf(pos[i+1:], "%d", &col)
-	if err != nil {
-		return "", 0, 0, false
+	if underPackageDir(pkgDir, file) {
+		rel, err := filepath.Rel(filepath.Clean(pkgDir), file)
+		if err == nil {
+			return pkgPath + "/" + filepath.ToSlash(rel)
+		}
 	}
-	return file, line, col, true
+	return pkgPath + "/.intercall-generated/" + filepath.Base(file)
+}
+
+// underPackageDir reports whether a physical file lies under the
+// package directory.
+func underPackageDir(pkgDir, file string) bool {
+	rel, err := filepath.Rel(filepath.Clean(pkgDir), file)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// checkExternalBases reports the package-load invariant error of two
+// external compiler-generated files of one package that share a base
+// name: their canonical logical paths would be silently conflated
+// (SPEC.md "Diagnostics").
+func checkExternalBases(pkgPath, pkgDir string, files []string) error {
+	seen := make(map[string]string)
+	for _, file := range files {
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(pkgDir, file)
+		}
+		if underPackageDir(pkgDir, file) {
+			continue // a physical source under the package directory
+		}
+		base := filepath.Base(file)
+		if prev, ok := seen[base]; ok {
+			return &Error{
+				Filename: pkgPath,
+				Pos:      Position{Line: 1, Column: 1},
+				Msg:      fmt.Sprintf("package-load invariant error: external generated files %q and %q of package %q share the base name %q, which would conflate their logical paths", prev, file, pkgPath, base),
+			}
+		}
+		seen[base] = file
+	}
+	return nil
 }
 
 // parseDocuments parses every compiled file of one explicit package with
@@ -409,7 +479,7 @@ func (p *ExplicitPackage) parseDocuments() error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %v", file, err)
 		}
-		doc, err := ParseGoSource(p.Path+"/"+filepath.Base(file), src)
+		doc, err := ParseGoSource(logicalFilePath(p.Path, p.Dir, file), src)
 		if err != nil {
 			if ge, ok := err.(*Error); ok {
 				diags = append(diags, ge)
