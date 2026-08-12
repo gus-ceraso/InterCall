@@ -33,10 +33,14 @@ const (
 	// response copies the request's ID into those bits.
 	idMask uint64 = 0x7fffffffffffffff
 
-	// maxInt is the largest native int value. Wire lengths are checked
-	// against it before conversion, arithmetic, allocation, or iteration, as
-	// README.md Failures and Limits requires.
-	maxInt = int(^uint(0) >> 1)
+	// maxFramePayload is the exact maximum accepted frame payload: 64 MiB
+	// (67,108,864 bytes), the mandatory implementation-safety ceiling defined
+	// in SPEC.md Reading, dispatch, and response validation. It is checked
+	// after the header and before conversion, allocation, or read; a larger
+	// frame is terminal ErrProtocol and its payload is never consumed. The
+	// ceiling is far below the native int bound on every Go platform, so an
+	// accepted length is always natively representable.
+	maxFramePayload = 64 * 1024 * 1024
 )
 
 // frameHeader is one parsed 24-byte frame header.
@@ -55,16 +59,17 @@ type frameHeader struct {
 // fields are little-endian uint64s at offsets 0, 8, and 16; the most
 // significant bit of the request_id field selects the frame layout and is
 // cleared in the returned request ID. The wire payload length is validated
-// against the native int size before any conversion, allocation, or
-// iteration; an impossible length is a protocol error.
+// against the maximum accepted frame payload of exactly 64 MiB before any
+// conversion, allocation, or iteration; an over-ceiling length is a
+// protocol error.
 func parseFrameHeader(b []byte) (frameHeader, error) {
 	if len(b) != frameHeaderSize {
 		return frameHeader{}, fmt.Errorf("intercall: frame header is %d bytes, want %d: %w", len(b), frameHeaderSize, ErrProtocol)
 	}
 	rawID := binary.LittleEndian.Uint64(b[0:8])
 	length := binary.LittleEndian.Uint64(b[16:24])
-	if length > uint64(maxInt) {
-		return frameHeader{}, fmt.Errorf("intercall: frame payload length %d exceeds native int: %w", length, ErrProtocol)
+	if length > uint64(maxFramePayload) {
+		return frameHeader{}, fmt.Errorf("intercall: frame payload length %d exceeds the maximum accepted payload of %d bytes: %w", length, maxFramePayload, ErrProtocol)
 	}
 	hdr := frameHeader{
 		requestID:     rawID & idMask,
@@ -81,13 +86,13 @@ func parseFrameHeader(b []byte) (frameHeader, error) {
 
 // readFramePayload performs a full read of exactly length payload bytes into
 // a fresh owned buffer that the caller may retain; the runtime never reuses
-// a frame buffer. The wire length is revalidated against the native int size
-// before conversion or allocation. An impossible length is a protocol error;
-// an incomplete payload is a transport failure that wraps the reader's exact
-// error.
+// a frame buffer. The wire length is revalidated against the maximum
+// accepted frame payload of exactly 64 MiB before conversion or allocation.
+// An over-ceiling length is a protocol error; an incomplete payload is a
+// transport failure that wraps the reader's exact error.
 func readFramePayload(r io.Reader, length uint64) ([]byte, error) {
-	if length > uint64(maxInt) {
-		return nil, fmt.Errorf("intercall: frame payload length %d exceeds native int: %w", length, ErrProtocol)
+	if length > uint64(maxFramePayload) {
+		return nil, fmt.Errorf("intercall: frame payload length %d exceeds the maximum accepted payload of %d bytes: %w", length, maxFramePayload, ErrProtocol)
 	}
 	buf := make([]byte, int(length))
 	if _, err := io.ReadFull(r, buf); err != nil {
@@ -99,9 +104,9 @@ func readFramePayload(r io.Reader, length uint64) ([]byte, error) {
 // readFrame performs a full read of one complete frame: the 24-byte header
 // followed by the complete payload. A header or payload shorter than its
 // declared size is a transport failure wrapping the reader's exact error; an
-// impossible wire length is a protocol error. The returned payload is owned:
-// it is a fresh allocation of exactly the declared length, and the reader's
-// position ends exactly at the next frame, never inside this one.
+// over-ceiling wire length is a protocol error. The returned payload is
+// owned: it is a fresh allocation of exactly the declared length, and the
+// reader's position ends exactly at the next frame, never inside this one.
 func readFrame(r io.Reader) (frameHeader, []byte, error) {
 	var buf [frameHeaderSize]byte
 	if _, err := io.ReadFull(r, buf[:]); err != nil {

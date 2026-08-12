@@ -23,23 +23,30 @@ var (
 // short writes, treating a positive count without an error as progress
 // toward the full frame. A writer error, an impossible byte count, or a
 // zero-count write without an error is terminal; any error after a partial
-// frame is terminal too. The caller holds the connection-wide write gate
-// while the frame is written, so frames never interleave.
+// frame is terminal too. The impossible-count classification is checked
+// before the writer error, so an invalid byte count is reported as such even
+// when the writer also returns an error, and partial-write diagnostics
+// report the cumulative accepted bytes against the original frame size,
+// never the remainder of a single call. The caller holds the
+// connection-wide write gate while the frame is written, so frames never
+// interleave.
 func writeFull(w io.Writer, b []byte) error {
+	total := 0
 	for len(b) > 0 {
 		n, err := w.Write(b)
-		if err != nil {
-			if n > 0 && n < len(b) {
-				return fmt.Errorf("intercall: write frame: partial write after %d of %d bytes: %w", n, len(b), err)
-			}
-			return fmt.Errorf("intercall: write frame: %w", err)
-		}
 		if n < 0 || n > len(b) {
 			return fmt.Errorf("intercall: write frame: invalid byte count %d for %d-byte remainder: %w", n, len(b), errInvalidWriteCount)
+		}
+		if err != nil {
+			if n > 0 && n < len(b) {
+				return fmt.Errorf("intercall: write frame: partial write after %d of %d bytes: %w", total+n, total+len(b), err)
+			}
+			return fmt.Errorf("intercall: write frame: %w", err)
 		}
 		if n == 0 {
 			return fmt.Errorf("intercall: write frame: no progress: %w", errWriteNoProgress)
 		}
+		total += n
 		b = b[n:]
 	}
 	return nil

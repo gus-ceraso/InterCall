@@ -283,8 +283,9 @@ func TestMalformed(t *testing.T) {
 		}
 	})
 
-	// ImpossiblePayloadLength: a wire length beyond the native int size
-	// is a protocol error before any conversion or allocation.
+	// ImpossiblePayloadLength: a wire length beyond the maximum accepted
+	// frame payload of exactly 64 MiB is a protocol error before any
+	// conversion or allocation.
 	t.Run("ImpossiblePayloadLength", func(t *testing.T) {
 		conn, peer := newRawPeer(t)
 		hdr := make([]byte, frameHeaderSize)
@@ -292,7 +293,7 @@ func TestMalformed(t *testing.T) {
 		binary.LittleEndian.PutUint64(hdr[8:16], pingKey)
 		binary.LittleEndian.PutUint64(hdr[16:24], uint64(1)<<63)
 		writeRawFrame(t, peer, hdr)
-		if err := conn.Wait(); !errors.Is(err, intercall.ErrProtocol) || !strings.Contains(err.Error(), "exceeds native int") {
+		if err := conn.Wait(); !errors.Is(err, intercall.ErrProtocol) || !strings.Contains(err.Error(), "exceeds the maximum accepted payload") {
 			t.Fatalf("impossible length cause = %v, want a protocol error", err)
 		}
 	})

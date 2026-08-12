@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"testing"
 )
@@ -179,34 +180,59 @@ func TestParseFrameHeaderWrongSize(t *testing.T) {
 	}
 }
 
-// TestFramePayloadLengthNativeCheck pins that a wire payload length is
-// validated against the native int size before conversion, allocation, or
-// iteration: the largest representable length is accepted by the header
-// parse, and one more is a protocol error rejected without touching the
-// reader.
-func TestFramePayloadLengthNativeCheck(t *testing.T) {
-	header := func(length uint64) []byte {
-		raw := make([]byte, frameHeaderSize)
-		binary.LittleEndian.PutUint64(raw[16:24], length)
-		return raw
+// TestReadFramePayloadLimit pins the exact 64 MiB frame payload ceiling
+// from SPEC.md Reading, dispatch, and response validation: a header
+// declaring limit-1 or the limit itself is accepted for allocation and
+// read, one byte more is a protocol error wrapping ErrProtocol before any
+// payload read or allocation, and the uint64 extreme cannot panic or OOM.
+func TestReadFramePayloadLimit(t *testing.T) {
+	cases := []struct {
+		name     string
+		length   uint64
+		accepted bool
+	}{
+		{"limitMinusOne", maxFramePayload - 1, true},
+		{"limit", maxFramePayload, true},
+		{"limitPlusOne", maxFramePayload + 1, false},
+		{"maxUint64", math.MaxUint64, false},
 	}
-	if _, err := parseFrameHeader(header(uint64(maxInt))); err != nil {
-		t.Errorf("parseFrameHeader(maxInt length) = %v, want nil", err)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			header := make([]byte, frameHeaderSize)
+			binary.LittleEndian.PutUint64(header[16:24], tc.length)
+			_, err := parseFrameHeader(header)
+			if tc.accepted {
+				if err != nil {
+					t.Fatalf("parseFrameHeader(%d) = %v, want acceptance", tc.length, err)
+				}
+			} else if !errors.Is(err, ErrProtocol) {
+				t.Fatalf("parseFrameHeader(%d) = %v, want ErrProtocol", tc.length, err)
+			}
 
-	over := uint64(maxInt) + 1
-	if _, err := parseFrameHeader(header(over)); !errors.Is(err, ErrProtocol) {
-		t.Errorf("parseFrameHeader(over length) = %v, want ErrProtocol", err)
-	}
-
-	// readFramePayload must apply the same check before any reader
-	// interaction and before allocation.
-	r := &countingReader{header: header(over)}
-	if _, err := readFramePayload(r, over); !errors.Is(err, ErrProtocol) {
-		t.Errorf("readFramePayload(over length) = %v, want ErrProtocol", err)
-	}
-	if r.reads != 0 {
-		t.Errorf("readFramePayload touched the reader %d times, want 0", r.reads)
+			// The spy serves exactly the header and then fails the payload
+			// read, proving whether the frame is accepted for allocation and
+			// read without the test materializing limit-sized data.
+			r := &countingReader{header: header}
+			_, _, err = readFrame(r)
+			if tc.accepted {
+				if errors.Is(err, ErrProtocol) {
+					t.Fatalf("readFrame(%d) rejected an accepted length as a protocol error", tc.length)
+				}
+				if !errors.Is(err, io.EOF) {
+					t.Fatalf("readFrame(%d) = %v, want the spy's transport failure", tc.length, err)
+				}
+				if r.reads != 2 {
+					t.Errorf("reader was touched %d times, want the header read and one payload read", r.reads)
+				}
+			} else {
+				if !errors.Is(err, ErrProtocol) {
+					t.Fatalf("readFrame(%d) = %v, want ErrProtocol", tc.length, err)
+				}
+				if r.reads != 1 {
+					t.Errorf("reader was touched %d times, want exactly the single header read", r.reads)
+				}
+			}
+		})
 	}
 }
 
@@ -314,12 +340,12 @@ func TestReadFrameStreamError(t *testing.T) {
 	}
 }
 
-// TestReadFrameOversizedLengthNoRead pins that an oversized wire length is
-// rejected as a protocol error immediately after the header, before any
+// TestReadFrameOversizedLengthNoRead pins that an over-ceiling wire length
+// is rejected as a protocol error immediately after the header, before any
 // payload read or allocation.
 func TestReadFrameOversizedLengthNoRead(t *testing.T) {
 	header := make([]byte, frameHeaderSize)
-	binary.LittleEndian.PutUint64(header[16:24], uint64(maxInt)+1)
+	binary.LittleEndian.PutUint64(header[16:24], maxFramePayload+1)
 	r := &countingReader{header: header}
 	_, _, err := readFrame(r)
 	if !errors.Is(err, ErrProtocol) {
@@ -496,13 +522,16 @@ func TestFrameREADMEWireExample(t *testing.T) {
 }
 
 // maxFuzzPayload bounds payload allocation inside FuzzReadFrame so that a
-// mutated header declaring a natively representable but enormous length can
-// never force a multi-gigabyte allocation during fuzzing.
+// mutated header declaring an under-ceiling but enormous length can never
+// force a multi-gigabyte allocation during fuzzing. Lengths above the 64
+// MiB ceiling are rejected as protocol errors without allocation and are
+// exercised directly; only the representable range between this bound and
+// the ceiling is skipped.
 const maxFuzzPayload = 4096
 
 // FuzzReadFrame exercises the private frame reader with arbitrary bytes.
 // Inputs shorter than a header exercise the truncated-input path; a
-// header-level protocol error (an oversized wire length) must surface
+// header-level protocol error (an over-ceiling wire length) must surface
 // without payload reads or allocation; and a natively bounded payload length
 // exercises the full read, including truncated and complete payloads. On
 // success the returned payload must be an owned exact-length buffer whose
@@ -544,6 +573,20 @@ func FuzzReadFrame(f *testing.F) {
 		0xaa, 0xbb,
 	})
 	f.Add([]byte{})
+	// Bounded seeds at the exact 64 MiB payload ceiling. Each is a bare
+	// header, so no limit-sized input is ever materialized: limit-1 and
+	// limit must be accepted at the header level, while limit+1 and
+	// MaxUint64 must be rejected as a protocol error without payload reads
+	// or allocation.
+	limitHeader := func(length uint64) []byte {
+		h := make([]byte, frameHeaderSize)
+		binary.LittleEndian.PutUint64(h[16:24], length)
+		return h
+	}
+	f.Add(limitHeader(maxFramePayload - 1))
+	f.Add(limitHeader(maxFramePayload))
+	f.Add(limitHeader(maxFramePayload + 1))
+	f.Add(limitHeader(math.MaxUint64))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) < frameHeaderSize {
 			_, _, err := readFrame(bytes.NewReader(data))
@@ -557,8 +600,9 @@ func FuzzReadFrame(f *testing.F) {
 		}
 		hdr, err := parseFrameHeader(data[:frameHeaderSize])
 		if err != nil {
-			// A header-level protocol error must surface from readFrame
-			// without consuming or allocating the payload.
+			// A header-level protocol error (an over-ceiling wire length or
+			// structural failure) must surface from readFrame without
+			// consuming or allocating the payload.
 			_, _, got := readFrame(bytes.NewReader(data))
 			if !errors.Is(got, ErrProtocol) {
 				t.Fatalf("invalid header: readFrame err = %v, want ErrProtocol", got)
@@ -566,7 +610,9 @@ func FuzzReadFrame(f *testing.F) {
 			return
 		}
 		if hdr.payloadLength > maxFuzzPayload {
-			// Natively representable but unbounded; never allocate it.
+			// Under the 64 MiB ceiling but too large to allocate during
+			// fuzzing; the deterministic boundary tests pin this range, and
+			// the seeds above cover the exact ceiling values.
 			return
 		}
 		_, payload, err := readFrame(bytes.NewReader(data))

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -163,19 +165,82 @@ func TestWriteFullNoProgress(t *testing.T) {
 	}
 }
 
+// TestWriteFullPartialDiagnostics pins cumulative write accounting: a
+// partial-write diagnostic reports the cumulative accepted bytes against
+// the original frame size, never the remainder of the failing call, while
+// preserving the writer's exact error.
+func TestWriteFullPartialDiagnostics(t *testing.T) {
+	underlying := errors.New("stream write failure")
+	frame := buildFrame(requestFrame, 1, 2, []byte("fragmented payload"))
+	wantTotal := len(frame)
+
+	cases := []struct {
+		name    string
+		call    func(p []byte) (int, error)
+		wantMsg string
+	}{
+		{
+			"firstCallPartial",
+			func(p []byte) (int, error) { return 3, underlying },
+			fmt.Sprintf("partial write after 3 of %d bytes", wantTotal),
+		},
+		{
+			"cumulativeAcrossShortWrites",
+			func(p []byte) (int, error) {
+				if len(p) == wantTotal {
+					return 10, nil
+				}
+				if len(p) == wantTotal-10 {
+					return 5, nil
+				}
+				return 2, underlying
+			},
+			fmt.Sprintf("partial write after %d of %d bytes", 17, wantTotal),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &scriptedWriter{call: tc.call}
+			err := writeFull(w, frame)
+			if err == nil {
+				t.Fatal("writeFull accepted a failing writer")
+			}
+			if !errors.Is(err, underlying) {
+				t.Errorf("err = %v, want the stream error preserved", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("err = %v, want message containing %q", err, tc.wantMsg)
+			}
+			if errors.Is(err, errInvalidWriteCount) || errors.Is(err, errWriteNoProgress) {
+				t.Errorf("err = %v, misclassified as a count or progress failure", err)
+			}
+		})
+	}
+}
+
 // TestWriteFullInvalidCount pins that an impossible byte count — negative or
-// larger than the frame remainder — is terminal.
+// larger than the frame remainder — is terminal and classified as invalid
+// even when the writer also returns an error.
 func TestWriteFullInvalidCount(t *testing.T) {
 	frame := buildFrame(requestFrame, 1, 2, []byte("payload"))
+	underlying := errors.New("stream write failure")
 
-	over := &scriptedWriter{call: func(p []byte) (int, error) { return len(p) + 1, nil }}
-	if err := writeFull(over, frame); !errors.Is(err, errInvalidWriteCount) {
-		t.Errorf("oversized count err = %v, want errInvalidWriteCount", err)
+	cases := []struct {
+		name string
+		call func(p []byte) (int, error)
+	}{
+		{"oversized count", func(p []byte) (int, error) { return len(p) + 1, nil }},
+		{"negative count", func(p []byte) (int, error) { return -1, nil }},
+		{"oversized count with error", func(p []byte) (int, error) { return len(p) + 1, underlying }},
+		{"negative count with error", func(p []byte) (int, error) { return -1, underlying }},
 	}
-
-	negative := &scriptedWriter{call: func(p []byte) (int, error) { return -1, nil }}
-	if err := writeFull(negative, frame); !errors.Is(err, errInvalidWriteCount) {
-		t.Errorf("negative count err = %v, want errInvalidWriteCount", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &scriptedWriter{call: tc.call}
+			if err := writeFull(w, frame); !errors.Is(err, errInvalidWriteCount) {
+				t.Errorf("err = %v, want errInvalidWriteCount", err)
+			}
+		})
 	}
 }
 

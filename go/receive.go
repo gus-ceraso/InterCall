@@ -16,13 +16,14 @@ const internalExceptionKey = 0x1aaec22e85996f50
 // NewConnection before it returns. It reads one complete frame at a time
 // with full-read semantics: each 24-byte header, then the complete payload
 // in a fresh owned buffer after the wire length has been checked against
-// the native int size. A response is completely buffered before lookup: a
+// the maximum accepted frame payload of exactly 64 MiB. A response is
+// completely buffered before lookup: a
 // pending ID is claimed and decoded in this goroutine, while an unmatched ID
 // stays opaque and its payload is never validated. Each request transfers
 // its complete payload to one new, unbounded handler goroutine after its
 // incoming request ID is reserved; reuse of an active ID is a terminal
 // protocol error. Every read failure is terminal: an incomplete header or
-// payload is a transport failure, and an impossible native size or
+// payload is a transport failure, and an over-ceiling wire length or
 // structural frame failure is a protocol error; readFrame classifies and
 // prefixes both.
 func (c *Connection) receiveLoop() {
