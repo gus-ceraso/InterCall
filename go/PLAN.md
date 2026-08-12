@@ -312,12 +312,12 @@ Baseline:
 Remediation tasks:
 
 - [x] [RM-00 — Clarify remediation contracts in the Go specification](#rm-00--clarify-remediation-contracts-in-the-go-specification) — `c7669e7422c083213aa3e7ad8e56b08241c7c1a3`
-- [ ] [RM-01 — Bound frame buffering and correct write diagnostics](#rm-01--bound-frame-buffering-and-correct-write-diagnostics)
+- [x] [RM-01 — Bound frame buffering and correct write diagnostics](#rm-01--bound-frame-buffering-and-correct-write-diagnostics) — `c21659fb28fd2bb8728a554a1b8826b1f8bd7038`
 - [ ] [RM-02 — Make write admission and terminal teardown live](#rm-02--make-write-admission-and-terminal-teardown-live)
 - [ ] [RM-03 — Order incoming request admission and ID reuse](#rm-03--order-incoming-request-admission-and-id-reuse)
-- [ ] [RM-04 — Make syntax processing stack-safe](#rm-04--make-syntax-processing-stack-safe)
+- [x] [RM-04 — Make syntax processing stack-safe](#rm-04--make-syntax-processing-stack-safe) — `de9f7aee84831c44059302374b77969b0a08b892`
 - [ ] [RM-05 — Correct semantic-document line and anchor handling](#rm-05--correct-semantic-document-line-and-anchor-handling)
-- [ ] [RM-06 — Preserve exact Go source identity and positions](#rm-06--preserve-exact-go-source-identity-and-positions)
+- [x] [RM-06 — Preserve exact Go source identity and positions](#rm-06--preserve-exact-go-source-identity-and-positions) — `b3775bb96862c848c5eaaee304020eb7b941cd35`
 - [ ] [RM-07 — Correct source directives and declaration handling](#rm-07--correct-source-directives-and-declaration-handling)
 - [ ] [RM-08 — Correct selectors and procedure signatures](#rm-08--correct-selectors-and-procedure-signatures)
 - [ ] [RM-09 — Validate every package operand and output package](#rm-09--validate-every-package-operand-and-output-package)
