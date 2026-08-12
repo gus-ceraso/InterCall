@@ -1117,3 +1117,261 @@ func TestExportOrder(t *testing.T) {
 		t.Error("second pass canonical body differs from the first")
 	}
 }
+
+// TestParenthesizedPayloadException covers SPEC.md "Source directives
+// and Go documentation": parentheses around a legal named struct
+// declaration do not change exception eligibility. Nested parentheses
+// around a valid payload exception work end to end, from the directive
+// grammar through the payload record to the canonical interface body.
+func TestParenthesizedPayloadException(t *testing.T) {
+	t.Run("ParseFacts", func(t *testing.T) {
+		// The syntactic facts unwrap any number of parentheses, and the
+		// field records come from the inner struct.
+		d := goDecl(t, goSrc("// @intercall exception e\ntype E ((struct {\n\tCode int32\n}))\n"), "E")
+		if !d.Type.Struct || d.Type.Alias || d.Type.Generic {
+			t.Errorf("type info = %+v", d.Type)
+		}
+		if len(d.Fields) != 1 || d.Fields[0].Name != "Code" {
+			t.Errorf("fields = %+v", d.Fields)
+		}
+		if dir := oneDir(t, d); dir.Kind != ExceptionDir || dir.Wire != "e" {
+			t.Errorf("directive = %+v", dir)
+		}
+	})
+
+	t.Run("EndToEnd", func(t *testing.T) {
+		// The export model maps the parenthesized payload to its inline
+		// record with field documentation and a canonical body.
+		model := exportOne(t, "example.com/paren", `package paren
+
+import "context"
+
+// @intercall exception failed
+type Failed ((struct {
+	// The failure code.
+	Code int32
+}))
+
+// Error implements error for Failed.
+func (f *Failed) Error() string { return "failed" }
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`)
+		e := excByName(t, model, "failed")
+		if e.Payload == nil || typeKeyOf(e.Payload.Type) != "record{code int32}" {
+			t.Fatalf("payload = %+v", e.Payload)
+		}
+		rec := e.Payload.Type.(*syntax.RecordType)
+		if rec.Fields[0].Doc != "The failure code." {
+			t.Errorf("field doc = %q", rec.Fields[0].Doc)
+		}
+		bodyRoundTrip(t, model)
+	})
+
+	t.Run("ParenthesizedNonStructStillRejected", func(t *testing.T) {
+		// Parentheses around a non-struct named type do not make it an
+		// exception struct; the directive contradiction is a parse-time
+		// diagnostic.
+		src := "package p\n\n// @intercall exception e\ntype E (int)\n"
+		if msg := goErrMsg(t, src); msg != "contradictory @intercall exception directive: it applies only to a named struct type" {
+			t.Errorf("error = %q", msg)
+		}
+	})
+
+	t.Run("ParenthesizedOrdinaryType", func(t *testing.T) {
+		// A parenthesized ordinary defined type is transparent for
+		// @intercall type mapping too.
+		model := exportOne(t, "example.com/paren3", `package paren3
+
+import "context"
+
+// @intercall type name
+type Name (string)
+
+// @intercall procedure greet
+func Greet(ctx context.Context, n Name) error { return nil }
+`)
+		var wires []string
+		for _, ty := range model.Types {
+			wires = append(wires, ty.WireName)
+		}
+		if !reflect.DeepEqual(wires, []string{"name"}) {
+			t.Errorf("types = %v, want [name]", wires)
+		}
+		bodyRoundTrip(t, model)
+	})
+}
+
+// TestUnicodeSourceDeclarations covers Go's Unicode-aware exportness
+// rule for source declarations (SPEC.md "Names and native overrides"):
+// Unicode-exported sentinel and type declarations are recognized with
+// explicit valid wire names, while the default ASCII-only projection
+// still requires those explicit names and unexported Unicode names stay
+// unexported.
+func TestUnicodeSourceDeclarations(t *testing.T) {
+	t.Run("SentinelTypeAndProcedure", func(t *testing.T) {
+		// A Unicode-exported sentinel, a Unicode-exported payload
+		// exception struct, a Unicode-exported ordinary named type, and
+		// a Unicode-exported procedure all export with explicit valid
+		// wire names.
+		model := exportOne(t, "example.com/uni", `package uni
+
+import (
+	"context"
+	"errors"
+)
+
+// @intercall exception ecole
+var École = errors.New("ecole")
+
+// @intercall exception region
+type Région struct {
+	Name string
+}
+
+// Error implements error for Région.
+func (r *Région) Error() string { return "region" }
+
+// @intercall type ecole_id
+type ÉcoleID uint64
+
+// @intercall procedure ecole_find
+func ÉcoleFind(ctx context.Context, id ÉcoleID) error { return nil }
+`)
+		want := []string{"ecole", "internal_exception", "invalid_arguments", "procedure_not_found", "region"}
+		if got := excWires(model); !reflect.DeepEqual(got, want) {
+			t.Errorf("exceptions = %v, want %v", got, want)
+		}
+		var typeWires []string
+		for _, ty := range model.Types {
+			typeWires = append(typeWires, ty.WireName)
+		}
+		if !reflect.DeepEqual(typeWires, []string{"ecole_id"}) {
+			t.Errorf("types = %v, want [ecole_id]", typeWires)
+		}
+		if p := procByName(t, model, "ecole_find"); p == nil {
+			t.Error("no ecole_find procedure")
+		}
+		bodyRoundTrip(t, model)
+	})
+
+	t.Run("UnexportedUnicodeStillRejected", func(t *testing.T) {
+		// A lowercase-first-rune Unicode name is unexported under Go's
+		// rule and stays a directive contradiction.
+		src := "package p\n\n// @intercall exception ecole\nvar école = errors.New(\"ecole\")\n"
+		if msg := goErrMsg(t, src); msg != "contradictory @intercall exception directive: it applies only to an exported package variable" {
+			t.Errorf("error = %q", msg)
+		}
+	})
+
+	t.Run("UnicodeNameNeedsExplicitWire", func(t *testing.T) {
+		// The default projection is ASCII-only: a Unicode-exported
+		// sentinel without an explicit wire name is rejected by the
+		// projection with a directive escape hatch.
+		exportErr(t, "example.com/uni3", `package uni3
+
+import "errors"
+
+// @intercall exception
+var École = errors.New("ecole")
+`, "non-ASCII", "override the wire name")
+	})
+}
+
+// TestUnicodeTaggedFieldsAndParameters covers Unicode-aware field
+// eligibility and directive references: tagged Unicode fields and
+// parameter names referenced by @intercall param and @param are
+// recognized with explicit valid wire names, untagged Unicode fields
+// and parameters are rejected by the ASCII-only projection, and
+// unexported Unicode fields stay unexported.
+func TestUnicodeTaggedFieldsAndParameters(t *testing.T) {
+	t.Run("TaggedUnicodeField", func(t *testing.T) {
+		model := exportOne(t, "example.com/uf", `package uf
+
+import "context"
+
+// @intercall exception failed
+type Failed struct {
+	École string `+"`intercall:\"ecole\"`"+`
+}
+
+// Error implements error for Failed.
+func (f *Failed) Error() string { return "failed" }
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`)
+		e := excByName(t, model, "failed")
+		rec := e.Payload.Type.(*syntax.RecordType)
+		if len(rec.Fields) != 1 || rec.Fields[0].Name.Name != "ecole" || rec.Fields[0].Type.(*syntax.PrimType).Kind != syntax.TokString {
+			t.Errorf("unicode field = %+v", rec.Fields)
+		}
+		bodyRoundTrip(t, model)
+	})
+
+	t.Run("UntaggedUnicodeFieldRejected", func(t *testing.T) {
+		exportErr(t, "example.com/uf2", `package uf2
+
+import "context"
+
+// @intercall exception failed
+type Failed struct {
+	École string
+}
+
+// Error implements error for Failed.
+func (f *Failed) Error() string { return "failed" }
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`, "non-ASCII", "intercall tag can override the wire name")
+	})
+
+	t.Run("UnexportedUnicodeFieldRejected", func(t *testing.T) {
+		exportErr(t, "example.com/uf3", `package uf3
+
+import "context"
+
+// @intercall exception failed
+type Failed struct {
+	école string `+"`intercall:\"ecole\"`"+`
+}
+
+// Error implements error for Failed.
+func (f *Failed) Error() string { return "failed" }
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`, "must be exported")
+	})
+
+	t.Run("UnicodeParamDirectives", func(t *testing.T) {
+		// @intercall param and @param reference the Unicode parameter
+		// name and project it with the explicit wire name.
+		model := exportOne(t, "example.com/up", `package up
+
+import "context"
+
+// @intercall procedure find
+// @intercall param école ecole
+// @param école The school.
+func Find(ctx context.Context, école string) error { return nil }
+`)
+		p := procByName(t, model, "find")
+		if len(p.Params) != 1 || p.Params[0].WireName != "ecole" || p.Params[0].Doc != "The school." {
+			t.Errorf("unicode param = %+v", p.Params)
+		}
+		bodyRoundTrip(t, model)
+	})
+
+	t.Run("UntaggedUnicodeParamRejected", func(t *testing.T) {
+		exportErr(t, "example.com/up2", `package up2
+
+import "context"
+
+// @intercall procedure find
+func Find(ctx context.Context, école string) error { return nil }
+`, "non-ASCII", "@intercall param directive can override the wire name")
+	})
+}

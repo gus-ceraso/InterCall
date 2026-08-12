@@ -298,14 +298,17 @@ func TestNaming(t *testing.T) {
 	})
 
 	t.Run("GoIdentifierValidity", func(t *testing.T) {
-		valid := []string{"User", "user", "User2", "_user", "main", "URL", "x_y"}
+		// Go identifiers follow Go's Unicode-aware lexical rules: the
+		// first character is a Unicode letter or "_", and the remaining
+		// characters are Unicode letters, digits, or "_".
+		valid := []string{"User", "user", "User2", "_user", "main", "URL", "x_y", "üser", "École", "école", "日本語"}
 		for _, name := range valid {
 			if !IsValidGoIdentifier(name) {
 				t.Errorf("IsValidGoIdentifier(%q) = false, want true", name)
 			}
 		}
 		invalid := []string{
-			"", "_", "1abc", "a-b", "a b", "üser",
+			"", "_", "1abc", "a-b", "a b", "é cole", "2é",
 			"break", "case", "chan", "const", "continue", "default",
 			"defer", "else", "fallthrough", "for", "func", "go", "goto",
 			"if", "import", "interface", "map", "package", "range",
@@ -316,9 +319,11 @@ func TestNaming(t *testing.T) {
 				t.Errorf("IsValidGoIdentifier(%q) = true, want false", name)
 			}
 		}
+		// Exportness is the first-character Unicode uppercase rule, and
+		// the projection's Pascal names stay exported.
 		exported := map[string]bool{
-			"User": true, "URL": true, "User2": true,
-			"user": false, "_User": false, "_": false, "type": false,
+			"User": true, "URL": true, "User2": true, "École": true,
+			"user": false, "_User": false, "école": false, "_": false, "type": false,
 		}
 		for name, want := range exported {
 			if got := IsExportedGoIdentifier(name); got != want {

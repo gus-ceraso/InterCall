@@ -270,27 +270,22 @@ func resolveSelector(s *selector, pkgs []*ExplicitPackage, byKey map[string]*can
 	}
 
 	// The symbol is not an eligible function. Distinguish the error
-	// categories: an unexported, untagged, or generated-file function,
-	// a method, or an unknown symbol.
-	tagged := make(map[string]bool) // symbols tagged in generated files
-	for _, p := range pkgs {
-		if p.Path != s.path {
+	// categories: a generated-file function (generated files supply no
+	// selectable procedures), a method, an unexported function, an
+	// untagged function, or an unknown symbol.
+	genFuncs := make(map[string]bool) // functions declared in generated files
+	for _, doc := range pkg.docs {
+		if !doc.Generated {
 			continue
 		}
-		for _, file := range p.files {
-			doc := p.docs[file]
-			if !doc.Generated {
-				continue
-			}
-			for _, decl := range doc.Decls {
-				if decl.Kind == GoFunc && hasDirective(decl.Doc, ProcedureDir) {
-					tagged[decl.Name] = true
-				}
+		for _, decl := range doc.Decls {
+			if decl.Kind == GoFunc {
+				genFuncs[decl.Name] = true
 			}
 		}
 	}
-	if tagged[s.symbol] {
-		return bad("untagged selector %q: %q is tagged in a generated file, and generated files do not supply selectable procedures", s.text, s.symbol)
+	if genFuncs[s.symbol] {
+		return bad("untagged selector %q: %q is declared in a generated file, and generated files do not supply selectable procedures", s.text, s.symbol)
 	}
 	for _, af := range pkg.pkg.Syntax {
 		for _, decl := range af.Decls {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"go/ast"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // This file implements SPEC.md "Source directives and Go documentation":
@@ -36,6 +38,15 @@ type docTarget struct {
 	typeInfo GoTypeInfo // the syntactic facts of a type declaration
 	params   []string   // every parameter name of a function; unnamed parameters are ""
 	results  int        // number of result type positions of a function
+
+	// groupSpecs is the number of specifications of the declaration
+	// group whose doc comment this target carries; zero means the doc
+	// comment belongs to the declaration itself, and one means a
+	// single-spec group. A group-level declaration directive on a group
+	// with more than one specification applies to more than one
+	// declared object and is contradictory (SPEC.md "Source directives
+	// and Go documentation").
+	groupSpecs int
 }
 
 // docLine is one logical line of a doc comment with the physical byte
@@ -318,9 +329,24 @@ func scanWord(s string, i int) (string, int) {
 // terminator.
 func checkDirectives(gd *GoDoc, d *Document, target docTarget, errs *[]*Error) {
 	for _, dir := range gd.Directives {
+		// A group-level declaration directive on a group with multiple
+		// specifications is contradictory before any placement or
+		// resolution check: it applies to exactly one declared object,
+		// and the group declares more than one.
+		if isDeclarationDirective(dir.Kind) && target.groupSpecs > 1 {
+			*errs = append(*errs, &Error{
+				Filename: d.Name,
+				Pos:      dir.Pos,
+				Msg:      fmt.Sprintf("contradictory %s directive: a declaration group must contain exactly one specification", dir.Kind),
+			})
+			continue
+		}
 		checkPlacement(dir, d, target, errs)
 	}
 	for _, dir := range gd.Directives {
+		if isDeclarationDirective(dir.Kind) && target.groupSpecs > 1 {
+			continue // already reported
+		}
 		checkResolution(dir, d, target, errs)
 	}
 	seen := make(map[Directive]bool)
@@ -344,6 +370,17 @@ func checkDirectives(gd *GoDoc, d *Document, target docTarget, errs *[]*Error) {
 		seen[key] = true
 	}
 	checkTexts(gd, d, errs)
+}
+
+// isDeclarationDirective reports whether a directive kind is a
+// declaration directive that applies to exactly one declared object:
+// @intercall procedure, @intercall exception, or @intercall type.
+func isDeclarationDirective(kind DirectiveKind) bool {
+	switch kind {
+	case ProcedureDir, ExceptionDir, TypeDir:
+		return true
+	}
+	return false
 }
 
 // checkPlacement validates the declaration kind each directive applies
@@ -557,7 +594,10 @@ func validDirectiveWire(name string) bool {
 	return IsValidWireName(name) && !reservedWireWords[name]
 }
 
-// isExported reports whether a Go name is exported.
+// isExported reports whether a Go name is exported under Go's
+// Unicode-aware lexical rules: its first character is a Unicode
+// uppercase letter.
 func isExported(name string) bool {
-	return len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
 }

@@ -356,11 +356,19 @@ func (d *Document) offset(pos token.Pos) int {
 
 // buildDecls walks the AST in source order and produces one GoDecl per
 // specification. A spec without its own doc comment inherits its
-// declaration group's doc comment, following go/doc's rule. Each
-// declaration's doc is then processed for directives and retained
-// documentation, and every diagnostic is appended to errs.
+// declaration group's doc comment exactly once: a single-spec group's
+// doc is that spec's doc, and a multi-spec group's doc is processed
+// once against the first spec without its own doc, so group
+// documentation never multiplies across specs and a group-level
+// declaration directive on a multi-spec group is one contradiction.
+// Each declaration's doc is then processed for directives and retained
+// documentation, and every diagnostic is appended to errs. Files
+// recognized by Go's standard generated-file marker other than exact
+// InterCall-marked files are inert: their declarations supply no
+// directives and no documentation at all.
 func buildDecls(af *ast.File, d *Document, off func(token.Pos) int, errs *[]*Error) []*GoDecl {
 	var decls []*GoDecl
+	inert := d.Generated && !d.IntercallGenerated
 	for _, decl := range af.Decls {
 		switch decl := decl.(type) {
 		case *ast.FuncDecl:
@@ -373,17 +381,79 @@ func buildDecls(af *ast.File, d *Document, off func(token.Pos) int, errs *[]*Err
 			if decl.Recv != nil {
 				gd.Kind = GoMethod
 			}
-			if decl.Doc != nil {
+			if decl.Doc != nil && !inert {
 				gd.Doc = processDoc(decl.Doc, d, errs, docTarget{kind: gd.Kind, params: info.params, results: info.results})
 			}
 			decls = append(decls, gd)
 		case *ast.GenDecl:
-			for _, spec := range decl.Specs {
-				decls = append(decls, buildSpec(decl, spec, d, off, errs))
+			// The group doc applies to exactly one spec: the first one
+			// without its own doc comment.
+			firstDocless := -1
+			for i, s := range decl.Specs {
+				if ownDoc(s) == nil {
+					firstDocless = i
+					break
+				}
 			}
+			for i, spec := range decl.Specs {
+				decls = append(decls, buildSpec(decl, spec, i, firstDocless, len(decl.Specs), inert, d, off, errs))
+			}
+			// A multi-spec group whose every spec has its own doc
+			// comment still subjects its group doc to the directive
+			// grammar: a group-level declaration directive is an error
+			// even when the retained prose would be dropped.
+			checkGroupDoc(decl, firstDocless, inert, d, errs)
 		}
 	}
 	return decls
+}
+
+// checkGroupDoc applies the directive grammar to a multi-spec group's
+// doc comment exactly once when no spec inherits it: every spec of the
+// group has its own doc, so the group doc's retained prose is dropped,
+// but a group-level declaration directive on the group is still an
+// error and must not be silently lost. The inherited case is handled by
+// the inheriting spec's own doc processing.
+func checkGroupDoc(decl *ast.GenDecl, firstDocless int, inert bool, d *Document, errs *[]*Error) {
+	if len(decl.Specs) <= 1 || decl.Doc == nil || firstDocless != -1 || inert {
+		return
+	}
+	target := specTarget(decl, decl.Specs[0])
+	target.groupSpecs = len(decl.Specs)
+	processDoc(decl.Doc, d, errs, target)
+}
+
+// ownDoc returns the doc comment of one specification, or nil.
+func ownDoc(spec ast.Spec) *ast.CommentGroup {
+	switch spec := spec.(type) {
+	case *ast.ValueSpec:
+		return spec.Doc
+	case *ast.TypeSpec:
+		return spec.Doc
+	case *ast.ImportSpec:
+		return spec.Doc
+	}
+	return nil
+}
+
+// specTarget builds the directive target of one specification: the
+// declaration kind, names, and type facts that decide directive
+// placement and resolution.
+func specTarget(decl *ast.GenDecl, spec ast.Spec) docTarget {
+	target := docTarget{kind: specKind(decl.Tok)}
+	switch spec := spec.(type) {
+	case *ast.ValueSpec:
+		for _, n := range spec.Names {
+			target.names = append(target.names, n.Name)
+		}
+		if len(target.names) > 0 {
+			target.name = target.names[0]
+		}
+	case *ast.TypeSpec:
+		target.name = spec.Name.Name
+		target.typeInfo = typeInfoOf(spec)
+	}
+	return target
 }
 
 // funcInfo is the syntactic signature facts needed to resolve
@@ -414,50 +484,34 @@ func collectFuncInfo(decl *ast.FuncDecl) funcInfo {
 	return info
 }
 
-// buildSpec produces the GoDecl of one GenDecl specification.
-func buildSpec(decl *ast.GenDecl, spec ast.Spec, d *Document, off func(token.Pos) int, errs *[]*Error) *GoDecl {
-	var doc *ast.CommentGroup
-	switch spec := spec.(type) {
-	case *ast.ValueSpec:
-		if spec.Doc != nil {
-			doc = spec.Doc
-		} else {
-			doc = decl.Doc
-		}
-	case *ast.TypeSpec:
-		if spec.Doc != nil {
-			doc = spec.Doc
-		} else {
-			doc = decl.Doc
-		}
-	case *ast.ImportSpec:
-		if spec.Doc != nil {
-			doc = spec.Doc
-		} else {
-			doc = decl.Doc
-		}
+// buildSpec produces the GoDecl of one GenDecl specification. The doc
+// comment is the spec's own when present; otherwise the group doc is
+// inherited only by the first spec without its own doc, so a
+// multi-spec group's doc never multiplies. An inert generated file
+// supplies no documentation or directives at all.
+func buildSpec(decl *ast.GenDecl, spec ast.Spec, index, firstDocless, group int, inert bool, d *Document, off func(token.Pos) int, errs *[]*Error) *GoDecl {
+	// A spec without its own doc comment inherits the group doc when it
+	// is the first docless spec; the group facts travel with it so a
+	// group-level declaration directive on a multi-spec group is one
+	// precise contradiction.
+	doc := ownDoc(spec)
+	target := specTarget(decl, spec)
+	if doc == nil && decl.Doc != nil && index == firstDocless {
+		doc = decl.Doc
+		target.groupSpecs = group
 	}
 
 	gd := &GoDecl{Kind: specKind(decl.Tok)}
-	var names []string
 	switch spec := spec.(type) {
 	case *ast.ValueSpec:
-		for _, n := range spec.Names {
-			names = append(names, n.Name)
-		}
-		if len(names) > 0 {
+		if len(spec.Names) > 0 {
 			gd.Pos = d.Position(off(spec.Names[0].Pos()))
 		}
 	case *ast.TypeSpec:
-		names = append(names, spec.Name.Name)
 		gd.Pos = d.Position(off(spec.Name.Pos()))
-		gd.Type = GoTypeInfo{
-			Alias:   spec.Assign.IsValid(),
-			Generic: spec.TypeParams != nil,
-			Struct:  isStructType(spec.Type),
-		}
-		if st, ok := spec.Type.(*ast.StructType); ok {
-			gd.Fields = buildFields(st, d, off, errs)
+		gd.Type = typeInfoOf(spec)
+		if st, ok := unwrapStruct(spec.Type); ok {
+			gd.Fields = buildFields(st, inert, d, off, errs)
 		}
 	case *ast.ImportSpec:
 		name := ""
@@ -469,15 +523,26 @@ func buildSpec(decl *ast.GenDecl, spec ast.Spec, d *Document, off func(token.Pos
 		gd.Name = name
 		gd.Pos = d.Position(off(spec.Pos()))
 	}
-	if len(names) > 0 {
-		gd.Name = names[0]
-		gd.Names = names
+	if len(target.names) > 0 {
+		gd.Name = target.names[0]
+		gd.Names = target.names
+	} else if target.name != "" {
+		gd.Name = target.name
 	}
 
-	if doc != nil {
-		gd.Doc = processDoc(doc, d, errs, docTarget{kind: gd.Kind, name: gd.Name, names: names, typeInfo: gd.Type})
+	if doc != nil && !inert {
+		gd.Doc = processDoc(doc, d, errs, target)
 	}
 	return gd
+}
+
+// typeInfoOf records the syntactic facts of one type specification.
+func typeInfoOf(spec *ast.TypeSpec) GoTypeInfo {
+	return GoTypeInfo{
+		Alias:   spec.Assign.IsValid(),
+		Generic: spec.TypeParams != nil,
+		Struct:  isStructType(spec.Type),
+	}
 }
 
 // specKind maps a declaration token to the GoDecl kind of its specs.
@@ -494,16 +559,34 @@ func specKind(tok token.Token) GoDeclKind {
 }
 
 // isStructType reports whether the type expression is an anonymous
-// struct.
+// struct, with parentheses transparently unwrapped: parentheses around
+// a legal named struct declaration do not change exception eligibility
+// (SPEC.md "Source directives and Go documentation").
 func isStructType(t ast.Expr) bool {
-	_, ok := t.(*ast.StructType)
+	_, ok := unwrapStruct(t)
 	return ok
+}
+
+// unwrapStruct strips any number of parentheses around a type
+// expression and reports whether the inner expression is an anonymous
+// struct, returning it.
+func unwrapStruct(t ast.Expr) (*ast.StructType, bool) {
+	for {
+		p, ok := t.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		t = p.X
+	}
+	st, ok := t.(*ast.StructType)
+	return st, ok
 }
 
 // buildFields produces the field records of one struct type, processing
 // each field's doc comment for retained documentation. Field docs carry
-// no directives; a retained '*/' is still an error.
-func buildFields(st *ast.StructType, d *Document, off func(token.Pos) int, errs *[]*Error) []*GoField {
+// no directives; a retained '*/' is still an error. An inert generated
+// file's fields supply no documentation at all.
+func buildFields(st *ast.StructType, inert bool, d *Document, off func(token.Pos) int, errs *[]*Error) []*GoField {
 	var fields []*GoField
 	for _, f := range st.Fields.List {
 		gf := &GoField{Pos: d.Position(off(f.Pos()))}
@@ -511,7 +594,7 @@ func buildFields(st *ast.StructType, d *Document, off func(token.Pos) int, errs 
 			gf.Name = f.Names[0].Name
 			gf.Pos = d.Position(off(f.Names[0].Pos()))
 		}
-		if f.Doc != nil {
+		if f.Doc != nil && !inert {
 			gd := processDoc(f.Doc, d, errs, docTarget{field: true})
 			gf.Doc = gd.Retained
 		}

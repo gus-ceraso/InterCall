@@ -402,7 +402,22 @@ func (m *mapper) goDeclOf(pkg *packages.Package, af *ast.File, spec *ast.TypeSpe
 		return nil, fmt.Errorf("internal error: no type declaration for %q in %s", spec.Name.Name, doc.Name)
 	}
 	var errs []*Error
-	gd := buildSpec(gen, spec, doc, doc.offset, &errs)
+	index, firstDocless := 0, -1
+	for i, s := range gen.Specs {
+		if ownDoc(s) == nil && firstDocless == -1 {
+			firstDocless = i
+		}
+		if s == spec {
+			index = i
+		}
+	}
+	inert := doc.Generated && !doc.IntercallGenerated
+	gd := buildSpec(gen, spec, index, firstDocless, len(gen.Specs), inert, doc, doc.offset, &errs)
+	if err := firstError(errs); err != nil {
+		pm.gdErr[spec] = err
+		return nil, err
+	}
+	checkGroupDoc(gen, firstDocless, inert, doc, &errs)
 	if err := firstError(errs); err != nil {
 		pm.gdErr[spec] = err
 		return nil, err
@@ -571,7 +586,7 @@ func (m *mapper) mapStruct(pkg *packages.Package, e *ast.StructType, where strin
 			return nil, m.errAt(pkg, f.Pos(), "%s: embedded fields are not wire fields (every field is required, named, nonembedded, and exported)", where)
 		}
 		fdoc := ""
-		if f.Doc != nil {
+		if f.Doc != nil && !(doc.Generated && !doc.IntercallGenerated) {
 			var errs []*Error
 			gd := processDoc(f.Doc, doc, &errs, docTarget{field: true})
 			if err := firstError(errs); err != nil {

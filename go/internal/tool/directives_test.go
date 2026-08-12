@@ -504,3 +504,125 @@ func TestDirectives(t *testing.T) {
 		}
 	})
 }
+
+// TestDirectiveDeclarationGroups covers the exactly-one-object rule of
+// SPEC.md "Source directives and Go documentation": a declaration
+// directive applies to exactly one declared object. One-spec/one-object
+// groups work, a group-level declaration directive on a multi-spec
+// group is one precise contradiction, a spec declaring multiple objects
+// is one precise contradiction, and a group doc never multiplies across
+// specs.
+func TestDirectiveDeclarationGroups(t *testing.T) {
+	const groupContradiction = "contradictory @intercall exception directive: a declaration group must contain exactly one specification"
+
+	t.Run("SingleSpecVarGroup", func(t *testing.T) {
+		// A parenthesized single-spec var group inherits the group doc
+		// and works like a plain sentinel declaration.
+		src := "package p\n\n// @intercall exception\nvar (X error)\n"
+		doc, err := ParseGoSource("x.go", []byte(src))
+		if err != nil {
+			t.Fatalf("ParseGoSource: %v", err)
+		}
+		if len(doc.Decls) != 1 {
+			t.Fatalf("%d declarations, want 1", len(doc.Decls))
+		}
+		if dir := oneDir(t, doc.Decls[0]); dir.Kind != ExceptionDir || dir.Wire != "" {
+			t.Errorf("directive = %+v", dir)
+		}
+	})
+
+	t.Run("SingleSpecTypeGroup", func(t *testing.T) {
+		// A parenthesized single-spec type group inherits the group
+		// doc like a plain type declaration.
+		d := goDecl(t, goSrc("// @intercall type wire_t\ntype (T int)\n"), "T")
+		if dir := oneDir(t, d); dir.Kind != TypeDir || dir.Wire != "wire_t" {
+			t.Errorf("directive = %+v", dir)
+		}
+	})
+
+	t.Run("MultiSpecVarGroupContradiction", func(t *testing.T) {
+		// One group-level exception directive above a two-spec var
+		// group is a single contradiction at the directive's position;
+		// it must not tag every spec and silently declare several
+		// sentinels.
+		src := "package p\n\n// @intercall exception\nvar (\n\tA error\n\tB error\n)\n"
+		ge := goErr(t, src)
+		if ge.Msg != groupContradiction {
+			t.Errorf("error = %q, want %q", ge.Msg, groupContradiction)
+		}
+		if ge.Pos.Line != 3 || ge.Pos.Column != 4 {
+			t.Errorf("error at %v, want 3:4", ge.Pos)
+		}
+	})
+
+	t.Run("MultiSpecTypeGroupContradiction", func(t *testing.T) {
+		// The same rule applies to a group-level @intercall type
+		// directive above a two-spec type group.
+		src := "package p\n\n// @intercall type\ntype (\n\tA int\n\tB int\n)\n"
+		if msg := goErrMsg(t, src); msg != "contradictory @intercall type directive: a declaration group must contain exactly one specification" {
+			t.Errorf("error = %q", msg)
+		}
+	})
+
+	t.Run("MultiObjectSpecContradiction", func(t *testing.T) {
+		// A one-spec group declaring two objects is the second
+		// exactly-one violation: the sentinel rule.
+		src := "package p\n\n// @intercall exception\nvar (a, b error)\n"
+		if msg := goErrMsg(t, src); msg != "contradictory @intercall exception directive: a sentinel declaration must contain exactly one variable" {
+			t.Errorf("error = %q", msg)
+		}
+	})
+
+	t.Run("GroupDirectiveNotSilentlyDropped", func(t *testing.T) {
+		// When every spec of a multi-spec group has its own doc
+		// comment, the group doc's declaration directive is still one
+		// contradiction instead of being silently lost.
+		src := "package p\n\n// @intercall exception c\nvar (\n\t// @intercall exception a\n\tA error\n\t// @intercall exception b\n\tB error\n)\n"
+		ge := goErr(t, src)
+		if ge.Msg != groupContradiction {
+			t.Errorf("error = %q, want %q", ge.Msg, groupContradiction)
+		}
+		if ge.Pos.Line != 3 || ge.Pos.Column != 4 {
+			t.Errorf("error at %v, want 3:4", ge.Pos)
+		}
+	})
+
+	t.Run("SpecDocsStayValid", func(t *testing.T) {
+		// Spec-level directives inside a multi-spec group are ordinary
+		// declarations: each spec's own doc applies to exactly one
+		// object, and the group doc is absent.
+		src := "package p\n\nvar (\n\t// @intercall exception a\n\tA error\n\t// @intercall exception b\n\tB error\n)\n"
+		doc, err := ParseGoSource("x.go", []byte(src))
+		if err != nil {
+			t.Fatalf("ParseGoSource: %v", err)
+		}
+		if len(doc.Decls) != 2 {
+			t.Fatalf("%d declarations, want 2", len(doc.Decls))
+		}
+		for i, want := range []string{"a", "b"} {
+			if dir := oneDir(t, doc.Decls[i]); dir.Kind != ExceptionDir || dir.Wire != want {
+				t.Errorf("spec %d directive = %+v, want exception %q", i, dir, want)
+			}
+		}
+	})
+
+	t.Run("GroupProseAttachesOnce", func(t *testing.T) {
+		// A prose-only group doc is retained exactly once, on the first
+		// spec without its own doc comment; it never multiplies across
+		// the group's specs.
+		src := "package p\n\n// Group prose.\nvar (\n\tA error\n\tB error\n)\n"
+		doc, err := ParseGoSource("x.go", []byte(src))
+		if err != nil {
+			t.Fatalf("ParseGoSource: %v", err)
+		}
+		if len(doc.Decls) != 2 {
+			t.Fatalf("%d declarations, want 2", len(doc.Decls))
+		}
+		if doc.Decls[0].Doc == nil || doc.Decls[0].Doc.Retained != "Group prose." {
+			t.Errorf("first spec doc = %+v", doc.Decls[0].Doc)
+		}
+		if doc.Decls[1].Doc != nil {
+			t.Errorf("second spec doc = %+v, want nil", doc.Decls[1].Doc)
+		}
+	})
+}

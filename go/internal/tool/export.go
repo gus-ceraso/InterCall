@@ -2,7 +2,6 @@ package tool
 
 import (
 	"fmt"
-	"go/ast"
 	"go/types"
 	"sort"
 
@@ -369,7 +368,7 @@ func (m *mapper) collectExceptions(pkgs []*ExplicitPackage) ([]*ExportException,
 			if spec == nil {
 				return fmt.Errorf("internal error: no type declaration for exception struct %q of %s", gd.Name, p.Path)
 			}
-			st, ok := spec.Type.(*ast.StructType)
+			st, ok := unwrapStruct(spec.Type)
 			if !ok {
 				return fmt.Errorf("internal error: exception struct %q of %s is not a struct type", gd.Name, p.Path)
 			}

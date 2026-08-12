@@ -3,6 +3,8 @@ package tool
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ASCII byte predicates. All conversion is ASCII-only; any byte outside
@@ -46,11 +48,48 @@ var goKeywords = map[string]bool{
 // IsGoKeyword reports whether name is one of the 25 Go keywords.
 func IsGoKeyword(name string) bool { return goKeywords[name] }
 
-// IsValidGoIdentifier reports whether name is a usable Go identifier: it
-// matches [A-Za-z_][A-Za-z0-9_]*, is not the blank identifier "_", and is
-// not a Go keyword. Non-ASCII bytes never match the shape.
+// IsValidGoIdentifier reports whether name is a usable Go identifier
+// under Go's Unicode-aware lexical rules (SPEC.md "Names and native
+// overrides"): the first character is a Unicode letter or "_", the
+// remaining characters are Unicode letters, Unicode digits, or "_", and
+// the name is neither the blank identifier "_" nor a Go keyword.
 func IsValidGoIdentifier(name string) bool {
 	if name == "" || name == "_" || IsGoKeyword(name) {
+		return false
+	}
+	for i, r := range name {
+		if r == '_' {
+			continue
+		}
+		if i == 0 {
+			if !unicode.IsLetter(r) {
+				return false
+			}
+			continue
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsExportedGoIdentifier reports whether name is a valid Go identifier
+// whose first character is a Unicode uppercase letter, Go's exported
+// visibility rule.
+func IsExportedGoIdentifier(name string) bool {
+	if !IsValidGoIdentifier(name) {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
+}
+
+// isASCIIIdentifier reports whether name matches the ASCII identifier
+// shape [A-Za-z_][A-Za-z0-9_]*. It is the --package rule and the wire
+// grammar's Go side; Unicode identifiers never match it.
+func isASCIIIdentifier(name string) bool {
+	if name == "" {
 		return false
 	}
 	if !isASCIILetter(name[0]) && name[0] != '_' {
@@ -62,13 +101,6 @@ func IsValidGoIdentifier(name string) bool {
 		}
 	}
 	return true
-}
-
-// IsExportedGoIdentifier reports whether name is a valid Go identifier
-// whose first character is an uppercase ASCII letter, the exported
-// visibility rule used by the naming projection.
-func IsExportedGoIdentifier(name string) bool {
-	return IsValidGoIdentifier(name) && isUpper(name[0])
 }
 
 // IsValidWireName reports whether name is a valid InterCall identifier:
@@ -168,6 +200,9 @@ func WireToGo(wire string, c Case) (string, error) {
 func GoToWire(goName string, c Case) (string, error) {
 	if !IsValidGoIdentifier(goName) {
 		return "", fmt.Errorf("Go identifier %q is not a usable Go identifier", goName)
+	}
+	if !isASCIIIdentifier(goName) {
+		return "", fmt.Errorf("Go identifier %q contains a non-ASCII character, which is rejected by the ASCII-only source-to-wire projection; a declaration directive, @intercall param, or field tag can override the wire name", goName)
 	}
 	if strings.ContainsRune(goName, '_') {
 		return "", fmt.Errorf("Go identifier %q contains an underscore, which is rejected by the source-to-wire projection", goName)
@@ -273,7 +308,7 @@ func lowerASCII(s string) string {
 // the name must match [A-Za-z_][A-Za-z0-9_]* and cannot be "_", "main",
 // or a Go keyword. The tool never sanitizes a package name.
 func ValidGoPackageName(name string) error {
-	if !IsValidGoIdentifier(name) || name == "main" {
+	if !isASCIIIdentifier(name) || name == "_" || name == "main" || IsGoKeyword(name) {
 		return fmt.Errorf("invalid Go package name %q: must match [A-Za-z_][A-Za-z0-9_]*, and must not be %q, %q, or a Go keyword", name, "_", "main")
 	}
 	return nil
