@@ -231,8 +231,17 @@ func DefCtx(ctx Ctx, x int) error { return nil }
 // @intercall procedure defined_err
 func DefErr(ctx context.Context, x int) E { return nil }
 
-// @intercall procedure generic_proc
-func Gen[T any](ctx context.Context, x T) error { return nil }
+// @intercall procedure alias_data_error
+func AliasDataErr(ctx context.Context) (AE, error) { return nil, nil }
+
+// @intercall procedure double_error
+func DoubleErr(ctx context.Context) (error, error) { return nil, nil }
+
+// @intercall procedure multi_data
+func MultiData(ctx context.Context) (a, b int, err error) { return 0, 0, nil }
+
+// @intercall procedure named_double_error
+func NamedDoubleErr(ctx context.Context) (e1, e2 error) { return nil, nil }
 
 // @intercall procedure no_context
 func NoCtx(x int) error { return nil }
@@ -251,6 +260,34 @@ func Unnamed(context.Context, int) error { return nil }
 
 // @intercall procedure variadic_proc
 func Var(ctx context.Context, xs ...int) error { return nil }
+`,
+	"gonly/gonly.go": `// Package gonly holds a generic and an ordinary tagged function.
+package gonly
+
+import "context"
+
+// @intercall procedure generic_proc
+func Gen[T any](ctx context.Context, x T) error { return nil }
+
+// @intercall procedure ordinary_proc
+func Ordinary(ctx context.Context) error { return nil }
+`,
+	"uni/uni.go": `// Package uni holds Unicode-exported tagged functions with explicit
+// wire names; the default source-to-wire projection is ASCII-only, so
+// Unicode names cannot project without a directive.
+package uni
+
+import "context"
+
+// @intercall procedure greet
+func Καλημέρα(ctx context.Context) error { return nil }
+
+// @intercall procedure unicode_proc
+func Ünterhaltung(ctx context.Context) error { return nil }
+
+// καλημέρα is declared but unexported: its first rune is a lowercase
+// Unicode letter.
+func καλημέρα(ctx context.Context) error { return nil }
 `,
 }
 
@@ -859,8 +896,8 @@ func TestProcedureSelection(t *testing.T) {
 	})
 
 	t.Run("GenericSelector", func(t *testing.T) {
-		_, err := discover(t, dir, []string{"./badsig"}, []string{"example.com/proc/badsig.Gen"}, nil, "out")
-		wantErr(t, err, "generic")
+		_, err := discover(t, dir, []string{"./gonly"}, []string{"example.com/proc/gonly.Gen"}, nil, "out")
+		wantErr(t, err, "generic selector", "example.com/proc/gonly.Gen")
 	})
 
 	t.Run("Duplicate", func(t *testing.T) {
@@ -873,15 +910,19 @@ func TestProcedureSelection(t *testing.T) {
 	})
 
 	t.Run("ExcludesSkipSignatureChecks", func(t *testing.T) {
-		// Excluding every invalid signature leaves only the valid
-		// functions of badsig selected.
+		// Excluding every invalid nongeneric signature leaves only the
+		// valid functions of badsig selected; a generic can never be
+		// excluded, so the generic Gen lives in the gonly package.
 		res, err := discover(t, dir, []string{"./badsig"}, nil, []string{
+			"example.com/proc/badsig.AliasDataErr",
 			"example.com/proc/badsig.AnonErr",
 			"example.com/proc/badsig.BadRet",
 			"example.com/proc/badsig.Blank",
 			"example.com/proc/badsig.DefCtx",
 			"example.com/proc/badsig.DefErr",
-			"example.com/proc/badsig.Gen",
+			"example.com/proc/badsig.DoubleErr",
+			"example.com/proc/badsig.MultiData",
+			"example.com/proc/badsig.NamedDoubleErr",
 			"example.com/proc/badsig.NoCtx",
 			"example.com/proc/badsig.NoErr",
 			"example.com/proc/badsig.NoResults",
@@ -1031,5 +1072,171 @@ func Gen[T any](ctx context.Context, x T) error { return nil }
 		if !p.DataResult {
 			t.Error("DataResult = false, want true")
 		}
+	})
+}
+
+// TestUnicodeProcedureSelectors covers Unicode-aware selector symbols:
+// include and exclude selectors can name Unicode-exported functions
+// that carry explicit wire names, and malformed, unknown, or
+// unexported Unicode selectors still diagnose precisely.
+func TestUnicodeProcedureSelectors(t *testing.T) {
+	dir := writeFixture(t, procFixture)
+	uni := "example.com/proc/uni."
+
+	t.Run("NoFilterSelectsAllUnicode", func(t *testing.T) {
+		res, err := discover(t, dir, []string{"./uni"}, nil, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		// Deterministic order is byte order of the symbol: U+00DC
+		// (Ünterhaltung) sorts before U+039A (Καλημέρα).
+		wantProviders(t, res, uni+"Ünterhaltung", uni+"Καλημέρα")
+	})
+
+	t.Run("IncludeUnicodeExported", func(t *testing.T) {
+		res, err := discover(t, dir, []string{"./uni"}, []string{uni + "Καλημέρα"}, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, uni+"Καλημέρα")
+	})
+
+	t.Run("ExcludeUnicodeExported", func(t *testing.T) {
+		res, err := discover(t, dir, []string{"./uni"}, nil, []string{uni + "Ünterhaltung"}, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, uni+"Καλημέρα")
+	})
+
+	t.Run("ExclusionWinsForUnicode", func(t *testing.T) {
+		res, err := discover(t, dir, []string{"./uni"},
+			[]string{uni + "Καλημέρα"}, []string{uni + "Καλημέρα"}, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res)
+	})
+
+	t.Run("MalformedUnicode", func(t *testing.T) {
+		// A leading Unicode digit, a hyphen, and the blank identifier
+		// are not Go identifiers.
+		for _, filter := range []string{
+			uni + "1Καλημέρα",
+			uni + "Καλημέρα-χ",
+			uni + "_",
+		} {
+			_, err := discover(t, dir, []string{"./uni"}, []string{filter}, nil, "out")
+			wantErr(t, err, "malformed selector", filter)
+		}
+	})
+
+	t.Run("UnknownUnicode", func(t *testing.T) {
+		// Προγραμμα is a valid exported Unicode identifier that no
+		// function declares.
+		_, err := discover(t, dir, []string{"./uni"}, []string{uni + "Προγραμμα"}, nil, "out")
+		wantErr(t, err, "unknown selector", "Προγραμμα")
+	})
+
+	t.Run("UnexportedUnicode", func(t *testing.T) {
+		// καλημέρα is declared but its first rune is a lowercase
+		// Unicode letter, so it is not exported.
+		_, err := discover(t, dir, []string{"./uni"}, []string{uni + "καλημέρα"}, nil, "out")
+		wantErr(t, err, "unexported selector", "καλημέρα")
+	})
+}
+
+// TestProcedureDataResultCannotBeError covers the signature rule that
+// the single data result is never the predeclared error interface:
+// (error, error), an alias of error as the data result, and named
+// multi-name forms all fail in the signature phase, while a named
+// non-error data result stays valid.
+func TestProcedureDataResultCannotBeError(t *testing.T) {
+	dir := writeFixture(t, procFixture)
+	one := func(t *testing.T, include string) (*DiscoverResult, error) {
+		t.Helper()
+		return discover(t, dir, []string{"./badsig"}, []string{"example.com/proc/badsig." + include}, nil, "out")
+	}
+
+	t.Run("DoubleErrorRejected", func(t *testing.T) {
+		_, err := one(t, "DoubleErr")
+		wantErr(t, err, "data result must not be the predeclared error interface")
+	})
+
+	t.Run("AliasErrorDataResultRejected", func(t *testing.T) {
+		_, err := one(t, "AliasDataErr")
+		wantErr(t, err, "data result must not be the predeclared error interface")
+	})
+
+	t.Run("NamedDoubleErrorRejected", func(t *testing.T) {
+		// (e1, e2 error) is one field with two names: two results, the
+		// first of which is the predeclared error interface.
+		_, err := one(t, "NamedDoubleErr")
+		wantErr(t, err, "data result must not be the predeclared error interface")
+	})
+
+	t.Run("MultiNameDataResultRejected", func(t *testing.T) {
+		// (a, b int, err error) has two data results, so it violates
+		// the at-most-one-data-result arity even though the data type
+		// is not error.
+		_, err := one(t, "MultiData")
+		wantErr(t, err, "at most one data result")
+	})
+
+	t.Run("NamedNonErrorDataResultStillValid", func(t *testing.T) {
+		// (user int, err error) names both results; the named data
+		// result is int, so the form stays valid.
+		res, err := one(t, "NamedRes")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		if !res.Providers[0].DataResult {
+			t.Error("DataResult = false, want true")
+		}
+	})
+}
+
+// TestGenericFilterSelectorsAreErrors covers generic selectors: a
+// generic function named by either include or exclude is a generic
+// selector error, and exclusion precedence is retained for eligible
+// nongeneric functions only.
+func TestGenericFilterSelectorsAreErrors(t *testing.T) {
+	dir := writeFixture(t, procFixture)
+	gen := "example.com/proc/gonly.Gen"
+	ord := "example.com/proc/gonly.Ordinary"
+
+	t.Run("IncludeGenericRejected", func(t *testing.T) {
+		_, err := discover(t, dir, []string{"./gonly"}, []string{gen}, nil, "out")
+		wantErr(t, err, "generic selector", gen)
+	})
+
+	t.Run("ExcludeGenericRejected", func(t *testing.T) {
+		_, err := discover(t, dir, []string{"./gonly"}, nil, []string{gen}, "out")
+		wantErr(t, err, "generic selector", gen)
+	})
+
+	t.Run("BothSetsGenericRejected", func(t *testing.T) {
+		// Naming the same generic in both lists is still a generic
+		// selector error, not an exclusion.
+		_, err := discover(t, dir, []string{"./gonly"}, []string{gen}, []string{gen}, "out")
+		wantErr(t, err, "generic selector", gen)
+	})
+
+	t.Run("ExclusionPrecedenceForNongeneric", func(t *testing.T) {
+		// Naming an eligible nongeneric function in both sets is valid
+		// and excludes it.
+		res, err := discover(t, dir, []string{"./gonly"}, []string{ord}, []string{ord}, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res)
+	})
+
+	t.Run("UnnamedGenericStillSignatureError", func(t *testing.T) {
+		// A generic no filter names is still eligible, so it is
+		// selected and rejected by the signature check rather than by
+		// selector resolution.
+		_, err := discover(t, dir, []string{"./gonly"}, nil, nil, "out")
+		wantErr(t, err, "it is generic, and generics are rejected")
 	})
 }

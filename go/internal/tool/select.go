@@ -245,10 +245,10 @@ func validFilterPath(path string) bool {
 // resolveSelector resolves one filter to an eligible function of an
 // explicit package. The filter's package path must be an explicit
 // package and its symbol an eligible function there; malformed,
-// unknown, duplicate, unexported, untagged, and method selectors are
-// errors. A generic eligible function resolves, and selecting it is an
-// error; an exclude that names one is valid and removes it from a set
-// it could never enter.
+// unknown, duplicate, unexported, untagged, method, and generic
+// selectors are errors. A generic eligible function named by either
+// list is a generic selector error: only an eligible nongeneric
+// function can be selected or excluded.
 func resolveSelector(s *selector, pkgs []*ExplicitPackage, byKey map[string]*candidate) (*candidate, error) {
 	bad := func(format string, args ...any) (*candidate, error) {
 		return nil, &Error{Filename: s.text, Pos: Position{Line: 1, Column: 1}, Msg: fmt.Sprintf(format, args...)}
@@ -266,6 +266,9 @@ func resolveSelector(s *selector, pkgs []*ExplicitPackage, byKey map[string]*can
 
 	key := s.path + "." + s.symbol
 	if c := byKey[key]; c != nil {
+		if c.fn.Type.TypeParams != nil {
+			return bad("generic selector %q: %q in %q is generic, and generics are rejected", s.text, s.symbol, s.path)
+		}
 		return c, nil
 	}
 
@@ -317,7 +320,8 @@ func resolveSelector(s *selector, pkgs []*ExplicitPackage, byKey map[string]*can
 //
 // The first parameter has the exact type identity context.Context
 // (aliases resolving to it are accepted, defined lookalikes are not),
-// the final result is the predeclared error interface, there is at most
+// the final result is the predeclared error interface, the single data
+// result is never the predeclared error interface, there is at most
 // one data result, and every wire parameter has a nonblank Go name.
 // Methods, generics, variadics, and every other result form are
 // rejected.
@@ -351,6 +355,14 @@ func buildProvider(c *candidate) (*Provider, error) {
 	if !isContextType(first) {
 		return bad("its first parameter must have the exact type identity context.Context")
 	}
+	fnObj := info.Defs[fn.Name]
+	if fnObj == nil {
+		return bad("it could not be type-checked")
+	}
+	sig, ok := fnObj.Type().(*types.Signature)
+	if !ok {
+		return bad("it could not be type-checked")
+	}
 
 	var names []string
 	for _, field := range params.List[1:] {
@@ -365,21 +377,29 @@ func buildProvider(c *candidate) (*Provider, error) {
 		}
 	}
 
+	// Result arity and identities come from the type-checked signature,
+	// which counts actual results: a field with several names, such as
+	// (a, b int), is one result per name, so (e1, e2 error) is a
+	// two-result form whose data result is the predeclared error
+	// interface and fails below.
 	dataResult := false
-	switch results := fn.Type.Results; {
-	case results == nil || len(results.List) == 0:
+	switch n := sig.Results().Len(); {
+	case n == 0:
 		return bad("it must return error as its final result")
-	case len(results.List) == 1:
-		if !isErrorType(info.TypeOf(results.List[0].Type)) {
+	case n == 1:
+		if !isErrorType(sig.Results().At(0).Type()) {
 			return bad("its final result must be the predeclared error interface")
 		}
-	case len(results.List) == 2:
-		if !isErrorType(info.TypeOf(results.List[1].Type)) {
+	case n == 2:
+		if !isErrorType(sig.Results().At(1).Type()) {
 			return bad("its final result must be the predeclared error interface")
+		}
+		if isErrorType(sig.Results().At(0).Type()) {
+			return bad("its data result must not be the predeclared error interface")
 		}
 		dataResult = true
 	default:
-		return bad("it has %d results; at most one data result is allowed", len(results.List))
+		return bad("it has %d results; at most one data result is allowed", n)
 	}
 
 	return &Provider{
