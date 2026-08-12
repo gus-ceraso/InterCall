@@ -7,7 +7,9 @@
 // the ordered validation, ownership, and safe-replacement rules of
 // SPEC.md "One-file ownership and safe replacement", render source
 // diagnostics with physical positions per SPEC.md "Diagnostics", and
-// never mutate the filesystem before the write phase.
+// never mutate the filesystem before the write phase. The usage
+// walkthrough is in GO.md; run intercall-go --help for the command
+// grammar.
 package main
 
 import "os"
