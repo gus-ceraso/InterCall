@@ -52,8 +52,10 @@ type anchor struct {
 }
 
 // collect resets every documentation slot and gathers the token ends, node
-// ends, and anchors of the file. A pre-order walk visits the anchors in
-// source order; node ends are collected post-order and sorted afterwards.
+// ends, and anchors of the file. The anchor walk is a pre-order traversal
+// in source order driven by an explicit frame stack, so call-stack use
+// does not grow with type nesting; node ends are collected in traversal
+// order and sorted afterwards.
 func (a *attacher) collect() {
 	scan := NewScanner(a.file)
 	for {
@@ -67,78 +69,148 @@ func (a *attacher) collect() {
 		a.tokens = append(a.tokens, tok.Span.End)
 	}
 
-	var visitType func(t TypeExpr)
-	var visitParam func(p *Param)
-	var visitField func(f *Field)
-
-	visitField = func(f *Field) {
-		f.Doc = ""
-		a.ends = append(a.ends, f.Span().End)
-		a.anchors = append(a.anchors, anchor{f.Name.span.Start, func(s string) { f.Doc = s }})
-		visitType(f.Type)
-	}
-	visitParam = func(p *Param) {
-		p.Doc = ""
-		a.ends = append(a.ends, p.Span().End)
-		a.anchors = append(a.anchors, anchor{p.Name.span.Start, func(s string) { p.Doc = s }})
-		visitType(p.Type)
-	}
-	visitType = func(t TypeExpr) {
-		switch t := t.(type) {
-		case *PrimType:
-			t.Doc = ""
-			span := t.Span()
-			a.ends = append(a.ends, span.End)
-			a.anchors = append(a.anchors, anchor{span.Start, func(s string) { t.Doc = s }})
-		case *NamedType:
-			t.Doc = ""
-			span := t.Span()
-			a.ends = append(a.ends, span.End)
-			a.anchors = append(a.anchors, anchor{span.Start, func(s string) { t.Doc = s }})
-		case *ListType:
-			t.Doc = ""
-			a.ends = append(a.ends, t.Span().End)
-			a.anchors = append(a.anchors, anchor{t.ListSpan.Start, func(s string) { t.Doc = s }})
-			visitType(t.Elem)
-		case *RecordType:
-			t.Doc = ""
-			a.ends = append(a.ends, t.Span().End)
-			a.anchors = append(a.anchors, anchor{t.RecordSpan.Start, func(s string) { t.Doc = s }})
-			for _, f := range t.Fields {
-				visitField(f)
-			}
-		}
-	}
-
 	for _, d := range a.file.Decls {
 		switch d := d.(type) {
 		case *TypeDecl:
 			d.Doc = ""
 			a.ends = append(a.ends, d.Span().End)
 			a.anchors = append(a.anchors, anchor{d.TypeSpan.Start, func(s string) { d.Doc = s }})
-			visitType(d.Type)
+			a.walkType(d.Type)
 		case *ExceptionDecl:
 			d.Doc = ""
 			a.ends = append(a.ends, d.Span().End)
 			a.anchors = append(a.anchors, anchor{d.ExceptionSpan.Start, func(s string) { d.Doc = s }})
 			if d.Type != nil {
-				visitType(d.Type)
+				a.walkType(d.Type)
 			}
 		case *ProcDecl:
 			d.Doc = ""
 			a.ends = append(a.ends, d.Span().End)
 			a.anchors = append(a.anchors, anchor{d.ProcedureSpan.Start, func(s string) { d.Doc = s }})
 			for _, p := range d.Params {
-				visitParam(p)
+				a.paramAnchor(p)
+				a.walkType(p.Type)
 			}
 			if d.Result != nil {
-				visitType(d.Result)
+				a.walkType(d.Result)
 			}
 		}
 	}
 
 	sort.Ints(a.ends)
 	a.lines = lineStarts(a.file.src)
+}
+
+// walkType visits every type occurrence under root in pre-order (source
+// order), resetting each documentation slot and recording its anchor and
+// node end. An explicit frame stack of open records replaces recursion,
+// and each list chain is walked as one unit by walkListChain, so both
+// call-stack use and time stay independent of type nesting.
+func (a *attacher) walkType(root TypeExpr) {
+	type frame struct {
+		rec  *RecordType
+		next int // next field index
+	}
+	var stack []frame
+	t := root
+	for {
+		if lst, ok := t.(*ListType); ok {
+			t = a.walkListChain(lst)
+			continue
+		}
+		a.typeAnchor(t)
+		if rec, ok := t.(*RecordType); ok {
+			stack = append(stack, frame{rec: rec})
+		}
+		// Descend into the next pending record field, or finish when no
+		// record frame has fields left.
+		t = nil
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			if top.next >= len(top.rec.Fields) {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			f := top.rec.Fields[top.next]
+			top.next++
+			a.fieldAnchor(f)
+			t = f.Type
+			break
+		}
+		if t == nil {
+			return
+		}
+	}
+}
+
+// walkListChain records the anchor and documentation reset of every list
+// node in a list chain in source order and returns the terminal element.
+// Every list node's span ends where its element ends, so the whole chain
+// shares the terminal element's end; recording that end once per node
+// here keeps the walk linear, and the chain walk itself is a loop, so
+// call-stack use does not grow with chain length.
+func (a *attacher) walkListChain(lst *ListType) TypeExpr {
+	count := 0
+	node := lst
+	for {
+		cur := node // fresh per iteration for the anchor closure
+		cur.Doc = ""
+		a.anchors = append(a.anchors, anchor{cur.ListSpan.Start, func(s string) { cur.Doc = s }})
+		count++
+		if e, ok := cur.Elem.(*ListType); ok {
+			node = e
+			continue
+		}
+		end := cur.Elem.Span().End
+		for i := 0; i < count; i++ {
+			a.ends = append(a.ends, end)
+		}
+		return cur.Elem
+	}
+}
+
+// typeAnchor resets one type occurrence's documentation slot and records
+// its anchor and node end. List chains are anchored by walkListChain,
+// which shares one end computation across the whole chain; the ListType
+// case below stays correct on its own through the iterative
+// (*ListType).Span.
+func (a *attacher) typeAnchor(t TypeExpr) {
+	switch t := t.(type) {
+	case *PrimType:
+		t.Doc = ""
+		span := t.Span()
+		a.ends = append(a.ends, span.End)
+		a.anchors = append(a.anchors, anchor{span.Start, func(s string) { t.Doc = s }})
+	case *NamedType:
+		t.Doc = ""
+		span := t.Span()
+		a.ends = append(a.ends, span.End)
+		a.anchors = append(a.anchors, anchor{span.Start, func(s string) { t.Doc = s }})
+	case *ListType:
+		t.Doc = ""
+		a.ends = append(a.ends, t.Span().End)
+		a.anchors = append(a.anchors, anchor{t.ListSpan.Start, func(s string) { t.Doc = s }})
+	case *RecordType:
+		t.Doc = ""
+		a.ends = append(a.ends, t.Span().End)
+		a.anchors = append(a.anchors, anchor{t.RecordSpan.Start, func(s string) { t.Doc = s }})
+	}
+}
+
+// fieldAnchor resets one record field's documentation slot and records
+// its anchor and node end.
+func (a *attacher) fieldAnchor(f *Field) {
+	f.Doc = ""
+	a.ends = append(a.ends, f.Span().End)
+	a.anchors = append(a.anchors, anchor{f.Name.span.Start, func(s string) { f.Doc = s }})
+}
+
+// paramAnchor resets one procedure parameter's documentation slot and
+// records its anchor and node end.
+func (a *attacher) paramAnchor(p *Param) {
+	p.Doc = ""
+	a.ends = append(a.ends, p.Span().End)
+	a.anchors = append(a.anchors, anchor{p.Name.span.Start, func(s string) { p.Doc = s }})
 }
 
 // attach walks the anchors in source order and fills each slot from the

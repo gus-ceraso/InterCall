@@ -113,8 +113,18 @@ type ListType struct {
 func (t *ListType) typeNode() {}
 
 // Span returns the complete list type's span, from "list" through its
-// element.
-func (t *ListType) Span() Span { return Span{t.ListSpan.Start, t.Elem.Span().End} }
+// element. The element chain is walked iteratively, so call-stack use
+// stays independent of type nesting.
+func (t *ListType) Span() Span {
+	start := t.ListSpan.Start
+	for {
+		if e, ok := t.Elem.(*ListType); ok {
+			t = e
+			continue
+		}
+		return Span{start, t.Elem.Span().End}
+	}
+}
 
 // RecordType is a "record { field* }" occurrence.
 type RecordType struct {

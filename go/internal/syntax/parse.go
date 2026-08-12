@@ -232,69 +232,100 @@ func (p *parser) parseParam() *Param {
 	return &Param{Name: name, Type: typ, Semi: semi.Span}
 }
 
-// parseField parses "IDENT type-specifier ;".
-func (p *parser) parseField() *Field {
-	if p.err != nil {
-		p.bail()
-	}
-	name := p.expectIdent()
-	typ := p.parseTypeSpec()
-	semi := p.expect(TokSemicolon)
-	return &Field{Name: name, Type: typ, Semi: semi.Span}
+// frameKind identifies one open container in the iterative type-specifier
+// parser.
+type frameKind uint8
+
+const (
+	frameElem   frameKind = iota // a "list" whose element type is pending
+	frameField                   // a record field whose type is pending
+	frameRecord                  // inside a record's field loop
+)
+
+// frame is one open container in the iterative type-specifier parser.
+type frame struct {
+	kind frameKind
+	list *ListType   // frameElem
+	rec  *RecordType // frameRecord
+	fld  *Field      // frameField
 }
 
 // parseTypeSpec parses one type-specifier.
+//
+// The type grammar is the only unbounded recursion in the interface
+// grammar: list elements and record fields nest without a limit, so this
+// parser walks the grammar with an explicit frame stack instead of
+// recursive descent, keeping Go call-stack use independent of type
+// nesting. The stack holds every open container; the frame on top decides
+// whether the next token starts a nested type (frameElem and frameField)
+// or continues a record's field loop (frameRecord). Diagnostics and AST
+// construction are identical to a recursive descent.
 func (p *parser) parseTypeSpec() TypeExpr {
-	if p.err != nil {
-		p.bail()
-	}
-	switch p.tok.Kind {
-	case TokInt8, TokInt16, TokInt32, TokInt64,
-		TokUint8, TokUint16, TokUint32, TokUint64,
-		TokFloat32, TokFloat64, TokString, TokBytes:
-		t := p.tok
-		p.next()
-		return &PrimType{Kind: t.Kind, span: t.Span}
-	case TokIdent:
-		id := p.expectIdent()
-		return &NamedType{Name: id}
-	case TokList:
-		return p.parseListType()
-	case TokRecord:
-		return p.parseRecordType()
-	default:
-		p.errorf(p.tok, "expected type, found %s", p.tok)
-		return nil // unreachable
-	}
-}
-
-// parseListType parses "list type-specifier".
-func (p *parser) parseListType() *ListType {
-	if p.err != nil {
-		p.bail()
-	}
-	kw := p.expect(TokList)
-	elem := p.parseTypeSpec()
-	return &ListType{ListSpan: kw.Span, Elem: elem}
-}
-
-// parseRecordType parses "record { field* }".
-func (p *parser) parseRecordType() *RecordType {
-	if p.err != nil {
-		p.bail()
-	}
-	kw := p.expect(TokRecord)
-	lbrace := p.expect(TokLBrace)
-	var fields []*Field
-	for p.tok.Kind != TokRBrace {
+	var stack []frame
+	var complete TypeExpr // the last completed type occurrence, or nil
+	for {
 		if p.err != nil {
 			p.bail()
 		}
-		if p.tok.Kind == TokEOF {
-			p.errorf(p.tok, "expected '}' or field, found %s", p.tok)
+		if complete != nil {
+			// Fold the completed type into the innermost open container
+			// until the specifier itself is complete.
+			if len(stack) == 0 {
+				return complete
+			}
+			top := &stack[len(stack)-1]
+			switch top.kind {
+			case frameElem:
+				top.list.Elem = complete
+				complete = top.list
+				stack = stack[:len(stack)-1]
+				continue
+			case frameField:
+				top.fld.Type = complete
+				top.fld.Semi = p.expect(TokSemicolon).Span
+				stack = stack[:len(stack)-1]
+				complete = nil
+				continue
+			}
 		}
-		fields = append(fields, p.parseField())
+		if len(stack) > 0 && stack[len(stack)-1].kind == frameRecord {
+			// Inside a record's field loop: a field name, the closing
+			// brace, or an error.
+			switch p.tok.Kind {
+			case TokIdent:
+				fld := &Field{Name: p.expectIdent()}
+				stack[len(stack)-1].rec.Fields = append(stack[len(stack)-1].rec.Fields, fld)
+				stack = append(stack, frame{kind: frameField, fld: fld})
+			case TokRBrace:
+				rec := stack[len(stack)-1].rec
+				rec.RBrace = p.tok.Span
+				p.next()
+				stack = stack[:len(stack)-1]
+				complete = rec
+			case TokEOF:
+				p.errorf(p.tok, "expected '}' or field, found %s", p.tok)
+			default:
+				p.errorf(p.tok, "expected identifier, found %s", p.tok)
+			}
+			continue
+		}
+		switch p.tok.Kind {
+		case TokInt8, TokInt16, TokInt32, TokInt64,
+			TokUint8, TokUint16, TokUint32, TokUint64,
+			TokFloat32, TokFloat64, TokString, TokBytes:
+			complete = &PrimType{Kind: p.tok.Kind, span: p.tok.Span}
+			p.next()
+		case TokIdent:
+			complete = &NamedType{Name: p.expectIdent()}
+		case TokList:
+			kw := p.expect(TokList)
+			stack = append(stack, frame{kind: frameElem, list: &ListType{ListSpan: kw.Span}})
+		case TokRecord:
+			kw := p.expect(TokRecord)
+			lbrace := p.expect(TokLBrace)
+			stack = append(stack, frame{kind: frameRecord, rec: &RecordType{RecordSpan: kw.Span, LBrace: lbrace.Span}})
+		default:
+			p.errorf(p.tok, "expected type, found %s", p.tok)
+		}
 	}
-	rbrace := p.expect(TokRBrace)
-	return &RecordType{RecordSpan: kw.Span, LBrace: lbrace.Span, Fields: fields, RBrace: rbrace.Span}
 }

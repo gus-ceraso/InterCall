@@ -124,25 +124,60 @@ func (v *validator) declName(id *Ident, kind string) {
 	v.global[id.Name] = v.file.Position(id.span.Start)
 }
 
+// vsKind identifies one entry in the validator's explicit work stack.
+type vsKind uint8
+
+const (
+	vsType   vsKind = iota // visit one type occurrence
+	vsRecord               // continue one record's field loop
+)
+
+// vsStep is one entry in the validator's explicit work stack.
+type vsStep struct {
+	kind  vsKind
+	t     TypeExpr        // vsType
+	where string          // enclosing declaration or field context
+	rec   *RecordType     // vsRecord
+	seen  map[string]bool // vsRecord: field names seen so far
+	next  int             // vsRecord: next field index
+}
+
 // typeSpec validates one type occurrence against earlier type declarations,
 // descending into list elements and record fields with their own scopes.
-// where describes the enclosing declaration or field for diagnostics.
+// The walk uses an explicit work stack that mirrors the recursive descent
+// exactly — a record's field duplicates are checked in field order, and
+// each field's type is fully visited before the next field — so call-stack
+// use stays independent of type nesting. where describes the enclosing
+// declaration or field for diagnostics.
 func (v *validator) typeSpec(t TypeExpr, where string) {
-	switch t := t.(type) {
-	case *NamedType:
-		if !v.types[t.Name.Name] {
-			v.errf(t.Name.span, "unresolved type reference %q in %s", t.Name.Name, where)
-		}
-	case *ListType:
-		v.typeSpec(t.Elem, where)
-	case *RecordType:
-		seen := make(map[string]bool)
-		for _, f := range t.Fields {
-			if seen[f.Name.Name] {
-				v.errf(f.Name.span, "duplicate field %q in %s", f.Name.Name, where)
+	stack := []vsStep{{kind: vsType, t: t, where: where}}
+	for len(stack) > 0 {
+		s := &stack[len(stack)-1]
+		switch s.kind {
+		case vsType:
+			stack = stack[:len(stack)-1]
+			switch t := s.t.(type) {
+			case *NamedType:
+				if !v.types[t.Name.Name] {
+					v.errf(t.Name.span, "unresolved type reference %q in %s", t.Name.Name, s.where)
+				}
+			case *ListType:
+				stack = append(stack, vsStep{kind: vsType, t: t.Elem, where: s.where})
+			case *RecordType:
+				stack = append(stack, vsStep{kind: vsRecord, rec: t, seen: make(map[string]bool), where: s.where})
 			}
-			seen[f.Name.Name] = true
-			v.typeSpec(f.Type, fmt.Sprintf("field %q of %s", f.Name.Name, where))
+		case vsRecord:
+			if s.next >= len(s.rec.Fields) {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			f := s.rec.Fields[s.next]
+			s.next++
+			if s.seen[f.Name.Name] {
+				v.errf(f.Name.span, "duplicate field %q in %s", f.Name.Name, s.where)
+			}
+			s.seen[f.Name.Name] = true
+			stack = append(stack, vsStep{kind: vsType, t: f.Type, where: fmt.Sprintf("field %q of %s", f.Name.Name, s.where)})
 		}
 	}
 }

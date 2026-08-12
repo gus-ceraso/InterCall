@@ -43,6 +43,58 @@ func Format(f *File) []byte {
 	return []byte(b.String())
 }
 
+// fmtKind identifies one pending formatter action.
+type fmtKind uint8
+
+const (
+	fmtType  fmtKind = iota // one type occurrence after its prefix
+	fmtField                // one record field head, then its type and tail
+	fmtParam                // one parameter head, then its type and tail
+	fmtSemi                 // ";\n" after a completed field, parameter, or type
+	fmtTail                 // indent + "}" closing an open record or parameter block
+)
+
+// fmtItem is one pending formatter action.
+type fmtItem struct {
+	kind   fmtKind
+	t      TypeExpr
+	f      *Field
+	p      *Param
+	indent string
+}
+
+// runFormat drains the item stack, writing the complete output of one
+// declaration. The canonical output is a strict pre-order stream, so an
+// explicit item stack replaces the recursive grammar printer: a nested
+// type, record field, or parameter is pushed as work and popped in the
+// same order the recursive printer would have emitted it, keeping
+// call-stack use independent of type nesting.
+func runFormat(b *strings.Builder, stack []fmtItem) {
+	for len(stack) > 0 {
+		it := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		switch it.kind {
+		case fmtType:
+			writeType(b, &stack, it.t, it.indent)
+		case fmtField:
+			writeDoc(b, it.indent, it.f.Doc)
+			b.WriteString(it.indent)
+			b.WriteString(it.f.Name.Name)
+			stack = append(stack, fmtItem{kind: fmtSemi}, fmtItem{kind: fmtType, t: it.f.Type, indent: it.indent})
+		case fmtParam:
+			writeDoc(b, it.indent, it.p.Doc)
+			b.WriteString(it.indent)
+			b.WriteString(it.p.Name.Name)
+			stack = append(stack, fmtItem{kind: fmtSemi}, fmtItem{kind: fmtType, t: it.p.Type, indent: it.indent})
+		case fmtSemi:
+			b.WriteString(";\n")
+		case fmtTail:
+			b.WriteString(it.indent)
+			b.WriteByte('}')
+		}
+	}
+}
+
 // writeDecl writes one complete declaration at indent, including its
 // documentation, and ends with a line feed.
 func writeDecl(b *strings.Builder, d Decl, indent string) {
@@ -52,17 +104,18 @@ func writeDecl(b *strings.Builder, d Decl, indent string) {
 		b.WriteString(indent)
 		b.WriteString("type ")
 		b.WriteString(d.Name.Name)
-		writeType(b, d.Type, indent)
-		b.WriteString(";\n")
+		runFormat(b, []fmtItem{{kind: fmtSemi}, {kind: fmtType, t: d.Type, indent: indent}})
 	case *ExceptionDecl:
 		writeDoc(b, indent, d.Doc)
 		b.WriteString(indent)
 		b.WriteString("exception ")
 		b.WriteString(d.Name.Name)
+		stack := make([]fmtItem, 0, 2)
+		stack = append(stack, fmtItem{kind: fmtSemi})
 		if d.Type != nil {
-			writeType(b, d.Type, indent)
+			stack = append(stack, fmtItem{kind: fmtType, t: d.Type, indent: indent})
 		}
-		b.WriteString(";\n")
+		runFormat(b, stack)
 	case *ProcDecl:
 		writeDoc(b, indent, d.Doc)
 		b.WriteString(indent)
@@ -71,60 +124,49 @@ func writeDecl(b *strings.Builder, d Decl, indent string) {
 		b.WriteString(" {")
 		if len(d.Params) > 0 {
 			b.WriteByte('\n')
-			for _, p := range d.Params {
-				writeParam(b, p, indent+"    ")
+			stack := make([]fmtItem, 0, 3+2*len(d.Params))
+			stack = append(stack, fmtItem{kind: fmtSemi})
+			if d.Result != nil {
+				stack = append(stack, fmtItem{kind: fmtType, t: d.Result, indent: indent})
 			}
-			b.WriteString(indent)
-			b.WriteByte('}')
-		} else {
-			b.WriteByte('}')
+			stack = append(stack, fmtItem{kind: fmtTail, indent: indent})
+			for i := len(d.Params) - 1; i >= 0; i-- {
+				stack = append(stack, fmtItem{kind: fmtParam, p: d.Params[i], indent: indent + "    "})
+			}
+			runFormat(b, stack)
+			return
 		}
+		b.WriteByte('}')
 		if d.Result != nil {
-			writeType(b, d.Result, indent)
+			runFormat(b, []fmtItem{{kind: fmtSemi}, {kind: fmtType, t: d.Result, indent: indent}})
+			return
 		}
 		b.WriteString(";\n")
 	}
 }
 
-// writeParam writes one procedure parameter at indent, including its
-// documentation.
-func writeParam(b *strings.Builder, p *Param, indent string) {
-	writeDoc(b, indent, p.Doc)
-	b.WriteString(indent)
-	b.WriteString(p.Name.Name)
-	writeType(b, p.Type, indent)
-	b.WriteString(";\n")
-}
-
-// writeField writes one record field at indent, including its
-// documentation.
-func writeField(b *strings.Builder, f *Field, indent string) {
-	writeDoc(b, indent, f.Doc)
-	b.WriteString(indent)
-	b.WriteString(f.Name.Name)
-	writeType(b, f.Type, indent)
-	b.WriteString(";\n")
-}
-
 // writeType writes a type occurrence after its prefix: one space for an
 // undocumented type, or LF, the type's documentation at its indentation,
-// and the type at that indentation.
-func writeType(b *strings.Builder, t TypeExpr, indent string) {
+// and the type at that indentation. Nested occurrences are pushed onto
+// the item stack instead of recursing.
+func writeType(b *strings.Builder, stack *[]fmtItem, t TypeExpr, indent string) {
 	if doc := typeDoc(t); doc != "" {
 		b.WriteByte('\n')
 		writeDoc(b, indent, doc)
 		b.WriteString(indent)
-		writeTypeBody(b, t, indent)
+		writeTypeBody(b, stack, t, indent)
 		return
 	}
 	b.WriteByte(' ')
-	writeTypeBody(b, t, indent)
+	writeTypeBody(b, stack, t, indent)
 }
 
 // writeTypeBody writes the type occurrence itself at indent, including the
 // nested documentation of list elements and record fields, but not the
-// type's own documentation, which writeType emits after the prefix.
-func writeTypeBody(b *strings.Builder, t TypeExpr, indent string) {
+// type's own documentation, which writeType emits after the prefix. A
+// list element is pushed as one item; a record pushes its closing tail
+// and its fields in reverse so the first field is emitted next.
+func writeTypeBody(b *strings.Builder, stack *[]fmtItem, t TypeExpr, indent string) {
 	switch t := t.(type) {
 	case *PrimType:
 		b.WriteString(t.Kind.String())
@@ -132,16 +174,15 @@ func writeTypeBody(b *strings.Builder, t TypeExpr, indent string) {
 		b.WriteString(t.Name.Name)
 	case *ListType:
 		b.WriteString("list")
-		writeType(b, t.Elem, indent)
+		*stack = append(*stack, fmtItem{kind: fmtType, t: t.Elem, indent: indent})
 	case *RecordType:
 		b.WriteString("record {")
 		if len(t.Fields) > 0 {
 			b.WriteByte('\n')
-			for _, f := range t.Fields {
-				writeField(b, f, indent+"    ")
+			*stack = append(*stack, fmtItem{kind: fmtTail, indent: indent})
+			for i := len(t.Fields) - 1; i >= 0; i-- {
+				*stack = append(*stack, fmtItem{kind: fmtField, f: t.Fields[i], indent: indent + "    "})
 			}
-			b.WriteString(indent)
-			b.WriteByte('}')
 		} else {
 			b.WriteByte('}')
 		}
