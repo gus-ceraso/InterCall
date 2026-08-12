@@ -11,14 +11,20 @@ import (
 //
 // Eligible anchors are the first token of every declaration, procedure
 // parameter, record field, and type-specifier occurrence, in source order.
-// A documentation group is the maximal run of block comments in the trivia
-// immediately before an anchor, with no blank line within the group or
-// between the group and the anchor; a blank line contains only spaces or
-// tabs between line terminators. A comment after a completed node on the
-// same line is trailing and does not attach to a later node. A comment
-// between a parameter, field, exception, or type-declaration name and its
-// type anchors that type, and a comment after "list" anchors its element.
-// The rules apply recursively, and each comment attaches at most once;
+// Physical source lines are defined by LF bytes, exactly as in Position: a
+// CRLF sequence has one LF terminator and a bare CR is an ordinary byte,
+// not a line terminator. A documentation group is the maximal run of block
+// comments in the trivia immediately before an anchor, with no blank line
+// within the group or between the group and the anchor; a blank line
+// contains only spaces or tabs between physical lines. A comment after a
+// completed node on the same physical line is trailing and does not attach
+// to a later node, except that a candidate type prefix (a type, exception,
+// parameter, or field name, "list", or a procedure '}') makes the comments
+// between it and its type eligible for that type even when the prefix
+// follows an earlier node on the same physical line. A comment between a
+// parameter, field, exception, or type-declaration name and its type
+// anchors that type, and a comment after "list" anchors its element. The
+// rules apply recursively, and each comment attaches at most once;
 // comments that attach to no anchor are discarded by Format.
 //
 // Each attached comment body is normalized separately: CRLF and bare CR
@@ -37,11 +43,11 @@ func AttachDocs(f *File) {
 
 // attacher holds the per-file state of one attachment pass.
 type attacher struct {
-	file    *File
-	tokens  []int    // end offsets of every non-comment token, ascending
-	ends    []int    // end offsets of every node, ascending
-	anchors []anchor // documentation anchors in source order
-	lines   []int    // offsets of every line start, terminators \n, \r\n, \r
+	file     *File
+	tokens   []int    // end offsets of every non-comment token, ascending
+	ends     []int    // end offsets of every node, ascending
+	prefixes []int    // end offsets of every candidate type-prefix token, ascending
+	anchors  []anchor // documentation anchors in source order
 }
 
 // anchor is one documentation slot with the byte offset of its anchor
@@ -52,10 +58,10 @@ type anchor struct {
 }
 
 // collect resets every documentation slot and gathers the token ends, node
-// ends, and anchors of the file. The anchor walk is a pre-order traversal
-// in source order driven by an explicit frame stack, so call-stack use
-// does not grow with type nesting; node ends are collected in traversal
-// order and sorted afterwards.
+// ends, candidate prefix ends, and anchors of the file. The anchor walk is
+// a pre-order traversal in source order driven by an explicit frame stack,
+// so call-stack use does not grow with type nesting; node ends and prefix
+// ends are collected in traversal order and sorted afterwards.
 func (a *attacher) collect() {
 	scan := NewScanner(a.file)
 	for {
@@ -74,11 +80,13 @@ func (a *attacher) collect() {
 		case *TypeDecl:
 			d.Doc = ""
 			a.ends = append(a.ends, d.Span().End)
+			a.prefixes = append(a.prefixes, d.Name.Span().End)
 			a.anchors = append(a.anchors, anchor{d.TypeSpan.Start, func(s string) { d.Doc = s }})
 			a.walkType(d.Type)
 		case *ExceptionDecl:
 			d.Doc = ""
 			a.ends = append(a.ends, d.Span().End)
+			a.prefixes = append(a.prefixes, d.Name.Span().End)
 			a.anchors = append(a.anchors, anchor{d.ExceptionSpan.Start, func(s string) { d.Doc = s }})
 			if d.Type != nil {
 				a.walkType(d.Type)
@@ -86,6 +94,7 @@ func (a *attacher) collect() {
 		case *ProcDecl:
 			d.Doc = ""
 			a.ends = append(a.ends, d.Span().End)
+			a.prefixes = append(a.prefixes, d.RBrace.End)
 			a.anchors = append(a.anchors, anchor{d.ProcedureSpan.Start, func(s string) { d.Doc = s }})
 			for _, p := range d.Params {
 				a.paramAnchor(p)
@@ -98,7 +107,7 @@ func (a *attacher) collect() {
 	}
 
 	sort.Ints(a.ends)
-	a.lines = lineStarts(a.file.src)
+	sort.Ints(a.prefixes)
 }
 
 // walkType visits every type occurrence under root in pre-order (source
@@ -155,6 +164,7 @@ func (a *attacher) walkListChain(lst *ListType) TypeExpr {
 	for {
 		cur := node // fresh per iteration for the anchor closure
 		cur.Doc = ""
+		a.prefixes = append(a.prefixes, cur.ListSpan.End)
 		a.anchors = append(a.anchors, anchor{cur.ListSpan.Start, func(s string) { cur.Doc = s }})
 		count++
 		if e, ok := cur.Elem.(*ListType); ok {
@@ -188,6 +198,7 @@ func (a *attacher) typeAnchor(t TypeExpr) {
 		a.anchors = append(a.anchors, anchor{span.Start, func(s string) { t.Doc = s }})
 	case *ListType:
 		t.Doc = ""
+		a.prefixes = append(a.prefixes, t.ListSpan.End)
 		a.ends = append(a.ends, t.Span().End)
 		a.anchors = append(a.anchors, anchor{t.ListSpan.Start, func(s string) { t.Doc = s }})
 	case *RecordType:
@@ -198,18 +209,20 @@ func (a *attacher) typeAnchor(t TypeExpr) {
 }
 
 // fieldAnchor resets one record field's documentation slot and records
-// its anchor and node end.
+// its anchor, node end, and candidate prefix end.
 func (a *attacher) fieldAnchor(f *Field) {
 	f.Doc = ""
 	a.ends = append(a.ends, f.Span().End)
+	a.prefixes = append(a.prefixes, f.Name.Span().End)
 	a.anchors = append(a.anchors, anchor{f.Name.span.Start, func(s string) { f.Doc = s }})
 }
 
 // paramAnchor resets one procedure parameter's documentation slot and
-// records its anchor and node end.
+// records its anchor, node end, and candidate prefix end.
 func (a *attacher) paramAnchor(p *Param) {
 	p.Doc = ""
 	a.ends = append(a.ends, p.Span().End)
+	a.prefixes = append(a.prefixes, p.Name.Span().End)
 	a.anchors = append(a.anchors, anchor{p.Name.span.Start, func(s string) { p.Doc = s }})
 }
 
@@ -249,10 +262,16 @@ func (a *attacher) attach() {
 		if hasBlankLine(a.file.src, group[len(group)-1].Span.End, an.start) {
 			continue
 		}
-		// Trailing comments form a prefix of the segment: skip them.
+		// Trailing comments form a prefix of the segment: skip them, unless
+		// a candidate type prefix directly precedes the segment, in which
+		// case every comment in the segment intervenes between the prefix
+		// and its type and stays eligible even though the prefix follows
+		// an earlier completed node on the same physical line.
 		k := seg
-		for k < len(group) && a.isTrailing(group[k]) {
-			k++
+		if !a.isPrefixEnd(prevEnd) {
+			for k < len(group) && a.isTrailing(group[k]) {
+				k++
+			}
 		}
 		if k == len(group) {
 			continue
@@ -261,11 +280,22 @@ func (a *attacher) attach() {
 	}
 }
 
+// isPrefixEnd reports whether the token that ends exactly at end is a
+// candidate type-prefix token: a type, exception, parameter, or field
+// name, the reserved word "list", or a procedure '}'. The token before a
+// documentation group is the token before its anchor, so when that token
+// is a candidate prefix the group lies between the prefix and the type
+// the prefix introduces.
+func (a *attacher) isPrefixEnd(end int) bool {
+	i := sort.Search(len(a.prefixes), func(i int) bool { return a.prefixes[i] >= end })
+	return i < len(a.prefixes) && a.prefixes[i] == end
+}
+
 // isTrailing reports whether the comment sits after a completed node on
-// the same line, which makes it trailing: it does not attach to a later
-// node. The completed node closest to the comment decides, because every
-// node completed before the comment on its line is also completed before
-// that closest node.
+// the same physical line, which makes it trailing: it does not attach to a
+// later node. The completed node closest to the comment decides, because
+// every node completed before the comment on its line is also completed
+// before that closest node.
 func (a *attacher) isTrailing(c *Comment) bool {
 	i := sort.Search(len(a.ends), func(i int) bool { return a.ends[i] > c.Span.Start })
 	if i == 0 {
@@ -274,59 +304,36 @@ func (a *attacher) isTrailing(c *Comment) bool {
 	return a.lineOf(a.ends[i-1]-1) == a.lineOf(c.Span.Start)
 }
 
-// lineOf returns the zero-based physical line of a byte offset, where
-// lines are delimited by '\n', '\r\n', or a bare '\r'.
+// lineOf returns the zero-based physical line of a byte offset, using the
+// same LF-defined line index as File.Position: a CRLF sequence has one
+// terminator and a bare CR is an ordinary byte.
 func (a *attacher) lineOf(offset int) int {
-	return sort.Search(len(a.lines), func(i int) bool { return a.lines[i] > offset }) - 1
+	return sort.Search(len(a.file.lines), func(i int) bool { return a.file.lines[i] > offset }) - 1
 }
 
-// lineStarts returns the offset of every line start in src: zero, then one
-// position after every line terminator ('\n', '\r\n' as one terminator,
-// or a bare '\r').
-func lineStarts(src []byte) []int {
-	starts := []int{0}
-	for i := 0; i < len(src); i++ {
-		switch src[i] {
-		case '\n':
-			starts = append(starts, i+1)
-		case '\r':
-			if i+1 < len(src) && src[i+1] == '\n' {
-				i++
-			}
-			starts = append(starts, i+1)
-		}
-	}
-	return starts
-}
-
-// hasBlankLine reports whether src[a:b] contains a complete line whose
-// content is only spaces or tabs. Only lines delimited by line terminators
-// on both sides count; the partial first and last lines of the range are
-// tails of the surrounding lines and never count.
+// hasBlankLine reports whether src[a:b] contains a complete physical line
+// whose content is only spaces or tabs. Physical lines are delimited by LF
+// bytes, exactly as in Position: a CRLF sequence is one terminator whose
+// '\r' is not line content, and a bare CR is an ordinary byte, so a line
+// that contains a CR is not blank. Only lines delimited by line
+// terminators on both sides count; the partial first and last lines of the
+// range are tails of the surrounding lines and never count.
 func hasBlankLine(src []byte, a, b int) bool {
-	prevEnd := -1 // end of the previous terminator inside [a, b)
-	i := a
-	for i < b {
-		switch src[i] {
-		case '\n':
-			if prevEnd >= 0 && isBlankContent(src[prevEnd:i]) {
-				return true
-			}
-			prevEnd = i + 1
-			i++
-		case '\r':
-			next := i + 1
-			if next < b && src[next] == '\n' {
-				next++
-			}
-			if prevEnd >= 0 && isBlankContent(src[prevEnd:i]) {
-				return true
-			}
-			prevEnd = next
-			i = next
-		default:
-			i++
+	prevEnd := -1 // end of the previous LF inside [a, b)
+	for i := a; i < b; i++ {
+		if src[i] != '\n' {
+			continue
 		}
+		// The '\r' of a CRLF terminator belongs to the terminator, not
+		// to the line content.
+		contentEnd := i
+		if i > a && src[i-1] == '\r' {
+			contentEnd--
+		}
+		if prevEnd >= 0 && isBlankContent(src[prevEnd:contentEnd]) {
+			return true
+		}
+		prevEnd = i + 1
 	}
 	return false
 }

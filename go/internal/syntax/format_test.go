@@ -177,7 +177,9 @@ func TestFormatDocBlocks(t *testing.T) {
 // TestFormatCRLFAndBareCR verifies that CRLF and bare-CR input produce
 // the same canonical LF output, including documentation bodies, and that
 // a comment after a completed node on the same physical line stays
-// trailing under every line-ending style.
+// trailing under every line-ending style. A bare CR is whitespace, not a
+// line terminator, so it never puts a comment on its own line; only an LF
+// (or the LF of a CRLF) does.
 func TestFormatCRLFAndBareCR(t *testing.T) {
 	tests := []struct {
 		name string
@@ -192,7 +194,7 @@ func TestFormatCRLFAndBareCR(t *testing.T) {
 		{
 			name: "bare-cr",
 			src:  "/* doc */ type t uint8;\r/* more */ type u int16;\r",
-			want: "/* doc */\ntype t uint8;\n\n/* more */\ntype u int16;\n",
+			want: "/* doc */\ntype t uint8;\n\ntype u int16;\n",
 		},
 		{
 			name: "crlf-doc-body",
@@ -212,6 +214,11 @@ func TestFormatCRLFAndBareCR(t *testing.T) {
 		{
 			name: "bare-cr-own-line",
 			src:  "type t uint8;\r/* c */\rtype u int16;\r",
+			want: "type t uint8;\n\ntype u int16;\n",
+		},
+		{
+			name: "bare-cr-after-lf",
+			src:  "type t uint8;\n/* c */\rtype u int16;\r",
 			want: "type t uint8;\n\n/* c */\ntype u int16;\n",
 		},
 	}

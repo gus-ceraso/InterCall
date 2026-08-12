@@ -150,8 +150,12 @@ decl 3 doc ""
 }
 
 // TestAttachDocsTrailing covers the trailing rule: a comment after a
-// completed node on the same line attaches to nothing, while the same
-// comment on its own line attaches to the next anchor.
+// completed node on the same physical line attaches to nothing, except
+// that a candidate type prefix (a type, exception, parameter, or field
+// name, "list", or a procedure '}') directly before the comment makes it
+// eligible for the type the prefix introduces even when the prefix
+// follows an earlier same-line node. The same comment on its own line
+// attaches to the next anchor.
 func TestAttachDocsTrailing(t *testing.T) {
 	tests := []struct {
 		name string
@@ -186,6 +190,11 @@ func TestAttachDocsTrailing(t *testing.T) {
 		{
 			name: "same-line-as-param-end",
 			src:  "procedure p { y int8; x /* c */ int8; };",
+			want: "decl 0 doc \"\"\n  param 0 doc \"\"\n    type doc \"\"\n  param 1 doc \"\"\n    type doc \"c\"\n",
+		},
+		{
+			name: "same-line-after-semicolon",
+			src:  "procedure p { x int8; /* c */ y int16; };",
 			want: "decl 0 doc \"\"\n  param 0 doc \"\"\n    type doc \"\"\n  param 1 doc \"\"\n    type doc \"\"\n",
 		},
 		{
@@ -201,7 +210,32 @@ func TestAttachDocsTrailing(t *testing.T) {
 		{
 			name: "nonempty-block-result",
 			src:  "procedure p { x int8; } /* c */ int8;",
-			want: "decl 0 doc \"\"\n  param 0 doc \"\"\n    type doc \"\"\n  type doc \"\"\n",
+			want: "decl 0 doc \"\"\n  param 0 doc \"\"\n    type doc \"\"\n  type doc \"c\"\n",
+		},
+		{
+			name: "type-name-after-early-decl",
+			src:  "type a uint8; type b /* c */ a;",
+			want: "decl 0 doc \"\"\n  type doc \"\"\ndecl 1 doc \"\"\n  type doc \"c\"\n",
+		},
+		{
+			name: "exception-name-after-early-decl",
+			src:  "exception e record {}; exception f /* c */ record {};",
+			want: "decl 0 doc \"\"\n  record doc \"\"\ndecl 1 doc \"\"\n  record doc \"c\"\n",
+		},
+		{
+			name: "field-name-after-early-field",
+			src:  "type t record { f uint8; g /* c */ int16; };",
+			want: "decl 0 doc \"\"\n  record doc \"\"\n    field 0 doc \"\"\n      type doc \"\"\n    field 1 doc \"\"\n      type doc \"c\"\n",
+		},
+		{
+			name: "list-after-early-decl",
+			src:  "type t list bytes; type u list /* c */ bytes;",
+			want: "decl 0 doc \"\"\n  list doc \"\"\n    type doc \"\"\ndecl 1 doc \"\"\n  list doc \"\"\n    type doc \"c\"\n",
+		},
+		{
+			name: "trailing-after-semicolon-same-line",
+			src:  "type a uint8; /* c */ type b int16;",
+			want: "decl 0 doc \"\"\n  type doc \"\"\ndecl 1 doc \"\"\n  type doc \"\"\n",
 		},
 		{
 			name: "exception-omitted-payload",
@@ -224,10 +258,67 @@ func TestAttachDocsTrailing(t *testing.T) {
 	}
 }
 
+// TestAttachDocsSharedLineTypeAnchors covers the required regression
+// shape: a comment after a prior same-line node still attaches when it
+// follows the later declaration, parameter, field, exception, list, or
+// return prefix, and the resulting type document is preserved by the
+// canonical format round trip.
+func TestAttachDocsSharedLineTypeAnchors(t *testing.T) {
+	src := `type a uint8; type b /* doc */ a;
+procedure p { x int8; y /* doc */ int16; };
+type t record { f uint8; g /* doc */ int16; };
+type u list bytes; type v list /* doc */ bytes;
+exception e record {}; exception f /* doc */ record {};
+procedure q { x int8; } /* doc */ int8;`
+	f := attachDocs(t, src)
+	want := `decl 0 doc ""
+  type doc ""
+decl 1 doc ""
+  type doc "doc"
+decl 2 doc ""
+  param 0 doc ""
+    type doc ""
+  param 1 doc ""
+    type doc "doc"
+decl 3 doc ""
+  record doc ""
+    field 0 doc ""
+      type doc ""
+    field 1 doc ""
+      type doc "doc"
+decl 4 doc ""
+  list doc ""
+    type doc ""
+decl 5 doc ""
+  list doc ""
+    type doc "doc"
+decl 6 doc ""
+  record doc ""
+decl 7 doc ""
+  record doc "doc"
+decl 8 doc ""
+  param 0 doc ""
+    type doc ""
+  type doc "doc"
+`
+	if got := dumpDocs(f); got != want {
+		t.Errorf("docs mismatch:\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+	// Every attached document must appear exactly once in the canonical
+	// output, and the output must round-trip byte for byte with the same
+	// documentation on every slot.
+	if got := string(syntax.Format(f)); strings.Count(got, "doc") != 6 {
+		t.Errorf("canonical output contains %d doc bodies, want 6:\n%s", strings.Count(got, "doc"), got)
+	}
+	checkCanonical(t, "shared-line-type-anchors", syntax.Format(f), f)
+}
+
 // TestAttachDocsBlankLines covers documentation-group formation: the
 // maximal run of comments immediately before an anchor, with no blank line
 // within the group or between the group and the anchor, joined with two
-// LFs after discarding empty bodies.
+// LFs after discarding empty bodies. Blank lines follow the physical-line
+// model: only LF-terminated lines count, a CRLF is one terminator, and a
+// bare CR is an ordinary byte, so a line containing one is not blank.
 func TestAttachDocsBlankLines(t *testing.T) {
 	tests := []struct {
 		name string
@@ -267,6 +358,21 @@ func TestAttachDocsBlankLines(t *testing.T) {
 		{
 			name: "crlf-blank-line",
 			src:  "/* a */\r\n\r\n/* b */\r\ntype t uint8;\r\n",
+			want: "decl 0 doc \"b\"\n  type doc \"\"\n",
+		},
+		{
+			name: "bare-cr-is-content",
+			src:  "type t /* a */\r\r/* b */ uint8;",
+			want: "decl 0 doc \"\"\n  type doc \"a\\n\\nb\"\n",
+		},
+		{
+			name: "bare-cr-line-not-blank",
+			src:  "/* a */\n  \r  \n/* b */\ntype t uint8;",
+			want: "decl 0 doc \"a\\n\\nb\"\n  type doc \"\"\n",
+		},
+		{
+			name: "mixed-crlf-lf-blank",
+			src:  "/* a */\n\r\n/* b */\ntype t uint8;",
 			want: "decl 0 doc \"b\"\n  type doc \"\"\n",
 		},
 	}

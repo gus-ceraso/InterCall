@@ -34,6 +34,9 @@ func TestPositionLinesAndColumns(t *testing.T) {
 		{"multibyte utf8 next line", "é\nx", 3, Position{3, 2, 1}},
 		{"line starts", "ab\ncd\nef", 3, Position{3, 2, 1}},
 		{"line starts mid", "ab\ncd\nef", 5, Position{5, 2, 3}},
+		{"mixed endings", "a\r\nb\rc\nd", 5, Position{5, 2, 3}},
+		{"mixed endings next line", "a\r\nb\rc\nd", 7, Position{7, 3, 1}},
+		{"mixed endings eof", "a\r\nb\rc\nd", 8, Position{8, 3, 2}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
