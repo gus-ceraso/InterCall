@@ -216,7 +216,10 @@ func TestParseBindingOwnership(t *testing.T) {
 }
 
 func TestParseInterfaceOwnership(t *testing.T) {
-	body := []byte("exception done;\nprocedure echo(value string) string;\n")
+	// The body is the byte-exact canonical form of a valid interface:
+	// the ownership check parses and validates it and requires
+	// canonical formatting to reproduce it byte for byte.
+	body := []byte("exception done;\n\nprocedure echo {\n    value string;\n} string;\n")
 	valid := ownedInterfaceBytes(body)
 	io, ok := parseInterfaceOwnership(valid)
 	if !ok {
@@ -260,6 +263,58 @@ func TestParseInterfaceOwnership(t *testing.T) {
 	}
 	if io.stamp != ArtifactStamp(nil) || len(io.body) != 0 {
 		t.Errorf("empty body parse = stamp %q, body %q", io.stamp, io.body)
+	}
+}
+
+// TestParseInterfaceOwnershipRequiresCanonicalBody covers RM-14: an
+// existing interface is replaceable as owned only when the marker and
+// lowercase digest are valid, the digest matches the body, the body
+// parses and validates, and canonical formatting reproduces the body
+// byte for byte. Every rejection case carries a valid marker line, one
+// blank line, and a recomputed valid lowercase stamp over the exact
+// body bytes, so each failure is the body itself, never the ownership
+// form or the digest. Ownership stays structural: a different canonical
+// body with its correct digest remains another valid owned artifact and
+// is accepted.
+func TestParseInterfaceOwnershipRequiresCanonicalBody(t *testing.T) {
+	// Canonical bodies pass, including a body whose documentation
+	// round-trips through the canonical formatter and an empty body.
+	for _, body := range [][]byte{
+		[]byte("exception done;\n\nprocedure echo {\n    value string;\n} string;\n"),
+		[]byte("/* The echo interface. */\nexception done;\n\nprocedure echo {\n    value string;\n} string;\n"),
+		nil,
+	} {
+		if io, ok := parseInterfaceOwnership(ownedInterfaceBytes(body)); !ok {
+			t.Errorf("parseInterfaceOwnership(canonical body %q) = not owned, want owned", body)
+		} else if io.stamp != ArtifactStamp(body) || !bytes.Equal(io.body, body) {
+			t.Errorf("canonical body parse = stamp %q, body %q", io.stamp, io.body)
+		}
+	}
+
+	cases := []struct {
+		name string
+		body []byte
+	}{
+		// Noncanonical spacing: the formatter's canonical output
+		// differs byte for byte.
+		{"TwoSpaceIndent", []byte("exception done;\n\nprocedure echo {\n  value string;\n} string;\n")},
+		{"MissingFinalNewline", []byte("exception done;\n\nprocedure echo {\n    value string;\n} string;")},
+		{"ExtraBlankLineBetweenDeclarations", []byte("exception done;\n\n\nprocedure echo {\n    value string;\n} string;\n")},
+		{"TrailingSpace", []byte("exception done;\n\nprocedure echo {\n    value string;\n} string; \n")},
+		// Noncanonical docs: a comment the formatter drops or moves is
+		// not reproduced byte for byte.
+		{"TrailingComment", []byte("exception done;\n\nprocedure echo {\n    value string;\n} string;\n// trailing note\n")},
+		{"CommentBetweenDeclarations", []byte("exception done;\n/* doc */\nprocedure echo {};\n")},
+		// A syntax-invalid body fails even with a matching digest.
+		{"SyntaxInvalid", []byte("procedure echo {\n    value string\n} string;\n")},
+		// Semantically invalid bodies fail even with a matching digest.
+		{"SemanticallyInvalidDuplicateName", []byte("type a int32;\ntype a int32;\n")},
+		{"SemanticallyInvalidUnresolvedReference", []byte("procedure echo {\n    value missing;\n};\n")},
+	}
+	for _, tc := range cases {
+		if _, ok := parseInterfaceOwnership(ownedInterfaceBytes(tc.body)); ok {
+			t.Errorf("parseInterfaceOwnership(%s) = owned, want not owned", tc.name)
+		}
 	}
 }
 

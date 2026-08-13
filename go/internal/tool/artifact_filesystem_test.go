@@ -19,6 +19,92 @@ import (
 // and replacement failure safety. Every test operates only in
 // temporary directories.
 
+// TestArtifactRejectsNoncanonicalOwnedInterface covers RM-14 at the
+// write boundary: an existing interface target whose marker and
+// lowercase digest are valid and whose stamp matches the body is still
+// replaceable as owned only when the body parses and validates and
+// canonical formatting reproduces it byte for byte. A matching
+// recomputed digest over noncanonical spacing or docs, a syntax-invalid
+// body, or a semantically invalid body is rejected before staging or
+// replacement, preserving both target bytes and inodes and leaving no
+// temp files.
+func TestArtifactRejectsNoncanonicalOwnedInterface(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		// The stamp is recomputed over the exact noncanonical bytes,
+		// so the marker, the lowercase digest, and the digest match
+		// all hold; only the body fails the canonicality rule.
+		{"NoncanonicalIndent", []byte("exception done;\nprocedure echo {\n  value string;\n} string;\n")},
+		{"TrailingComment", []byte("exception done;\nprocedure echo {\n    value string;\n} string;\n// trailing note\n")},
+		{"SyntaxInvalid", []byte("procedure echo {\n    value string\n} string;\n")},
+		{"SemanticallyInvalid", []byte("type a int32;\ntype a int32;\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			out := filepath.Join(root, "out")
+			intfDir := filepath.Join(root, "interfaces")
+			if err := os.MkdirAll(intfDir, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			cfg := WriteConfig{
+				Mode:          ExportMode,
+				OutDir:        out,
+				Package:       "gen",
+				InterfacePath: filepath.Join(intfDir, "api.intercall"),
+				GoFile:        []byte(testBindingGo),
+				InterfaceBody: canonicalBody(t, testInterfaceSrc1),
+			}
+			writeOnce(t, cfg)
+			bindingPath := filepath.Join(out, bindingFile)
+			intfPath := filepath.Join(intfDir, "api.intercall")
+
+			// Rewrite the interface target with a valid marker and
+			// blank line and a recomputed valid lowercase stamp over
+			// the noncanonical body: the digest matches the body, but
+			// the body is not the canonical form of a valid interface.
+			noncanonical := ownedInterfaceBytes(tc.body)
+			if err := os.WriteFile(intfPath, noncanonical, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bindingBefore, err := os.Stat(bindingPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intfBefore, err := os.Stat(intfPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// The next export would replace both targets; the
+			// noncanonical interface blocks the write before staging.
+			cfg.InterfaceBody = canonicalBody(t, testInterfaceSrc2)
+			writeFails(t, cfg, "not replaceable", "canonical")
+
+			bindingAfter, err := os.Stat(bindingPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intfAfter, err := os.Stat(intfPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(bindingBefore, bindingAfter) || !os.SameFile(intfBefore, intfAfter) {
+				t.Error("a target was replaced or rewritten despite the noncanonical owned interface")
+			}
+			if got, err := os.ReadFile(intfPath); err != nil || !bytes.Equal(got, noncanonical) {
+				t.Errorf("interface bytes changed: %q, %v", got, err)
+			}
+			if got, err := os.ReadFile(bindingPath); err != nil || !bytes.Equal(got, composedBinding(ExportMode, ArtifactStamp(canonicalBody(t, testInterfaceSrc1)), []byte(testBindingGo))) {
+				t.Errorf("binding bytes changed: %q, %v", got, err)
+			}
+			noTemps(t, out)
+			noTemps(t, intfDir)
+		})
+	}
+}
+
 func TestArtifactFilesystemSafety(t *testing.T) {
 	t.Run("FreshExportExactBytes", func(t *testing.T) {
 		root := t.TempDir()
