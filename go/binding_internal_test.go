@@ -78,6 +78,41 @@ func TestExportStateRetainsDispatch(t *testing.T) {
 	}
 }
 
+func TestBindingStateRetainsInterfaceMetadata(t *testing.T) {
+	var id InterfaceID
+	id[0] = 0x42
+
+	export, err := NewExportBindingWithInterfaceID(func(context.Context, uint64, []byte) (uint64, []byte) {
+		return 0, nil
+	}, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if export.state.interfaceID != id || !export.state.hasInterfaceID {
+		t.Fatalf("export state metadata = (%x, %v), want (%x, true)", export.state.interfaceID, export.state.hasInterfaceID, id)
+	}
+	if legacy, err := NewExportBinding(func(context.Context, uint64, []byte) (uint64, []byte) {
+		return 0, nil
+	}); err != nil {
+		t.Fatal(err)
+	} else if legacy.state.hasInterfaceID {
+		t.Error("legacy export state unexpectedly has interface metadata")
+	}
+
+	imp := NewImportBindingWithInterfaceID(id)
+	if imp.state.interfaceID != id || !imp.state.hasInterfaceID {
+		t.Fatalf("import state metadata = (%x, %v), want (%x, true)", imp.state.interfaceID, imp.state.hasInterfaceID, id)
+	}
+	if legacy := NewImportBinding(); legacy.state.hasInterfaceID {
+		t.Error("legacy import state unexpectedly has interface metadata")
+	}
+
+	zero := NewImportBindingWithInterfaceID(InterfaceID{})
+	if !zero.state.hasInterfaceID || zero.state.interfaceID != (InterfaceID{}) {
+		t.Errorf("explicit zero import state metadata = (%x, %v), want (zero, true)", zero.state.interfaceID, zero.state.hasInterfaceID)
+	}
+}
+
 func newTestExport(t *testing.T) ExportBinding {
 	t.Helper()
 	b, err := NewExportBinding(func(context.Context, uint64, []byte) (uint64, []byte) {

@@ -201,9 +201,12 @@ directive. This preserves every semantic slot, safely carries arbitrary Unicode
 scalar values and directive-like text, and replaces per-slot selector machinery
 with one private semantic value.
 
-The metadata is a generation aid, not runtime binding identity. The proof of
-concept embeds no runtime interface digest and performs no handshake or
-interface exchange.
+The `_intercallSemantic` metadata is a generation aid, not runtime binding
+identity. The current generated bindings still use the metadata-free
+constructors, and the raw runtime embeds no interface digest or performs any
+handshake or interface exchange. The metadata-aware binding constructors are
+available for the later negotiated transport profile; they do not change raw
+`NewConnection` behavior.
 
 ## Go Export Model
 
@@ -562,14 +565,17 @@ func ImportBinding() intercall.ImportBinding
 
 The values are opaque handles containing an unexported pointer to immutable,
 non-zero-sized runtime identity state; a private byte is sufficient. Export
-state also contains its dispatch function. Each package constructs its handle
-once. Copying a handle copies the pointer and retains identity. Independently
-constructed export or import handles have distinct state addresses, and the
-nil-pointer zero value is invalid. The non-zero size is required because Go may
-make pointers to distinct zero-sized variables equal. This makes ordinary value
-copies harmless and avoids descriptor self-pointers, constructor registries,
-digests, and copied-descriptor states. Any number of connections may share a
-binding concurrently.
+state also contains its dispatch function. A binding may additionally carry a
+32-byte `InterfaceID` for a later interface-agreement step; that metadata is
+not process-local handle identity and is not an authentication credential.
+Each package constructs its handle once. Copying a handle copies the pointer
+and retains identity. Independently constructed export or import handles have
+distinct state addresses, and the nil-pointer zero value is invalid. The
+non-zero size is required because Go may make pointers to distinct zero-sized
+variables equal. This makes ordinary value copies harmless and avoids
+descriptor self-pointers, constructor registries, digests, and
+copied-descriptor states. Any number of connections may share a binding
+concurrently.
 
 The complete public runtime and generated-code bridge is:
 
@@ -587,8 +593,15 @@ type ResponseDecoder func(
 	[]byte, // complete owned response payload
 ) error
 
+type InterfaceID [32]byte
+
 func NewExportBinding(Dispatch) (ExportBinding, error)
+func NewExportBindingWithInterfaceID(Dispatch, InterfaceID) (ExportBinding, error)
 func NewImportBinding() ImportBinding
+func NewImportBindingWithInterfaceID(InterfaceID) ImportBinding
+
+func (ExportBinding) InterfaceID() (InterfaceID, bool)
+func (ImportBinding) InterfaceID() (InterfaceID, bool)
 
 func NewConnection(
 	context.Context,
@@ -615,12 +628,21 @@ func ConnectionFromContext(context.Context) (*Connection, error)
 SPI, not application callbacks or a handler registry. A request encoder returns
 one complete owned payload and is invoked at most once under the ordering below.
 
-`NewExportBinding` rejects a nil dispatch function and allocates fresh
-non-zero-sized identity state. `NewImportBinding` does the same without a
-dispatch function. `NewConnection` rejects a nil context or stream interface
-and zero bindings before taking ownership of the stream. It also returns an
-already available `ctx.Err()` before ownership. On success, it stores exactly
-one export and one import handle for the connection; neither can change.
+`NewExportBinding` and `NewImportBinding` allocate fresh non-zero-sized
+process-local identity state without interface metadata. The metadata-aware
+constructors allocate the same kind of fresh state and record the supplied
+`InterfaceID`, including an all-zero value. The accessors return the ID and
+`true` when metadata is present; zero bindings and legacy constructors return
+the zero ID and `false`. The metadata does not affect binding equality or
+`Connection.Call`'s process-local import-handle check. `NewExportBinding` and
+`NewExportBindingWithInterfaceID` both reject a nil dispatch function with
+`ErrInvalidArgument`.
+
+`NewConnection` rejects a nil context or stream interface and zero bindings
+before taking ownership of the stream. It also returns an already available
+`ctx.Err()` before ownership. On success, it stores exactly one export and one
+import handle for the connection; neither can change. The raw constructor
+does not require, inspect, or exchange interface metadata.
 
 There is no generated `Run`, descriptor callback layer, startup state, or
 startup wait. `NewConnection` completely initializes the connection and starts

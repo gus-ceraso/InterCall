@@ -383,20 +383,40 @@ func buildRuntimeSPIModel(imp types.Importer) (*types.Package, error) {
 		),
 		types.NewTuple(types.NewVar(noPos, pkg, "", errType)), false)).Type()
 
+	interfaceID := newType("InterfaceID", types.NewArray(byteType, 32)).Type()
+
 	exportState := newType("exportState", types.NewStruct([]*types.Var{
 		types.NewField(noPos, pkg, "dispatch", dispatch, false),
+		types.NewField(noPos, pkg, "interfaceID", interfaceID, false),
+		types.NewField(noPos, pkg, "hasInterfaceID", types.Typ[types.Bool], false),
 		types.NewField(noPos, pkg, "identity", byteType, false),
 	}, nil)).Type()
-	exportBinding := newType("ExportBinding", types.NewStruct([]*types.Var{
+	exportBindingTN := newType("ExportBinding", types.NewStruct([]*types.Var{
 		types.NewField(noPos, pkg, "state", types.NewPointer(exportState), false),
-	}, nil)).Type()
+	}, nil))
+	exportBinding := exportBindingTN.Type()
 
 	importState := newType("importState", types.NewStruct([]*types.Var{
+		types.NewField(noPos, pkg, "interfaceID", interfaceID, false),
+		types.NewField(noPos, pkg, "hasInterfaceID", types.Typ[types.Bool], false),
 		types.NewField(noPos, pkg, "identity", byteType, false),
 	}, nil)).Type()
-	importBinding := newType("ImportBinding", types.NewStruct([]*types.Var{
+	importBindingTN := newType("ImportBinding", types.NewStruct([]*types.Var{
 		types.NewField(noPos, pkg, "state", types.NewPointer(importState), false),
-	}, nil)).Type()
+	}, nil))
+	importBinding := importBindingTN.Type()
+
+	addInterfaceIDMethod := func(named *types.Named) {
+		sig := types.NewSignatureType(types.NewVar(noPos, pkg, "b", named), nil, nil,
+			types.NewTuple(),
+			types.NewTuple(
+				types.NewVar(noPos, pkg, "", interfaceID),
+				types.NewVar(noPos, pkg, "", types.Typ[types.Bool]),
+			), false)
+		named.AddMethod(types.NewFunc(noPos, pkg, "InterfaceID", sig))
+	}
+	addInterfaceIDMethod(exportBindingTN.Type().(*types.Named))
+	addInterfaceIDMethod(importBindingTN.Type().(*types.Named))
 
 	connectionTN := newType("Connection", types.NewStruct(nil, nil))
 	connection := connectionTN.Type().(*types.Named)
@@ -422,8 +442,20 @@ func buildRuntimeSPIModel(imp types.Importer) (*types.Package, error) {
 			types.NewVar(noPos, pkg, "", exportBinding),
 			types.NewVar(noPos, pkg, "", errType),
 		), false)))
+	insert(types.NewFunc(noPos, pkg, "NewExportBindingWithInterfaceID", types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(
+			types.NewVar(noPos, pkg, "dispatch", dispatch),
+			types.NewVar(noPos, pkg, "id", interfaceID),
+		),
+		types.NewTuple(
+			types.NewVar(noPos, pkg, "", exportBinding),
+			types.NewVar(noPos, pkg, "", errType),
+		), false)))
 	insert(types.NewFunc(noPos, pkg, "NewImportBinding", types.NewSignatureType(nil, nil, nil,
 		types.NewTuple(),
+		types.NewTuple(types.NewVar(noPos, pkg, "", importBinding)), false)))
+	insert(types.NewFunc(noPos, pkg, "NewImportBindingWithInterfaceID", types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(types.NewVar(noPos, pkg, "id", interfaceID)),
 		types.NewTuple(types.NewVar(noPos, pkg, "", importBinding)), false)))
 	insert(types.NewFunc(noPos, pkg, "NewConnection", types.NewSignatureType(nil, nil, nil,
 		types.NewTuple(

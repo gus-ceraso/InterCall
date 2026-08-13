@@ -283,8 +283,8 @@ func bridgeTupleEqualSeen(a, b *types.Tuple, seen map[[2]types.Type]bool) bool {
 // package's), with their exported method sets compared by name and
 // signature and their underlying types compared recursively; structs
 // compare their exported fields by name and type; interfaces compare
-// their exported methods; and slices, pointers, chans, maps, tuples,
-// and signatures compare recursively. Unexported members are
+// their exported methods; and arrays, slices, pointers, chans, maps,
+// tuples, and signatures compare recursively. Unexported members are
 // implementation details of the root package and are not part of the
 // generated-code bridge surface.
 func bridgeTypesEqual(a, b types.Type) bool {
@@ -301,6 +301,9 @@ func bridgeTypesEqualSeen(a, b types.Type, seen map[[2]types.Type]bool) bool {
 	case *types.Basic:
 		y, ok := b.(*types.Basic)
 		return ok && x.Kind() == y.Kind()
+	case *types.Array:
+		y, ok := b.(*types.Array)
+		return ok && x.Len() == y.Len() && bridgeTypesEqualSeen(x.Elem(), y.Elem(), seen)
 	case *types.Named:
 		y, ok := b.(*types.Named)
 		if !ok || x.Obj().Name() != y.Obj().Name() || !sameBridgePkg(x.Obj().Pkg(), y.Obj().Pkg()) {

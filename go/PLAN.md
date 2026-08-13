@@ -864,15 +864,18 @@ Every commit must:
 
 Lifecycle-sensitive commits additionally run the focused package under `-race`. The final documentation commits audit and consolidate the incremental specification changes; they must not be the first place implemented public behavior is specified. The final commit runs the complete race and vet gates.
 
-### Task 1 — Add interface metadata to runtime bindings
+### Task 1 — Add interface metadata to runtime bindings — **Complete**
 
 **Commit:** `runtime: add interface IDs to binding metadata`
+
+**Status:** Implemented and verified in the current working tree.
 
 **Files:**
 
 - `binding.go`
 - `binding_test.go`
 - `binding_internal_test.go`
+- `SPEC.md`
 - `internal/tool/checker.go`
 - `internal/tool/checker_test.go` only where the existing parity fixture must recognize the new surface
 

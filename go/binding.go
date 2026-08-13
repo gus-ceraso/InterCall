@@ -18,6 +18,11 @@ type ByteStream interface {
 	io.Closer
 }
 
+// InterfaceID identifies an interface for optional agreement between peers.
+// It is metadata, not process-local binding identity or an authentication
+// credential.
+type InterfaceID [32]byte
+
 // Dispatch is the generated export-side procedure dispatch function.
 //
 // A generated export package passes its static dispatch to NewExportBinding.
@@ -53,10 +58,11 @@ type ResponseDecoder func(
 // immutable binding state.
 //
 // The handle contains an unexported pointer to immutable, non-zero-sized
-// runtime identity state, plus the package's dispatch function. Copying the
-// handle copies the pointer and retains identity; the nil-pointer zero value
-// is invalid. Independently constructed handles have distinct state
-// addresses. Any number of connections may share a binding concurrently.
+// runtime identity state, the package's dispatch function, and optional
+// interface metadata. Copying the handle copies the pointer and retains
+// process-local identity; the nil-pointer zero value is invalid. Independently
+// constructed handles have distinct state addresses. Any number of
+// connections may share a binding concurrently.
 type ExportBinding struct {
 	state *exportState
 }
@@ -66,18 +72,20 @@ type ExportBinding struct {
 // state non-zero-sized so that pointers to independently constructed states
 // are always distinct.
 type exportState struct {
-	dispatch Dispatch
-	identity byte
+	dispatch       Dispatch
+	interfaceID    InterfaceID
+	hasInterfaceID bool
+	identity       byte
 }
 
 // ImportBinding is an opaque handle to one generated import package's
 // immutable binding state.
 //
 // The handle contains an unexported pointer to immutable, non-zero-sized
-// runtime identity state. Copying the handle copies the pointer and retains
-// identity; the nil-pointer zero value is invalid. Independently constructed
-// handles have distinct state addresses. Any number of connections may share
-// a binding concurrently.
+// runtime identity state and optional interface metadata. Copying the handle
+// copies the pointer and retains process-local identity; the nil-pointer zero
+// value is invalid. Independently constructed handles have distinct state
+// addresses. Any number of connections may share a binding concurrently.
 type ImportBinding struct {
 	state *importState
 }
@@ -87,13 +95,16 @@ type ImportBinding struct {
 // state non-zero-sized so that pointers to independently constructed states
 // are always distinct.
 type importState struct {
-	identity byte
+	interfaceID    InterfaceID
+	hasInterfaceID bool
+	identity       byte
 }
 
 // NewExportBinding constructs the binding for one generated export package.
 //
 // It rejects a nil dispatch function with ErrInvalidArgument and otherwise
-// allocates fresh, non-zero-sized identity state and returns a new handle.
+// allocates fresh, non-zero-sized identity state without interface metadata
+// and returns a new handle.
 func NewExportBinding(dispatch Dispatch) (ExportBinding, error) {
 	if dispatch == nil {
 		return ExportBinding{}, ErrInvalidArgument
@@ -101,9 +112,62 @@ func NewExportBinding(dispatch Dispatch) (ExportBinding, error) {
 	return ExportBinding{state: &exportState{dispatch: dispatch}}, nil
 }
 
+// NewExportBindingWithInterfaceID constructs an export binding carrying id.
+//
+// It rejects a nil dispatch function with ErrInvalidArgument, records the ID
+// even when it is all zero, and allocates fresh, non-zero-sized identity
+// state. The ID is separate from the process-local handle identity.
+func NewExportBindingWithInterfaceID(dispatch Dispatch, id InterfaceID) (ExportBinding, error) {
+	if dispatch == nil {
+		return ExportBinding{}, ErrInvalidArgument
+	}
+	return ExportBinding{state: &exportState{
+		dispatch:       dispatch,
+		interfaceID:    id,
+		hasInterfaceID: true,
+	}}, nil
+}
+
+// InterfaceID reports the optional interface metadata carried by b.
+//
+// A zero binding, or a binding made by NewExportBinding, reports ok == false.
+// An ID supplied to NewExportBindingWithInterfaceID is present even when it
+// is all zero.
+func (b ExportBinding) InterfaceID() (InterfaceID, bool) {
+	if b.state == nil {
+		return InterfaceID{}, false
+	}
+	return b.state.interfaceID, b.state.hasInterfaceID
+}
+
 // NewImportBinding constructs the binding for one generated import package.
 //
-// It allocates fresh, non-zero-sized identity state and returns a new handle.
+// It allocates fresh, non-zero-sized identity state without interface
+// metadata and returns a new handle.
 func NewImportBinding() ImportBinding {
 	return ImportBinding{state: &importState{}}
+}
+
+// NewImportBindingWithInterfaceID constructs an import binding carrying id.
+//
+// It records the ID even when it is all zero and allocates fresh,
+// non-zero-sized identity state. The ID is separate from the process-local
+// handle identity.
+func NewImportBindingWithInterfaceID(id InterfaceID) ImportBinding {
+	return ImportBinding{state: &importState{
+		interfaceID:    id,
+		hasInterfaceID: true,
+	}}
+}
+
+// InterfaceID reports the optional interface metadata carried by b.
+//
+// A zero binding, or a binding made by NewImportBinding, reports ok == false.
+// An ID supplied to NewImportBindingWithInterfaceID is present even when it
+// is all zero.
+func (b ImportBinding) InterfaceID() (InterfaceID, bool) {
+	if b.state == nil {
+		return InterfaceID{}, false
+	}
+	return b.state.interfaceID, b.state.hasInterfaceID
 }

@@ -76,6 +76,87 @@ func TestImportBindingIdentity(t *testing.T) {
 	}
 }
 
+func TestBindingInterfaceMetadata(t *testing.T) {
+	var id intercall.InterfaceID
+	id[0] = 0x12
+	id[31] = 0xab
+
+	if got, ok := (intercall.ExportBinding{}).InterfaceID(); ok || got != (intercall.InterfaceID{}) {
+		t.Errorf("zero export metadata = (%x, %v), want (zero, false)", got, ok)
+	}
+	if got, ok := (intercall.ImportBinding{}).InterfaceID(); ok || got != (intercall.InterfaceID{}) {
+		t.Errorf("zero import metadata = (%x, %v), want (zero, false)", got, ok)
+	}
+
+	legacyExport := mustExport(t)
+	if got, ok := legacyExport.InterfaceID(); ok || got != (intercall.InterfaceID{}) {
+		t.Errorf("legacy export metadata = (%x, %v), want (zero, false)", got, ok)
+	}
+	legacyImport := intercall.NewImportBinding()
+	if got, ok := legacyImport.InterfaceID(); ok || got != (intercall.InterfaceID{}) {
+		t.Errorf("legacy import metadata = (%x, %v), want (zero, false)", got, ok)
+	}
+
+	export, err := intercall.NewExportBindingWithInterfaceID(dummyDispatch, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := export.InterfaceID(); !ok || got != id {
+		t.Errorf("export metadata = (%x, %v), want (%x, true)", got, ok, id)
+	}
+	importBinding := intercall.NewImportBindingWithInterfaceID(id)
+	if got, ok := importBinding.InterfaceID(); !ok || got != id {
+		t.Errorf("import metadata = (%x, %v), want (%x, true)", got, ok, id)
+	}
+
+	// The metadata-aware constructors distinguish an explicitly supplied
+	// all-zero ID from absent metadata.
+	zeroExport, err := intercall.NewExportBindingWithInterfaceID(dummyDispatch, intercall.InterfaceID{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := zeroExport.InterfaceID(); !ok || got != (intercall.InterfaceID{}) {
+		t.Errorf("explicit zero export metadata = (%x, %v), want (zero, true)", got, ok)
+	}
+	zeroImport := intercall.NewImportBindingWithInterfaceID(intercall.InterfaceID{})
+	if got, ok := zeroImport.InterfaceID(); !ok || got != (intercall.InterfaceID{}) {
+		t.Errorf("explicit zero import metadata = (%x, %v), want (zero, true)", got, ok)
+	}
+
+	otherExport, err := intercall.NewExportBindingWithInterfaceID(dummyDispatch, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if export == otherExport {
+		t.Error("independently constructed export handles with the same ID compare equal")
+	}
+	otherImport := intercall.NewImportBindingWithInterfaceID(id)
+	if importBinding == otherImport {
+		t.Error("independently constructed import handles with the same ID compare equal")
+	}
+
+	if copied := export; copied != export {
+		t.Error("copied export handle lost identity")
+	} else if got, ok := copied.InterfaceID(); !ok || got != id {
+		t.Errorf("copied export metadata = (%x, %v), want (%x, true)", got, ok, id)
+	}
+	if copied := importBinding; copied != importBinding {
+		t.Error("copied import handle lost identity")
+	} else if got, ok := copied.InterfaceID(); !ok || got != id {
+		t.Errorf("copied import metadata = (%x, %v), want (%x, true)", got, ok, id)
+	}
+}
+
+func TestMetadataExportBindingRejectsNilDispatch(t *testing.T) {
+	binding, err := intercall.NewExportBindingWithInterfaceID(nil, intercall.InterfaceID{})
+	if err != intercall.ErrInvalidArgument {
+		t.Fatalf("err = %v, want ErrInvalidArgument by direct comparison", err)
+	}
+	if binding != (intercall.ExportBinding{}) {
+		t.Error("failed construction returned a non-zero handle")
+	}
+}
+
 func TestExportBindingIdentity(t *testing.T) {
 	a, err := intercall.NewExportBinding(dummyDispatch)
 	if err != nil {
