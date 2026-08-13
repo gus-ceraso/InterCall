@@ -1268,9 +1268,11 @@ go test -race ./transport/unixsocket
 go test ./...
 ```
 
-### Task 10 — Add Unix `ListenAndServe`
+### Task 10 — Add Unix `ListenAndServe` — **Complete**
 
 **Commit:** `unixsocket: serve negotiated connections`
+
+**Status:** Implemented and verified with Unix serving, shutdown, and race-detector tests in the current working tree.
 
 **Files:**
 
