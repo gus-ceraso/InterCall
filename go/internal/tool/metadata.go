@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/token"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/cerasos/intercall/go/internal/syntax"
@@ -14,9 +15,10 @@ import (
 
 // This file implements the consumer side of SPEC.md "Safe import and
 // re-export metadata": decoding and validating the one
-// `_intercallSemantic` constant of an intercall-generated file, finding
-// the semantic declaration of a generated type, projecting the
-// generated Go type back to its documentation-free wire structure, and
+// `_intercallSemantic` constant of an intercall-generated file,
+// validating the complete machine table of the file, finding the
+// semantic declaration of a generated type, projecting the generated
+// Go type back to its documentation-free wire structure, and
 // recovering the declaration and its complete nested documentation
 // tree.
 //
@@ -39,7 +41,7 @@ const semanticConstantName = "_intercallSemantic"
 // AST is the parsed canonical interface body of the constant; its type
 // declarations carry every semantic documentation slot. table records
 // the file's machine lines — the generated Go type name of every
-// generated type and its exact wire name — and reverse maps the exact
+// validated row and its exact wire name — and reverse maps the exact
 // wire name back to its generated type spec.
 type Semantic struct {
 	GoFile  *ast.File
@@ -57,9 +59,16 @@ type Semantic struct {
 // The constant must be declared alone as one unexported constant whose
 // value is a concatenation of string literals, decode as canonical
 // unpadded base64url into valid UTF-8, parse and validate as an
-// interface, and match its canonical reformatting byte for byte. The
-// returned Semantic resolves type declarations by exact wire name and
-// projects generated Go types through the file's machine lines.
+// interface, and match its canonical reformatting byte for byte. On
+// first use of a table-backed type the complete machine table of the
+// file is validated before any row is consumed: every top-level type
+// spec carrying exactly one valid `@intercall type <wire-name>`
+// machine line is a row, the rows must be in bijection with the
+// decoded semantic type declarations, and every row must project back
+// to its semantic declaration's documentation-free wire structure
+// (SPEC.md "Safe import and re-export metadata"). The returned
+// Semantic resolves type declarations by exact wire name and projects
+// generated Go types through the file's machine lines.
 func RecoverSemantic(goFile *ast.File, doc *Document) (*Semantic, error) {
 	vs, err := findSemanticConstant(goFile, doc)
 	if err != nil {
@@ -106,7 +115,9 @@ func RecoverSemantic(goFile *ast.File, doc *Document) (*Semantic, error) {
 			s.types[td.Name.Name] = td
 		}
 	}
-	s.buildMachineTable()
+	if err := s.validateMachineTable(goFile, doc, vs); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -192,41 +203,182 @@ func mErr(doc *Document, pos token.Pos, format string, args ...any) *Error {
 	return &Error{Filename: doc.Name, Pos: doc.Position(doc.offset(pos)), Msg: fmt.Sprintf(format, args...)}
 }
 
-// buildMachineTable records the machine line of every type declaration
-// of the generated file: the Go type name and its exact wire name. The
-// table is the projection lookup; every type the projection resolves is
-// separately validated when the mapper reaches it, so a malformed line
-// on an unreached type stays inert.
-func (s *Semantic) buildMachineTable() {
-	for _, d := range s.GoFile.Decls {
-		gd, ok := d.(*ast.GenDecl)
-		if !ok || gd.Tok != token.TYPE {
-			continue
-		}
-		for _, sp := range gd.Specs {
-			ts := sp.(*ast.TypeSpec)
-			group := ts.Doc
-			if group == nil {
-				group = gd.Doc
+// machineRow is one validated table row of a marked generated file: a
+// top-level type spec carrying exactly one valid type machine line.
+// line is the exact physical position of the machine line's '@'.
+type machineRow struct {
+	spec *ast.TypeSpec
+	wire string
+	line token.Pos
+}
+
+// validateMachineTable validates the complete machine table of one
+// marked generated file on first use of any table-backed type: a row
+// is a top-level type spec carrying exactly one valid
+// `@intercall type <wire-name>` machine line, and the rows must be in
+// bijection with the decoded semantic type declarations, while
+// generated helper and exception types without a machine line are
+// permitted. Every malformed, unknown, misplaced, duplicate, missing,
+// extra, or structurally conflicting row — including an otherwise
+// unreached row — is an error at its exact physical position. The
+// table is built from the validated rows and is the projection lookup
+// of the Semantic.
+//
+// The scan mirrors the source-directive grammar's doc attachment and
+// directive rules exactly, so a row's diagnostics never depend on
+// whether the mapper reached it. Prose, blank lines, and non-type
+// directives of a marked file's docs are not machine metadata and
+// stay inert here; the grammar applies to them when the declaration is
+// reached. The scan is purely structural, terminates on adversarial
+// tables, and never mutates the canonical metadata.
+func (s *Semantic) validateMachineTable(goFile *ast.File, doc *Document, vs *ast.ValueSpec) error {
+	var rows []machineRow
+	// First pass: scan every top-level declaration's effective doc for
+	// machine lines in source order; the first malformed, unknown,
+	// misplaced, or duplicate machine line aborts the scan. The doc
+	// attachment follows buildSpec and checkGroupDoc: a spec's own doc
+	// wins, the group doc belongs to the first spec without its own
+	// doc, and a multi-spec group doc that no spec inherits is still
+	// subject to the grammar.
+	for _, d := range goFile.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Doc != nil {
+				if err := s.scanMachineDoc(d.Doc, doc, nil, false, &rows); err != nil {
+					return err
+				}
 			}
-			if group == nil {
-				continue
+		case *ast.GenDecl:
+			firstDocless := -1
+			for i, sp := range d.Specs {
+				if ownDoc(sp) == nil {
+					firstDocless = i
+					break
+				}
 			}
-			for _, ln := range commentLines(group, s.Doc) {
-				dir, err := parseDirectiveLine(ln, s.Doc)
-				if err != nil || dir == nil {
+			if len(d.Specs) > 1 && firstDocless == -1 && d.Doc != nil {
+				// A group doc no spec inherits: a machine line in it
+				// applies to no single declared object. For a type group
+				// the doc is still a type doc, so the line is
+				// contradictory rather than misplaced.
+				var groupSpec *ast.TypeSpec
+				if ts, ok := d.Specs[0].(*ast.TypeSpec); ok {
+					groupSpec = ts
+				}
+				if err := s.scanMachineDoc(d.Doc, doc, groupSpec, true, &rows); err != nil {
+					return err
+				}
+			}
+			for i, sp := range d.Specs {
+				eff := ownDoc(sp)
+				grouped := false
+				if eff == nil && i == firstDocless {
+					eff = d.Doc
+					grouped = true
+				}
+				if eff == nil {
 					continue
 				}
-				if dir.Kind == TypeDir && dir.Wire != "" {
-					s.table[ts.Name.Name] = dir.Wire
-					if s.reverse[dir.Wire] == nil {
-						s.reverse[dir.Wire] = ts
-					}
-					break
+				ts, isType := sp.(*ast.TypeSpec)
+				if !isType {
+					ts = nil
+				}
+				if err := s.scanMachineDoc(eff, doc, ts, grouped && len(d.Specs) > 1, &rows); err != nil {
+					return err
 				}
 			}
 		}
 	}
+	// Second pass: record the rows as the projection lookup and check
+	// them in source order: duplicate wire names, rows without a
+	// semantic declaration, row shape, and the projection against the
+	// declaration's documentation-free wire structure.
+	for _, r := range rows {
+		s.table[r.spec.Name.Name] = r.wire
+		if s.reverse[r.wire] == nil {
+			s.reverse[r.wire] = r.spec
+		}
+	}
+	seen := make(map[string]*ast.TypeSpec) // wire name -> first row
+	for _, r := range rows {
+		if prev := seen[r.wire]; prev != nil {
+			return mErr(doc, r.line, "generated types %q and %q both carry machine line wire name %q", prev.Name.Name, r.spec.Name.Name, r.wire)
+		}
+		seen[r.wire] = r.spec
+		if s.types[r.wire] == nil {
+			return mErr(doc, r.line, "generated type %q: machine line names %q, but the semantic metadata has no type declaration named %q", r.spec.Name.Name, r.wire, r.wire)
+		}
+		ti := typeInfoOf(r.spec)
+		if ti.Alias {
+			return mErr(doc, r.line, "contradictory @intercall type directive: a type alias is not an ordinary defined type")
+		}
+		if ti.Generic {
+			return mErr(doc, r.line, "contradictory @intercall type directive: a generic type is not an ordinary defined type")
+		}
+		projected, err := s.ProjectType(r.spec.Type, r.spec.Name.Name)
+		if err != nil {
+			return mErr(doc, r.spec.Name.Pos(), "generated type %q: %v", r.spec.Name.Name, err)
+		}
+		if !sameType(s.types[r.wire].Type, projected) {
+			return mErr(doc, r.spec.Name.Pos(), "generated type %q projects to a wire structure that conflicts with its semantic declaration %q", r.spec.Name.Name, r.wire)
+		}
+	}
+	// Third pass: every decoded semantic type declaration must have a
+	// row; the constant is the only physical anchor of a missing row.
+	for _, d := range s.AST.Decls {
+		if td, ok := d.(*syntax.TypeDecl); ok && s.reverse[td.Name.Name] == nil {
+			return mErr(doc, vs.Pos(), "semantic type declaration %q has no machine line in the generated file", td.Name.Name)
+		}
+	}
+	return nil
+}
+
+// scanMachineDoc parses every machine line of one effective doc
+// comment. spec is the type spec the doc belongs to — including the
+// first spec of a multi-spec type group whose doc no spec inherits —
+// or nil for a non-type declaration; multiGroup reports a declaration
+// group with more than one specification, whose machine line would
+// apply to more than one declared object. Every valid type machine
+// line is appended to rows, and the first malformed, unknown,
+// misplaced, or duplicate machine line fails at its exact physical
+// position. Prose, blank lines, and non-type directives are not
+// machine metadata and stay inert.
+func (s *Semantic) scanMachineDoc(group *ast.CommentGroup, doc *Document, spec *ast.TypeSpec, multiGroup bool, rows *[]machineRow) error {
+	if group == nil {
+		return nil
+	}
+	var line token.Pos
+	for _, ln := range commentLines(group, doc) {
+		dir, err := parseDirectiveLine(ln, doc)
+		if err != nil {
+			return err // malformed or unknown machine line
+		}
+		if dir == nil || dir.Kind != TypeDir {
+			continue // prose or a non-type directive, not a machine line
+		}
+		switch {
+		case spec == nil:
+			return machineLineError(doc, ln, "misplaced @intercall type directive: it applies only to a type declaration")
+		case multiGroup:
+			return machineLineError(doc, ln, "contradictory @intercall type directive: a declaration group must contain exactly one specification")
+		case dir.Wire == "":
+			return machineLineError(doc, ln, "malformed machine line: expected the exact wire name")
+		}
+		if line.IsValid() {
+			return machineLineError(doc, ln, "duplicate @intercall type directive")
+		}
+		at := ln.offset + len(ln.text) - len(strings.TrimLeft(ln.text, " \t"))
+		line = doc.tok.Pos(at)
+		*rows = append(*rows, machineRow{spec: spec, wire: dir.Wire, line: line})
+	}
+	return nil
+}
+
+// machineLineError builds one machine-line diagnostic at the exact
+// physical position of the line's first non-space byte, the '@'.
+func machineLineError(doc *Document, ln docLine, format string, args ...any) *Error {
+	at := ln.offset + len(ln.text) - len(strings.TrimLeft(ln.text, " \t"))
+	return &Error{Filename: doc.Name, Pos: doc.Position(at), Msg: fmt.Sprintf(format, args...)}
 }
 
 // TypeDecl returns the semantic type declaration of one exact wire
