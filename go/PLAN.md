@@ -1139,9 +1139,11 @@ go test -race .
 go test ./...
 ```
 
-### Task 7 — Add Unix path validation and low-level dialing
+### Task 7 — Add Unix path validation and low-level dialing — **Complete**
 
 **Commit:** `unixsocket: add filesystem stream dialing`
+
+**Status:** Implemented and verified with focused Unix socket and race-detector tests in the current working tree.
 
 **Files:**
 
