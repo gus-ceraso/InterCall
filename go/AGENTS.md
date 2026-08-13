@@ -224,10 +224,20 @@ go test ./internal/integration
 go test -run 'TestName' ./path/to/package
 ```
 
-`internal/tool` includes deep projection and generated-source checks and can
-take several minutes. Do not impose a short timeout on the full suite. For
-lifecycle or race-sensitive work, repeat focused tests and run them under the
-race detector, for example:
+`internal/tool` includes intentionally expensive boundary tests and can take
+several minutes. In particular, `TestGoProjectionDepthLimit`,
+`TestDeepImportProjectionBoundary`, and the generated-checker boundary tests
+construct types at the exact 4,096-occurrence projection limit. They re-execute
+the test binary with a reduced stack and exercise complete generation,
+formatting, `go/types` checking, and artifact writing; pure list/record cases
+also have deliberately expensive quadratic output or type-resolution behavior.
+These tests run during ordinary `go test`, not only under `-race`. A normal
+uncached full-suite run can therefore take several minutes, while `-race` is
+slower still and uses longer deep-test subprocess timeouts. Do not impose a
+short timeout on the full suite. For iteration, run the narrowest relevant
+package or test; `go test -short ./...` does not currently skip these tests.
+For lifecycle or race-sensitive work, repeat focused tests and run them under
+the race detector, for example:
 
 ```sh
 go test -count=20 .
