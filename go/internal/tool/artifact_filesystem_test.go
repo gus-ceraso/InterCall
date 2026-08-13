@@ -803,6 +803,7 @@ func TestArtifactFilesystemSafety(t *testing.T) {
 		// command fails without first deleting it, and the staged files
 		// are cleaned up. The rename seam simulates the host failure.
 		cfg.InterfaceBody = body2
+		cfg.CheckGo = NewImportGoChecker()
 		w := &artifactWriter{cfg: cfg, rename: func(old, new string) error {
 			return &os.LinkError{Op: "rename", Old: old, New: new, Err: fs.ErrPermission}
 		}}
@@ -858,6 +859,7 @@ func TestArtifactFilesystemSafety(t *testing.T) {
 		defer os.Chmod(intfDir, 0o755)
 		stagingCfg := cfg
 		stagingCfg.InterfacePath = filepath.Join(intfLink, "api.intercall")
+		stagingCfg.CheckGo = NewImportGoChecker()
 		err = WriteArtifacts(stagingCfg)
 		if err == nil {
 			t.Fatal("write succeeded into a read-only interface directory")

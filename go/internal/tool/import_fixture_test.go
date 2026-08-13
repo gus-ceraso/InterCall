@@ -82,6 +82,7 @@ func TestImportGeneratedFixtureCompiles(t *testing.T) {
 		Package:       importFixturePackage,
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       NewImportGoChecker(),
 	}); err != nil {
 		t.Fatalf("WriteArtifacts: %v", err)
 	}

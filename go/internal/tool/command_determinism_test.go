@@ -55,6 +55,7 @@ func runExportCommand(t *testing.T, root, out, intf string) (binding, interfaceF
 		InterfacePath: intf,
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       NewExportGoChecker(res),
 	}); err != nil {
 		t.Fatalf("WriteArtifacts: %v", err)
 	}
@@ -88,6 +89,7 @@ func runImportCommand(t *testing.T, out, pkg string, src []byte) []byte {
 		Package:       pkg,
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       NewImportGoChecker(),
 	}); err != nil {
 		t.Fatalf("WriteArtifacts: %v", err)
 	}

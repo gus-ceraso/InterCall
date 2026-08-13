@@ -351,7 +351,10 @@ func ResolvePackageName(mode ArtifactMode, outDir, explicit string) (string, err
 // formats and parses. InterfaceBody is the byte-exact canonical
 // interface body; its SHA-256 digest is the artifact stamp recorded in
 // both targets, and for export the write composes and reparses the
-// owned interface file from it.
+// owned interface file from it. CheckGo verifies the complete
+// generated binding Go in memory; it is mandatory, so no generated
+// content reaches artifact staging without a successful checker
+// result.
 type WriteConfig struct {
 	Mode          ArtifactMode
 	OutDir        string
@@ -359,6 +362,7 @@ type WriteConfig struct {
 	InterfacePath string // export only
 	GoFile        []byte
 	InterfaceBody []byte
+	CheckGo       GoChecker
 }
 
 // WriteArtifacts writes one validated, stamped artifact pair safely
@@ -523,6 +527,22 @@ func (w *artifactWriter) validateContent() error {
 		}
 	}
 	w.formatted = formatted
+
+	// The complete generated Go is parsed and type-checked in memory
+	// before any filesystem mutation (SPEC.md "One-file ownership and
+	// safe replacement"): the checker is mandatory, and no generated
+	// content reaches artifact staging without a successful checker
+	// result. The check runs over the exact formatted bytes the write
+	// would stage.
+	if w.cfg.CheckGo == nil {
+		return &Error{
+			Pos: Position{Line: 1, Column: 1},
+			Msg: "no generated-Go checker configured",
+		}
+	}
+	if err := w.cfg.CheckGo.CheckGo(logical, w.formatted); err != nil {
+		return err
+	}
 
 	if w.cfg.Mode == ExportMode {
 		var ib bytes.Buffer

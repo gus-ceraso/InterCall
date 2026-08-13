@@ -59,9 +59,10 @@ func discoverEnv() []string {
 // fixture provider: discovery in the active module, the export model
 // with its importability checks, and the emitter. The result is the
 // byte-exact content behind the ownership lines of the checked export
-// binding and the byte-exact canonical interface body of the owned
-// interface.
-func generateExportFixture(t *testing.T) (goFile, body []byte) {
+// binding, the byte-exact canonical interface body of the owned
+// interface, and the discovery result whose exact package identities
+// the generated-Go checker reuses.
+func generateExportFixture(t *testing.T) (goFile, body []byte, res *tool.DiscoverResult) {
 	t.Helper()
 	res, err := tool.Discover(tool.DiscoverConfig{
 		Dir:      moduleRoot(t),
@@ -80,7 +81,7 @@ func generateExportFixture(t *testing.T) (goFile, body []byte) {
 	if err != nil {
 		t.Fatalf("GenerateExport: %v", err)
 	}
-	return goFile, body
+	return goFile, body, res
 }
 
 // composeOwnedInterface assembles one complete owned interface file
@@ -102,7 +103,7 @@ func composeOwnedInterface(body []byte) []byte {
 // files are byte-identical to the staged artifacts. The canonical body
 // must also survive the parse-document-validate-format round trip.
 func TestCheckedInGeneratedFixturesAreCurrent(t *testing.T) {
-	goFile, body := generateExportFixture(t)
+	goFile, body, res := generateExportFixture(t)
 
 	dir := t.TempDir()
 	if err := tool.WriteArtifacts(tool.WriteConfig{
@@ -112,6 +113,7 @@ func TestCheckedInGeneratedFixturesAreCurrent(t *testing.T) {
 		InterfacePath: filepath.Join(dir, "e2e.intercall"),
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       tool.NewExportGoChecker(res),
 	}); err != nil {
 		t.Fatalf("staging the export artifacts: %v", err)
 	}
@@ -171,6 +173,7 @@ func TestCheckedInGeneratedFixturesAreCurrent(t *testing.T) {
 		Package:       fixtureImportPackage,
 		GoFile:        goFile2,
 		InterfaceBody: body2,
+		CheckGo:       tool.NewImportGoChecker(),
 	}); err != nil {
 		t.Fatalf("staging the import artifacts: %v", err)
 	}
@@ -192,8 +195,8 @@ func TestCheckedInGeneratedFixturesAreCurrent(t *testing.T) {
 // two import runs over the same input produce byte-identical output,
 // and a different interface input produces different import bytes.
 func TestGeneratedOutputDeterminism(t *testing.T) {
-	first, firstBody := generateExportFixture(t)
-	second, secondBody := generateExportFixture(t)
+	first, firstBody, _ := generateExportFixture(t)
+	second, secondBody, _ := generateExportFixture(t)
 	if !bytes.Equal(first, second) || !bytes.Equal(firstBody, secondBody) {
 		t.Fatal("running the export pipeline twice produced different bytes")
 	}

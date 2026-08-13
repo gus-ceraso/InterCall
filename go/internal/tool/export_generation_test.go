@@ -48,7 +48,7 @@ func B(ctx context.Context) error { return nil }
 // the binding singleton, and the byte-exact golden interface.
 func TestExportGeneration(t *testing.T) {
 	t.Run("fixture shapes", func(t *testing.T) {
-		goFile, body := generateExportFixture(t)
+		goFile, body, _ := generateExportFixture(t)
 		gen := string(goFile)
 		// The deterministic provider import and the fixed standard
 		// library imports.
@@ -328,8 +328,8 @@ func P(ctx context.Context, err string, ctxv uint8, out int64, rest string, v0 u
 // different bytes. The fixture comparison in
 // TestExportGeneratedFixtureCompiles already pins the emitted bytes.
 func TestExportGenerationDeterminism(t *testing.T) {
-	first, firstBody := generateExportFixture(t)
-	second, secondBody := generateExportFixture(t)
+	first, firstBody, _ := generateExportFixture(t)
+	second, secondBody, _ := generateExportFixture(t)
 	if !bytes.Equal(first, second) || !bytes.Equal(firstBody, secondBody) {
 		t.Fatal("generating the fixture twice produced different bytes")
 	}

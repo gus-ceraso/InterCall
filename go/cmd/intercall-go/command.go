@@ -292,6 +292,7 @@ func runImport(opts *options, file string) error {
 		Package:       pkg,
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       tool.NewImportGoChecker(),
 	})
 }
 
@@ -328,6 +329,7 @@ func runExport(opts *options, patterns []string) error {
 		InterfacePath: opts.interfaceFile,
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       tool.NewExportGoChecker(res),
 	})
 }
 

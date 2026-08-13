@@ -229,6 +229,7 @@ func seedExportBinding(t *testing.T, out, intf string) {
 		InterfacePath: intf,
 		GoFile:        []byte("package gen\n\nconst seed = 1\n"),
 		InterfaceBody: []byte("exception seed;\n"),
+		CheckGo:       tool.NewImportGoChecker(),
 	}); err != nil {
 		t.Fatalf("seeding the export output directory: %v", err)
 	}
@@ -420,6 +421,175 @@ func Ping(ctx context.Context) error { return nil }
 		}
 		if entries := dirEntries(t, filepath.Dir(intf)); strings.Join(entries, "\n") != strings.Join(intfEntries, "\n") {
 			t.Errorf("the repeated export changed the interface inventory: before %v, after %v", intfEntries, entries)
+		}
+	})
+}
+
+// TestCLIGeneratedTypeFailureNoMutation covers RM-13 generated-Go type
+// checking at the command level: a checker failure on a fresh target
+// creates no output directory and no interface file, and a checker
+// failure over an existing owned target leaves its bytes, inode, and
+// temp-file inventory untouched. The import checker's failure is
+// induced by pointing GOROOT at an empty directory, so the checker's
+// standard-library resolution fails before any filesystem mutation;
+// the export checker's failure is induced by a module whose replace
+// directive substitutes a fake runtime package whose NewExportBinding
+// signature does not match the call the generated binding emits — a
+// wrong runtime SPI call the checker must reject before mutation.
+func TestCLIGeneratedTypeFailureNoMutation(t *testing.T) {
+	t.Run("ImportFreshTypeFailureCreatesNothing", func(t *testing.T) {
+		root := t.TempDir()
+		file := importFixture(t, root, "echo.intercall", "procedure echo {};\n")
+		out := filepath.Join(root, "out")
+		fakeRoot := t.TempDir()
+		t.Setenv("GOROOT", fakeRoot)
+		status, _, stderr := runCLI(t, "import", "--out", out, file)
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "does not type-check") {
+			t.Errorf("stderr = %q, want the checker failure diagnostic", stderr)
+		}
+		// The diagnostic exposes no absolute path: the empty GOROOT
+		// directory that induced the failure never appears.
+		if strings.Contains(stderr, fakeRoot) {
+			t.Errorf("stderr exposes the GOROOT directory: %q", stderr)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Error("the checker failure created the output directory")
+		}
+	})
+
+	t.Run("ImportExistingOwnedTypeFailurePreservesTargets", func(t *testing.T) {
+		root := t.TempDir()
+		out := filepath.Join(root, "gen")
+		file := importFixture(t, root, "echo.intercall", "procedure echo {};\n")
+		if status, _, stderr := runCLI(t, "import", "--out", out, "--package", "gen", file); status != 0 {
+			t.Fatalf("first import status = %d, stderr = %q", status, stderr)
+		}
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		owned := readFile(t, bindingPath)
+		before, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entriesBefore := dirEntries(t, out)
+		t.Setenv("GOROOT", t.TempDir())
+		status, _, stderr := runCLI(t, "import", "--out", out, "--package", "gen", file)
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "does not type-check") {
+			t.Errorf("stderr = %q, want the checker failure diagnostic", stderr)
+		}
+		if got := readFile(t, bindingPath); string(got) != string(owned) {
+			t.Error("the checker failure modified the owned binding")
+		}
+		if after, err := os.Stat(bindingPath); err != nil || !os.SameFile(before, after) {
+			t.Error("the checker failure replaced the owned binding")
+		}
+		if entries := dirEntries(t, out); strings.Join(entries, "\n") != strings.Join(entriesBefore, "\n") {
+			t.Errorf("the checker failure changed the output inventory: before %v, after %v", entriesBefore, entries)
+		}
+	})
+
+	// fakeRuntimeModule renders a module whose replace directive
+	// substitutes a fake runtime package for
+	// github.com/cerasos/intercall/go: the fake compiles and satisfies
+	// the provider, but its NewExportBinding takes no arguments, so the
+	// generated binding's call is a wrong runtime SPI call.
+	fakeRuntimeModule := func() map[string]string {
+		return map[string]string{
+			"go.mod":      "module example.com/cli\n\ngo 1.26.5\n\nrequire github.com/cerasos/intercall/go v0.0.0\n\nreplace github.com/cerasos/intercall/go => ./fake\n",
+			"fake/go.mod": "module github.com/cerasos/intercall/go\n\ngo 1.26.5\n",
+			"fake/fake.go": `// Package intercall is the fake runtime of the checker-failure fixture.
+package intercall
+
+// ExportBinding is the fake runtime's binding type.
+type ExportBinding struct{}
+
+// NewExportBinding is the fake runtime's constructor; the real runtime
+// takes the static dispatch, this one takes nothing.
+func NewExportBinding() ExportBinding { return ExportBinding{} }
+`,
+			"prov/prov.go": `package prov
+
+import (
+	"context"
+
+	intercall "github.com/cerasos/intercall/go"
+)
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error {
+	_ = intercall.NewExportBinding()
+	return nil
+}
+`,
+		}
+	}
+
+	t.Run("ExportFreshTypeFailureCreatesNothing", func(t *testing.T) {
+		root := writeModule(t, fakeRuntimeModule())
+		cliEnv(t, root)
+		if err := os.MkdirAll(filepath.Join(root, "interfaces"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out := filepath.Join(root, "out")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov")
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "does not type-check") || !strings.Contains(stderr, "NewExportBinding") {
+			t.Errorf("stderr = %q, want the wrong-runtime-SPI checker failure", stderr)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Error("the checker failure created the output directory")
+		}
+		if _, err := os.Stat(intf); !os.IsNotExist(err) {
+			t.Error("the checker failure created the interface file")
+		}
+	})
+
+	t.Run("ExportExistingOwnedTypeFailurePreservesTargets", func(t *testing.T) {
+		root := writeModule(t, fakeRuntimeModule())
+		cliEnv(t, root)
+		if err := os.MkdirAll(filepath.Join(root, "interfaces"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out := filepath.Join(root, "gen")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		seedExportBinding(t, out, intf)
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		owned := readFile(t, bindingPath)
+		before, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intfBefore, err := os.Stat(intf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entriesBefore := dirEntries(t, out)
+		status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov")
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "does not type-check") || !strings.Contains(stderr, "NewExportBinding") {
+			t.Errorf("stderr = %q, want the wrong-runtime-SPI checker failure", stderr)
+		}
+		if got := readFile(t, bindingPath); string(got) != string(owned) {
+			t.Error("the checker failure modified the owned binding")
+		}
+		if after, err := os.Stat(bindingPath); err != nil || !os.SameFile(before, after) {
+			t.Error("the checker failure replaced the owned binding")
+		}
+		if after, err := os.Stat(intf); err != nil || !os.SameFile(intfBefore, after) {
+			t.Error("the checker failure replaced the owned interface")
+		}
+		if entries := dirEntries(t, out); strings.Join(entries, "\n") != strings.Join(entriesBefore, "\n") {
+			t.Errorf("the checker failure changed the output inventory: before %v, after %v", entriesBefore, entries)
 		}
 	})
 }

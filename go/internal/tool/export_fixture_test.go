@@ -52,15 +52,17 @@ const exportFixtureOutPath = "github.com/cerasos/intercall/go/internal/tool/expo
 // over the provider fixture: discovery in the active module, the export
 // model with the importability checks, and the emitter. The result is
 // the byte-exact content behind the ownership lines of
-// internal/tool/exportfixture/binding_gen.go and the byte-exact
-// canonical interface body of the golden owned interface file.
-func generateExportFixture(t *testing.T) (goFile []byte, body []byte) {
+// internal/tool/exportfixture/binding_gen.go, the byte-exact canonical
+// interface body of the golden owned interface file, and the discovery
+// result whose exact package identities the generated-Go checker
+// reuses.
+func generateExportFixture(t *testing.T) (goFile, body []byte, res *DiscoverResult) {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("resolving the module root: %v", err)
 	}
-	res, err := discover(t, root, []string{exportFixtureProviderPattern}, nil, nil, exportFixtureOutputDir)
+	res, err = discover(t, root, []string{exportFixtureProviderPattern}, nil, nil, exportFixtureOutputDir)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -72,7 +74,7 @@ func generateExportFixture(t *testing.T) (goFile []byte, body []byte) {
 	if err != nil {
 		t.Fatalf("GenerateExport: %v", err)
 	}
-	return goFile, body
+	return goFile, body, res
 }
 
 // generateExportModel builds the export model of the provider fixture
@@ -117,7 +119,7 @@ func composeExportInterface(body []byte) []byte {
 // runtime package, and the provider fixture package. Validation never
 // rewrites the checked-in fixture.
 func TestExportGeneratedFixtureCompiles(t *testing.T) {
-	goFile, body := generateExportFixture(t)
+	goFile, body, res := generateExportFixture(t)
 	dir := t.TempDir()
 	if err := WriteArtifacts(WriteConfig{
 		Mode:          ExportMode,
@@ -126,6 +128,7 @@ func TestExportGeneratedFixtureCompiles(t *testing.T) {
 		InterfacePath: filepath.Join(dir, "export.intercall"),
 		GoFile:        goFile,
 		InterfaceBody: body,
+		CheckGo:       NewExportGoChecker(res),
 	}); err != nil {
 		t.Fatalf("WriteArtifacts: %v", err)
 	}

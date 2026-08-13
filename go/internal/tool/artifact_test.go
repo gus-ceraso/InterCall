@@ -81,9 +81,15 @@ func ownedInterfaceBytes(body []byte) []byte {
 }
 
 // writeOnce runs one complete artifact write and fails the test on
-// error.
+// error. The write uses the import checker, whose synthetic runtime
+// SPI model and standard-library resolution accept any checker-relevant
+// content these tests stage; a test that needs the production checker
+// of one direction supplies its own CheckGo.
 func writeOnce(t *testing.T, cfg WriteConfig) {
 	t.Helper()
+	if cfg.CheckGo == nil {
+		cfg.CheckGo = NewImportGoChecker()
+	}
 	if err := WriteArtifacts(cfg); err != nil {
 		t.Fatalf("WriteArtifacts: %v", err)
 	}
@@ -93,6 +99,9 @@ func writeOnce(t *testing.T, cfg WriteConfig) {
 // containing every substring.
 func writeFails(t *testing.T, cfg WriteConfig, contains ...string) {
 	t.Helper()
+	if cfg.CheckGo == nil {
+		cfg.CheckGo = NewImportGoChecker()
+	}
 	wantErr(t, WriteArtifacts(cfg), contains...)
 }
 
