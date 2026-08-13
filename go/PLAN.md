@@ -320,7 +320,7 @@ Remediation tasks:
 - [x] [RM-06 — Preserve exact Go source identity and positions](#rm-06--preserve-exact-go-source-identity-and-positions) — `b3775bb96862c848c5eaaee304020eb7b941cd35`
 - [x] [RM-07 — Correct source directives and declaration handling](#rm-07--correct-source-directives-and-declaration-handling) — `57928f9aeb0748d49f990294dbd4b7390f3c363a`
 - [x] [RM-08 — Correct selectors and procedure signatures](#rm-08--correct-selectors-and-procedure-signatures) — `c7e989b2196c9a6bc94e1ae026cbeaa271c34fd5`
-- [ ] [RM-09 — Validate every package operand and output package](#rm-09--validate-every-package-operand-and-output-package)
+- [x] [RM-09 — Validate every package operand and output package](#rm-09--validate-every-package-operand-and-output-package) — `d6220b5684ecc8ad4bb74dac76988b0174c58728`
 - [ ] [RM-10 — Validate complete generated metadata tables](#rm-10--validate-complete-generated-metadata-tables)
 - [ ] [RM-11 — Enforce safe native Go projection depth](#rm-11--enforce-safe-native-go-projection-depth)
 - [ ] [RM-12 — Reserve complete generated namespaces](#rm-12--reserve-complete-generated-namespaces)
