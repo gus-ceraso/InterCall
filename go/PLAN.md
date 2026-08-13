@@ -1178,9 +1178,11 @@ go test ./transport/unixsocket
 go test ./...
 ```
 
-### Task 8 — Add safe Unix listener path ownership
+### Task 8 — Add safe Unix listener path ownership — **Complete**
 
 **Commit:** `unixsocket: own listener paths safely`
+
+**Status:** Implemented and verified with focused Unix listener and race-detector tests in the current working tree.
 
 **Files:**
 
