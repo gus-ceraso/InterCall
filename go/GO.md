@@ -191,11 +191,13 @@ func main() {
 	}
 	fmt.Println(greeting) // hello, world
 
-	// Close terminates the connection and returns immediately; Wait
-	// blocks until teardown completes and returns the permanent
-	// terminal cause, which is never nil. The closed end reports
-	// ErrClosed; the peer observes the connection going away as EOF on
-	// its stream and terminates with that cause.
+	// Close terminates the connection and returns immediately after
+	// terminal publication, without waiting for a blocked writer, a
+	// handler that ignores cancellation, or stream cleanup; Wait
+	// blocks until teardown and stream cleanup complete and returns
+	// the permanent terminal cause, which is never nil. The closed end
+	// reports ErrClosed; the peer observes the connection going away
+	// as EOF on its stream and terminates with that cause.
 	_ = client.Close()
 	fmt.Println(client.Wait()) // intercall: connection closed
 	fmt.Println(server.Wait()) // intercall: read frame header: EOF
@@ -263,6 +265,13 @@ is a no-op.
 
 ## Runtime reference
 
+Framing is bounded by a mandatory implementation-safety ceiling: the exact
+maximum accepted frame payload is 64 MiB (67,108,864 bytes). Every incoming
+header's wire length is validated after the 24-byte header and before any
+payload conversion, allocation, or read; a frame declaring more is terminal
+`ErrProtocol` and its payload is never consumed. The ceiling is defined in
+`SPEC.md` and is not configurable policy.
+
 The root package exports the generated-code bridge, the connection
 lifecycle, the context binding functions, and fixed error sentinels:
 
@@ -276,7 +285,7 @@ lifecycle, the context binding functions, and fixed error sentinels:
 | `NewExportBinding(Dispatch)` / `NewImportBinding()` | Construct the two binding handles; `NewExportBinding` rejects a nil dispatch with `ErrInvalidArgument`. |
 | `NewConnection(ctx, stream, export, imp)` | Validate and construct a connection, taking ownership of the stream and starting its receive loop. |
 | `(*Connection).Call(ctx, imp, key, encode, decode)` | Place one outgoing request and wait for its single outcome (generated-code SPI). |
-| `(*Connection).Close()` / `(*Connection).Wait()` | Terminate without waiting; block for the permanent terminal cause, which is never nil. |
+| `(*Connection).Close()` / `(*Connection).Wait()` | `Close` returns promptly after terminal publication and never waits for a blocked writer, gate waiter, handler, or stream cleanup; `Wait` blocks until teardown and stream cleanup complete and returns the permanent terminal cause, which is never nil. |
 | `WithConnection(ctx, conn)` / `ConnectionFromContext(ctx)` | Bind a connection into a context under a private key and retrieve it; the nil cases follow the documented panic and sentinel contracts. |
 
 Error sentinels work with direct comparison and `errors.Is`:
@@ -293,6 +302,8 @@ the connection; a terminal event returns its exact cause.
 The proof of concept implements every nondeferred feature of `SPEC.md`. It
 does not include TypeScript or other non-Go bindings, WebSocket or
 WebTransport adapters, dialing or listening, TLS, handshakes or runtime
-interface digests, authentication or authorization policy, resource limits,
-transport-level cancellation, or streaming values. The interface language,
-value encodings, and frame format are defined by `README.md`.
+interface digests, authentication or authorization policy, configurable
+policy resource limits, transport-level cancellation, or streaming values.
+The fixed 64 MiB frame-payload ceiling is a mandatory implementation-safety
+bound, not such policy. The interface language, value encodings, and frame
+format are defined by `README.md`.

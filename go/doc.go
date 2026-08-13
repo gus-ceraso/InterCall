@@ -11,8 +11,16 @@
 // A connection is constructed with NewConnection over an established
 // ByteStream, bound into a context with WithConnection, retrieved by
 // generated callers with ConnectionFromContext, and ended with Close and
-// Wait. The runtime does not dial, listen, or negotiate: the application
-// supplies the stream.
+// Wait. Close returns promptly after terminal publication without waiting
+// for a blocked writer, gate waiter, handler, or stream cleanup, while
+// Wait blocks until teardown and stream cleanup complete and returns the
+// permanent terminal cause, which is never nil. Framing is bounded by the
+// mandatory implementation-safety ceiling of exactly 64 MiB (67,108,864
+// bytes) per frame payload defined in SPEC.md: the wire length is checked
+// after the 24-byte header and before any payload allocation or read, and
+// an over-ceiling frame is terminal ErrProtocol without consuming its
+// payload. The runtime does not dial, listen, or negotiate: the
+// application supplies the stream.
 //
 // This package uses only the standard library.
 package intercall

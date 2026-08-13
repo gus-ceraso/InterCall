@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cerasos/intercall/go/internal/syntax"
 )
@@ -32,20 +31,18 @@ import (
 // emission is linear — run the complete generation pipeline at the
 // boundary.
 
-// deepMaxStackBytes is the maximum Go stack the RM-11 subprocesses
-// allow. The export mapping recurses once per reachable named type
-// with frames of a few kilobytes, and the measured failure band of the
-// deepest boundary generation sits just below 8 MiB; the 16 MiB budget
-// keeps that headroom while staying 64 times below the default
-// one-gigabyte goroutine limit, so any call-stack growth proportional
-// to the type depth would crash the subprocess.
-const deepMaxStackBytes = 16 << 20
+// deepMaxStackBytes and deepSubprocessTimeout calibrate the RM-11 and
+// RM-13 low-stack boundary subprocesses. The normal build values live in
+// depth_budget_test.go; the race build overrides them in
+// depth_budget_race_test.go, because the race detector inflates every
+// stack frame and slows CPU-bound work, and the boundary subprocesses
+// must stay valid under `go test -race`.
 
 // deepSubprocess re-executes the test binary with one environment
 // variable set, running only the named test as a subprocess role.
 func deepSubprocess(t *testing.T, envVar, testName string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), deepSubprocessTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+testName+"$")
 	cmd.Env = append(os.Environ(), envVar+"=1")
