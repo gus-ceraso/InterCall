@@ -78,7 +78,18 @@ func MapImport(f *syntax.File, overrides []Override) (*Model, error) {
 	if err := checkImportFixed(f); err != nil {
 		return nil, err
 	}
-	return buildModel(f, overrides)
+	m, err := buildModel(f, overrides)
+	if err != nil {
+		return nil, err
+	}
+	// The complete generated package, exception-member, and
+	// parameter/local namespaces are reserved before any emission
+	// (SPEC.md "Names and native overrides"): every user-triggerable
+	// namespace failure is diagnosed here, never by the artifact layer.
+	if err := reserveImportScopes(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // checkImportFixed rejects every use of a fixed runtime exception name
@@ -576,17 +587,25 @@ func emitCaller(src *source, m *Model, p *ProcRec) {
 	src.blank()
 }
 
+// importAccessorName and importBindingName are the exact names of the
+// import binding's exported accessor and its unexported singleton
+// variable.
+const (
+	importAccessorName = "ImportBinding"
+	importBindingName  = "importBinding"
+)
+
 // emitImportSingleton emits the immutable import binding singleton: the
 // package constructs its handle exactly once into an unexported package
 // variable, and ImportBinding returns it. Copying the returned handle
 // copies the pointer and retains identity.
 func emitImportSingleton(src *source) {
-	src.linef("var importBinding = intercall.NewImportBinding()")
+	src.linef("var %s = intercall.NewImportBinding()", importBindingName)
 	src.blank()
 	src.linef("// ImportBinding returns the package's immutable import binding.")
-	src.linef("func ImportBinding() intercall.ImportBinding {")
+	src.linef("func %s() intercall.ImportBinding {", importAccessorName)
 	src.open()
-	src.linef("return importBinding")
+	src.linef("return %s", importBindingName)
 	src.close()
 	src.linef("}")
 	src.blank()

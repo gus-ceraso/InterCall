@@ -162,11 +162,7 @@ func (e *codecEmitter) emitTypeDecls() {
 // emitPrimitivePairs emits the twelve primitive codec pairs in the
 // README primitive-table order.
 func (e *codecEmitter) emitPrimitivePairs() {
-	for _, k := range []syntax.TokenKind{
-		syntax.TokInt8, syntax.TokInt16, syntax.TokInt32, syntax.TokInt64,
-		syntax.TokUint8, syntax.TokUint16, syntax.TokUint32, syntax.TokUint64,
-		syntax.TokFloat32, syntax.TokFloat64, syntax.TokString, syntax.TokBytes,
-	} {
+	for _, k := range primitiveKinds {
 		emitPrimPair(e.src, k)
 	}
 }

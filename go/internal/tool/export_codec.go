@@ -231,15 +231,24 @@ func (e *exportCodecEmitter) registerAnon(wire syntax.TypeExpr, gt string, node 
 	return p
 }
 
+// anonScope returns the encoder and decoder names of every registered
+// anonymous pair. The names embed the resolved aliases through the
+// qualified Go type text, so the export alias fixpoint reserves them
+// after each registration and re-resolves on change.
+func (e *exportCodecEmitter) anonScope() map[string]bool {
+	scope := make(map[string]bool, 2*len(e.anon))
+	for _, p := range e.anon {
+		scope[p.encName()] = true
+		scope[p.decName()] = true
+	}
+	return scope
+}
+
 // emit emits every pair in deterministic order: the twelve shared
 // primitive pairs, the named pairs in the model's stable topological
 // type order, and the anonymous pairs in first-use order.
 func (e *exportCodecEmitter) emit() {
-	for _, k := range []syntax.TokenKind{
-		syntax.TokInt8, syntax.TokInt16, syntax.TokInt32, syntax.TokInt64,
-		syntax.TokUint8, syntax.TokUint16, syntax.TokUint32, syntax.TokUint64,
-		syntax.TokFloat32, syntax.TokFloat64, syntax.TokString, syntax.TokBytes,
-	} {
+	for _, k := range primitiveKinds {
 		emitPrimPair(e.src, k)
 	}
 	for _, p := range e.named {

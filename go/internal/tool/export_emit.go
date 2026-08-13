@@ -68,6 +68,12 @@ type exportEmitter struct {
 	names     map[string]string           // import path -> package name
 	gtName    map[string]string           // exact wire name -> qualified Go name
 
+	// forceMangled records the imported packages whose aliases must be
+	// privately mangled because their plain package names collide with
+	// a reserved generated name; it persists across the deterministic
+	// alias fixpoint of prepare.
+	forceMangled map[string]bool
+
 	pairs *exportCodecEmitter
 
 	// Occurrence facts of the model, resolved in the deterministic walk
@@ -118,14 +124,40 @@ func GenerateExport(m *ExportModel, pkg string) (goFile []byte, interfaceBody []
 // occurrence facts of every procedure parameter, procedure result, and
 // exception payload, in the same deterministic walk that registers the
 // anonymous codec pairs.
+//
+// The anonymous codec pair names embed the qualified Go type text of
+// their occurrences, which embeds the resolved aliases, so the alias
+// table and the pair registration are resolved together in a
+// deterministic fixpoint: an alias that collides with a registered
+// pair name is privately mangled and the complete registration is
+// recomputed. A mangled alias starts with "_intercall_import_" and can
+// never collide with a generated helper, codec, decoder, plain local,
+// accessor, or fixed import name, so the fixpoint mangles each package
+// at most once and terminates.
 func (e *exportEmitter) prepare() error {
 	e.wireTypes = make(map[string]*syntax.TypeDecl, len(e.model.Types))
 	for _, rec := range e.model.Types {
 		e.wireTypes[rec.WireName] = &syntax.TypeDecl{Name: &syntax.Ident{Name: rec.WireName}, Type: rec.Type}
 	}
-	if err := e.buildImports(); err != nil {
-		return err
+	e.forceMangled = make(map[string]bool)
+	for {
+		if err := e.buildImports(); err != nil {
+			return err
+		}
+		if err := e.register(); err != nil {
+			return err
+		}
+		if !e.remangleAliases() {
+			return nil
+		}
 	}
+}
+
+// register computes the qualified Go names, the codec pair registry,
+// and the occurrence facts of every procedure parameter, procedure
+// result, and exception payload, in the same deterministic walk that
+// registers the anonymous codec pairs.
+func (e *exportEmitter) register() error {
 	e.gtName = make(map[string]string, len(e.model.Types))
 	for _, rec := range e.model.Types {
 		e.gtName[rec.WireName] = e.qual(rec.PkgPath) + "." + rec.GoName
@@ -158,12 +190,32 @@ func (e *exportEmitter) prepare() error {
 	return nil
 }
 
+// remangleAliases privately mangles every alias that collides with a
+// registered anonymous codec pair name and reports whether any alias
+// changed. The aliases are re-resolved from the persisted forceMangled
+// set on the next fixpoint iteration.
+func (e *exportEmitter) remangleAliases() bool {
+	anon := e.pairs.anonScope()
+	changed := false
+	for path, alias := range e.aliases {
+		if anon[alias] {
+			e.forceMangled[path] = true
+			changed = true
+		}
+	}
+	return changed
+}
+
 // buildImports resolves the deterministic import alias table: the
 // imported packages are the provider, application exception, and
 // reachable named-type packages; aliases are the package names, with a
-// deterministic private mangling for a name already taken by another
-// import or by one of the fixed imports — context, errors, the root
-// runtime package, math, and unicode/utf8.
+// deterministic private mangling for a name that collides with any
+// reserved generated identifier — the fixed imports, the ExportBinding
+// accessor, a generated private helper or codec or decoder name, a
+// plain parameter or local of a generated function body, or a
+// predeclared identifier a generated body references — or with a name
+// already taken by another import. A package whose alias was forced
+// into the mangled form by the anonymous-pair fixpoint stays mangled.
 func (e *exportEmitter) buildImports() error {
 	names := make(map[string]string)
 	add := func(path, name string) {
@@ -190,16 +242,10 @@ func (e *exportEmitter) buildImports() error {
 	sort.Strings(paths)
 	e.aliases = make(map[string]string, len(paths))
 	e.names = names
-	taken := map[string]bool{
-		"context":   true,
-		"errors":    true,
-		"intercall": true,
-		"math":      true,
-		"utf8":      true,
-	}
+	taken := e.generatedScope()
 	for _, path := range paths {
 		alias := names[path]
-		if taken[alias] {
+		if e.forceMangled[path] || taken[alias] {
 			alias = ManglePrivate("import", path)
 		}
 		if taken[alias] {
@@ -209,6 +255,127 @@ func (e *exportEmitter) buildImports() error {
 		e.aliases[path] = alias
 	}
 	return nil
+}
+
+// generatedScope returns the complete set of package-level identifiers
+// one export binding generates for the model, excluding the import
+// aliases themselves: the fixed standard-library and runtime imports,
+// the ExportBinding accessor, every generated private helper, codec
+// pair, and request decoder name, every plain parameter or local of a
+// generated function body, and every predeclared identifier a
+// generated body references. An import alias may not collide with any
+// of them: a body that references the name would resolve it to the
+// alias, and a plain local of the same name would capture a qualified
+// reference to the alias instead.
+//
+// The anonymous codec pair names embed the qualified Go type text, so
+// they are absent here and reserved through the fixpoint of prepare.
+func (e *exportEmitter) generatedScope() map[string]bool {
+	scope := map[string]bool{
+		"context": true, "errors": true, "intercall": true, "math": true, "utf8": true,
+		"ExportBinding":     true,
+		dispatchName:        true,
+		matcherName:         true,
+		exportBindingName:   true,
+		dispatchCtxName:     true,
+		dispatchKeyName:     true,
+		dispatchPayloadName: true,
+		maxIntName:          true,
+		errShortName:        true,
+		errLongName:         true,
+		errNaNName:          true,
+		errUTF8Name:         true,
+		// Plain parameters and locals of generated function bodies.
+		"buf": true, "v": true, "src": true, "err": true,
+		"bits": true, "n64": true, "n": true, "b": true, "dst": true,
+		"rest": true, "e": true, "ok": true, "match": true,
+		"excKey": true, "excPayload": true, "encErr": true, "out": true, "enc": true,
+		// Predeclared identifiers the generated bodies reference:
+		// the bare integer and float type names of the primitive
+		// codec bodies (int8..uint64, float32/64), the uint of the
+		// codec support maximum-int constant, plus byte, error,
+		// string, int, and the builtins len, make, copy, append,
+		// panic, and nil.
+		"int8": true, "int16": true, "int32": true, "int64": true,
+		"uint8": true, "uint16": true, "uint32": true, "uint64": true,
+		"uint":    true,
+		"float32": true, "float64": true,
+		"byte": true, "error": true, "string": true, "int": true,
+		"len": true, "make": true, "copy": true, "append": true,
+		"panic": true, "nil": true,
+	}
+	for _, k := range primitiveKinds {
+		scope[codecName("enc", k.String())] = true
+		scope[codecName("dec", k.String())] = true
+	}
+	for _, rec := range e.model.Types {
+		scope[codecName("enc", namedParts(rec.WireName)...)] = true
+		scope[codecName("dec", namedParts(rec.WireName)...)] = true
+	}
+	for _, p := range e.model.Procs {
+		scope[codecName("dereq", p.WireName)] = true
+	}
+	// The indexed locals v0..vN, i0..iN, and count0..countN of the
+	// request decoders, dispatch arms, and list codec bodies, bounded by
+	// the model's largest parameter list and deepest list nesting.
+	maxParams := 0
+	for _, p := range e.model.Procs {
+		if len(p.Params) > maxParams {
+			maxParams = len(p.Params)
+		}
+	}
+	for i := 0; i <= maxParams; i++ {
+		scope[fmt.Sprintf("v%d", i)] = true
+	}
+	maxDepth := 0
+	for _, rec := range e.model.Types {
+		if d := listDepth(rec.Type); d > maxDepth {
+			maxDepth = d
+		}
+	}
+	for _, p := range e.model.Procs {
+		for _, pr := range p.Params {
+			if d := listDepth(pr.Param.Value.Type); d > maxDepth {
+				maxDepth = d
+			}
+		}
+		if p.Result != nil {
+			if d := listDepth(p.Result.Type); d > maxDepth {
+				maxDepth = d
+			}
+		}
+	}
+	for _, x := range e.model.Exceptions {
+		if x.Payload != nil {
+			if d := listDepth(x.Payload.Type); d > maxDepth {
+				maxDepth = d
+			}
+		}
+	}
+	for i := 0; i < maxDepth; i++ {
+		scope[fmt.Sprintf("i%d", i)] = true
+		scope[fmt.Sprintf("count%d", i)] = true
+	}
+	return scope
+}
+
+// listDepth returns the maximum number of nested list occurrences
+// under one wire type, the bound of the i and count locals of the
+// list codec bodies.
+func listDepth(t syntax.TypeExpr) int {
+	switch t := t.(type) {
+	case *syntax.ListType:
+		return 1 + listDepth(t.Elem)
+	case *syntax.RecordType:
+		d := 0
+		for _, f := range t.Fields {
+			if fd := listDepth(f.Type); fd > d {
+				d = fd
+			}
+		}
+		return d
+	}
+	return 0
 }
 
 // qual returns the deterministic import alias of one package path.

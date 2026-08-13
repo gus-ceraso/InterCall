@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -241,6 +242,186 @@ func readFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return src
+}
+
+// dirEntries returns the sorted entry names of one directory, the
+// temp-file inventory assertion of the namespace no-mutation tests.
+func dirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TestCLIGeneratedNamespaceFailureNoMutation covers RM-12 namespace
+// validation at the command level: a fresh import namespace failure
+// creates no output directory, an existing owned import target keeps
+// its bytes, inode, and temp-file inventory on a namespace failure, a
+// provider package named ExportBinding is deterministically aliased
+// into a fresh output, and a repeated identical export over an existing
+// owned pair with the colliding provider name replaces nothing.
+func TestCLIGeneratedNamespaceFailureNoMutation(t *testing.T) {
+	t.Run("ImportFreshNamespaceFailureCreatesNothing", func(t *testing.T) {
+		root := t.TempDir()
+		file := importFixture(t, root, "reserved.intercall", "procedure import_binding {};\n")
+		out := filepath.Join(root, "out")
+		status, _, stderr := runCLI(t, "import", "--out", out, file)
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "Go declaration name collision") ||
+			!strings.Contains(stderr, "ImportBinding") {
+			t.Errorf("stderr = %q, want the accessor reservation diagnostic", stderr)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Error("the namespace failure created the output directory")
+		}
+	})
+
+	t.Run("ImportExistingOwnedNamespaceFailurePreservesTargets", func(t *testing.T) {
+		root := t.TempDir()
+		out := filepath.Join(root, "gen")
+		file := importFixture(t, root, "echo.intercall", "procedure echo {};\n")
+		if status, _, stderr := runCLI(t, "import", "--out", out, "--package", "gen", file); status != 0 {
+			t.Fatalf("first import status = %d, stderr = %q", status, stderr)
+		}
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		owned := readFile(t, bindingPath)
+		before, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entriesBefore := dirEntries(t, out)
+		// A namespace failure over the existing owned target: the
+		// payload field error would collide with the generated Error
+		// method of the exception struct.
+		bad := importFixture(t, root, "bad.intercall", "exception e record { error string; };\n")
+		status, _, stderr := runCLI(t, "import", "--out", out, bad)
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "Go field name collision") ||
+			!strings.Contains(stderr, "Error method") {
+			t.Errorf("stderr = %q, want the Error-method reservation diagnostic", stderr)
+		}
+		if got := readFile(t, bindingPath); string(got) != string(owned) {
+			t.Error("the namespace failure modified the owned binding")
+		}
+		if after, err := os.Stat(bindingPath); err != nil || !os.SameFile(before, after) {
+			t.Error("the namespace failure replaced the owned binding")
+		}
+		if entries := dirEntries(t, out); strings.Join(entries, "\n") != strings.Join(entriesBefore, "\n") {
+			t.Errorf("the namespace failure changed the output inventory: before %v, after %v", entriesBefore, entries)
+		}
+	})
+
+	t.Run("ExportFreshNamespaceAliasSucceeds", func(t *testing.T) {
+		// A provider package named ExportBinding previously produced a
+		// binding with a duplicate ExportBinding declaration; the
+		// reserved accessor now forces a deterministic private alias
+		// and the fresh output is created.
+		root := writeModule(t, map[string]string{
+			"go.mod": "module example.com/cli\n\ngo 1.26.5\n",
+			"prov/prov.go": `// Package ExportBinding is the colliding provider package.
+package ExportBinding
+
+import "context"
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`,
+		})
+		if err := os.MkdirAll(filepath.Join(root, "interfaces"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cliEnv(t, root)
+		out := filepath.Join(root, "out")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov")
+		if status != 0 {
+			t.Fatalf("export status = %d, stderr = %q", status, stderr)
+		}
+		if info, err := os.Stat(out); err != nil || !info.IsDir() {
+			t.Error("the successful export did not create the output directory")
+		}
+		gen := string(readFile(t, filepath.Join(out, "binding_gen.go")))
+		mangled := tool.ManglePrivate("import", "example.com/cli/prov")
+		if !strings.Contains(gen, mangled+` "example.com/cli/prov"`) {
+			t.Errorf("the ExportBinding-named provider is not aliased as %s:\n%s", mangled, gen)
+		}
+		if strings.Contains(gen, `ExportBinding "example.com/cli/prov"`) {
+			t.Error("the ExportBinding-named provider kept its plain alias")
+		}
+		if !strings.Contains(gen, "func ExportBinding() intercall.ExportBinding") {
+			t.Error("the generated binding lacks its own ExportBinding accessor")
+		}
+	})
+
+	t.Run("ExportExistingOwnedNamespaceRepeatPreservesTargets", func(t *testing.T) {
+		// An existing owned export pair over the colliding provider
+		// name: the identical repeated invocation keeps the target
+		// bytes, inodes, and temp-file inventory.
+		root := writeModule(t, map[string]string{
+			"go.mod": "module example.com/cli\n\ngo 1.26.5\n",
+			"prov/prov.go": `// Package ExportBinding is the colliding provider package.
+package ExportBinding
+
+import "context"
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`,
+		})
+		if err := os.MkdirAll(filepath.Join(root, "interfaces"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cliEnv(t, root)
+		out := filepath.Join(root, "out")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		args := []string{"export", "--out", out, "--interface", intf, "./prov"}
+		if status, _, stderr := runCLI(t, args...); status != 0 {
+			t.Fatalf("first export status = %d, stderr = %q", status, stderr)
+		}
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		firstBinding := readFile(t, bindingPath)
+		firstIntf := readFile(t, intf)
+		bindingBefore, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intfBefore, err := os.Stat(intf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outEntries := dirEntries(t, out)
+		intfEntries := dirEntries(t, filepath.Dir(intf))
+		status, _, stderr := runCLI(t, args...)
+		if status != 0 {
+			t.Fatalf("second export status = %d, stderr = %q", status, stderr)
+		}
+		if !bytes.Equal(readFile(t, bindingPath), firstBinding) || !bytes.Equal(readFile(t, intf), firstIntf) {
+			t.Error("the repeated export changed the artifact bytes")
+		}
+		if bindingAfter, err := os.Stat(bindingPath); err != nil || !os.SameFile(bindingBefore, bindingAfter) {
+			t.Error("the repeated export replaced the owned binding")
+		}
+		if intfAfter, err := os.Stat(intf); err != nil || !os.SameFile(intfBefore, intfAfter) {
+			t.Error("the repeated export replaced the owned interface")
+		}
+		if entries := dirEntries(t, out); strings.Join(entries, "\n") != strings.Join(outEntries, "\n") {
+			t.Errorf("the repeated export changed the output inventory: before %v, after %v", outEntries, entries)
+		}
+		if entries := dirEntries(t, filepath.Dir(intf)); strings.Join(entries, "\n") != strings.Join(intfEntries, "\n") {
+			t.Errorf("the repeated export changed the interface inventory: before %v, after %v", intfEntries, entries)
+		}
+	})
 }
 
 // TestCLIExportOutputPackageTypeError covers RM-09 output-package
