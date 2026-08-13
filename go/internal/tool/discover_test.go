@@ -511,12 +511,13 @@ func TestPackageDiscovery(t *testing.T) {
 
 	t.Run("EmptyModuleWildcardRejected", func(t *testing.T) {
 		// A wildcard that matches nothing in an empty module returns no
-		// packages at all; the pattern must still match a package.
+		// packages at all; the pattern must still match a package, and
+		// the unmatched operand is named.
 		empty := writeFixture(t, map[string]string{
 			"go.mod": "module example.com/empty\n\ngo 1.26.5\n",
 		})
 		_, err := discover(t, empty, []string{"./..."}, nil, nil, "out")
-		wantErr(t, err, "no package matched")
+		wantErr(t, err, "./...", "matched no package")
 	})
 
 	t.Run("ImportCycle", func(t *testing.T) {
@@ -814,6 +815,319 @@ func TestOutputFreshDirectoriesWorkspace(t *testing.T) {
 			OutDir:   filepath.Join(other, "outfresh"),
 		})
 		wantErr(t, err, "output directory", "outfresh")
+	})
+}
+
+// acctFixture is the pattern-accounting fixture: overlapping operands
+// reach the same packages through different pattern forms.
+var acctFixture = map[string]string{
+	"go.mod":           "module example.com/acct\n\ngo 1.26.5\n",
+	"acct.go":          "package acct\n",
+	"a/a.go":           "package a\n",
+	"b/b.go":           "package b\n",
+	"sub/sub.go":       "package sub\n",
+	"sub/deep/deep.go": "package deep\n",
+}
+
+// TestPackagePatternAccounting covers the per-operand accounting of
+// export package patterns: overlapping operands — a wildcard, relative
+// patterns, and canonical import paths — are each accounted for, and
+// the packages they reach deduplicate by canonical import path into
+// one authoritative list.
+func TestPackagePatternAccounting(t *testing.T) {
+	dir := writeFixture(t, acctFixture)
+
+	t.Run("OverlapDedup", func(t *testing.T) {
+		// The wildcard reaches the root and every subpackage; the
+		// relative and canonical operands overlap it, so every pattern
+		// accounts for at least one package and the five packages
+		// deduplicate to one explicit package each.
+		res, err := discover(t, dir, []string{
+			"./...", ".", "example.com/acct", "example.com/acct/sub/...",
+		}, nil, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		var paths []string
+		for _, p := range res.Packages {
+			paths = append(paths, p.Path)
+		}
+		want := []string{
+			"example.com/acct",
+			"example.com/acct/a",
+			"example.com/acct/b",
+			"example.com/acct/sub",
+			"example.com/acct/sub/deep",
+		}
+		if !reflect.DeepEqual(paths, want) {
+			t.Errorf("explicit packages = %v, want %v", paths, want)
+		}
+	})
+
+	t.Run("DuplicateOperandText", func(t *testing.T) {
+		// The same operand text twice is one accounted pattern and one
+		// explicit package.
+		res, err := discover(t, dir, []string{".", "."}, nil, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		var paths []string
+		for _, p := range res.Packages {
+			paths = append(paths, p.Path)
+		}
+		if !reflect.DeepEqual(paths, []string{"example.com/acct"}) {
+			t.Errorf("explicit packages = %v, want the root only", paths)
+		}
+	})
+
+	t.Run("DifferentPatternForms", func(t *testing.T) {
+		// A relative pattern and its canonical form both reach the
+		// same package and deduplicate.
+		res, err := discover(t, dir, []string{"./sub/deep", "example.com/acct/a", "./a"}, nil, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		var paths []string
+		for _, p := range res.Packages {
+			paths = append(paths, p.Path)
+		}
+		want := []string{"example.com/acct/a", "example.com/acct/sub/deep"}
+		if !reflect.DeepEqual(paths, want) {
+			t.Errorf("explicit packages = %v, want %v", paths, want)
+		}
+	})
+}
+
+// TestEveryPatternMustMatch covers the rule that every export operand
+// must match at least one package, even when another operand matched:
+// a wildcard that matches nothing in module mode is silently dropped
+// by the load and must still be rejected and named, and the module and
+// workspace behaviors agree on the contract.
+func TestEveryPatternMustMatch(t *testing.T) {
+	dir := writeFixture(t, procFixture)
+
+	t.Run("UnmatchedWildcardAmongValid", func(t *testing.T) {
+		_, err := discover(t, dir, []string{".", "./no..."}, nil, nil, "out")
+		wantErr(t, err, "./no...", "matched no package")
+	})
+
+	t.Run("UnmatchedModuleWildcardAmongValid", func(t *testing.T) {
+		// A module-prefix wildcard that matches nothing is dropped by
+		// the load exactly like a relative one.
+		_, err := discover(t, dir, []string{"example.com/proc", "example.com/proc/nope/..."}, nil, nil, "out")
+		wantErr(t, err, "example.com/proc/nope/...", "matched no package")
+	})
+
+	t.Run("FirstUnmatchedOperandNamed", func(t *testing.T) {
+		// The unmatched operands are reported in operand order; the
+		// first one is named.
+		_, err := discover(t, dir, []string{".", "./no...", "./also..."}, nil, nil, "out")
+		wantErr(t, err, "./no...", "matched no package")
+	})
+
+	t.Run("UnmatchedDirectoryKeepsGoListDiagnostic", func(t *testing.T) {
+		// An unmatched directory pattern surfaces as an error package
+		// of the load and keeps the go command's diagnostic.
+		_, err := discover(t, dir, []string{".", "./nomatch"}, nil, nil, "out")
+		wantErr(t, err, "./nomatch", "directory not found")
+	})
+
+	t.Run("WorkspaceUnmatchedWildcard", func(t *testing.T) {
+		// In an active workspace the go command reports the unmatched
+		// wildcard itself; the operand is named either way, so module
+		// and workspace behavior agree.
+		ws := writeFixture(t, wsFixture)
+		env := discoverEnv(filepath.Join(ws, "go.work"))
+		_, err := Discover(DiscoverConfig{
+			Dir:      ws,
+			Env:      env,
+			Patterns: []string{"./a/...", "./missing..."},
+			OutDir:   "b/out",
+		})
+		wantErr(t, err, "./missing...")
+	})
+
+	t.Run("WorkspaceUnmatchedDirectory", func(t *testing.T) {
+		ws := writeFixture(t, wsFixture)
+		env := discoverEnv(filepath.Join(ws, "go.work"))
+		_, err := Discover(DiscoverConfig{
+			Dir:      ws,
+			Env:      env,
+			Patterns: []string{"./b/...", "./nomatch"},
+			OutDir:   "b/out",
+		})
+		wantErr(t, err, "./nomatch", "directory not found")
+	})
+}
+
+// outFixture is the output-package fixture: a provider and a valid
+// existing output package.
+var outFixture = map[string]string{
+	"go.mod": "module example.com/outchk\n\ngo 1.26.5\n",
+	"prov/prov.go": `// Package prov is the output-package fixture provider.
+package prov
+
+import "context"
+
+// @intercall procedure prov_proc
+func Prov(ctx context.Context) error { return nil }
+`,
+	"out/out.go": `// Package out is the output package.
+package out
+
+// Helper is an ordinary function.
+func Helper() {}
+`,
+}
+
+// TestOutputPackageTypeChecking covers the output-package validation of
+// the discovery phase: an existing output package with undefined
+// identifiers or syntax errors is not importable and is rejected with
+// a diagnostic at the canonical logical path of its file, while a
+// valid existing output package and a fresh output directory still
+// succeed. Each subtest writes its own fixture, because the subtests
+// mutate the output package.
+func TestOutputPackageTypeChecking(t *testing.T) {
+	// write builds one fixture whose out/out.go is replaced by outGo
+	// when it is non-empty.
+	write := func(t *testing.T, outGo string) string {
+		t.Helper()
+		files := make(map[string]string, len(outFixture))
+		for name, content := range outFixture {
+			files[name] = content
+		}
+		if outGo != "" {
+			files["out/out.go"] = outGo
+		}
+		return writeFixture(t, files)
+	}
+
+	t.Run("ValidExistingSucceeds", func(t *testing.T) {
+		dir := write(t, "")
+		res, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		if res.OutPath != "example.com/outchk/out" {
+			t.Errorf("OutPath = %q, want example.com/outchk/out", res.OutPath)
+		}
+		wantProviders(t, res, "example.com/outchk/prov.Prov")
+	})
+
+	t.Run("UndefinedIdentifierRejected", func(t *testing.T) {
+		dir := write(t, "package out\n\nvar X = undefinedName\n")
+		_, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		wantErr(t, err, "example.com/outchk/out/out.go", "undefinedName")
+	})
+
+	t.Run("SyntaxErrorRejected", func(t *testing.T) {
+		dir := write(t, "package out\n\nvar X = \n")
+		_, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		wantErr(t, err, "example.com/outchk/out/out.go", "expected")
+	})
+
+	t.Run("OwnedBindingTypeErrorRejected", func(t *testing.T) {
+		// The owned binding itself is the output package's only Go
+		// file; an undefined identifier in its body makes the package
+		// not importable even though the ownership lines and the parse
+		// are valid.
+		dir := write(t, "")
+		if err := os.Remove(filepath.Join(dir, "out", "out.go")); err != nil {
+			t.Fatal(err)
+		}
+		binding := "// Code generated by intercall-go; DO NOT EDIT.\n" +
+			"// intercall-go binding: export sha256:" + strings.Repeat("0", 64) + "\n\n" +
+			"package out\n\nconst seed = undefinedName\n"
+		if err := os.WriteFile(filepath.Join(dir, "out", "binding_gen.go"), []byte(binding), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		wantErr(t, err, "binding_gen.go", "undefinedName")
+	})
+
+	t.Run("FreshStillSucceeds", func(t *testing.T) {
+		dir := write(t, "")
+		res, err := discover(t, dir, []string{"./prov"}, nil, nil, "outfresh")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		if res.OutPath != "example.com/outchk/outfresh" {
+			t.Errorf("OutPath = %q, want example.com/outchk/outfresh", res.OutPath)
+		}
+		wantProviders(t, res, "example.com/outchk/prov.Prov")
+	})
+
+	t.Run("FailedImportConsequencesTolerated", func(t *testing.T) {
+		// The generated binding imports the intercall runtime package,
+		// which the active module of a checked-in binding may not
+		// resolve; the consequences of the failed import — "could not
+		// import" and "undefined" errors for identifiers used as
+		// selector qualifiers — do not make the output package
+		// unusable.
+		dir := write(t, "package out\n\nimport \"example.com/missing\"\n\nvar X = missing.Missing\n")
+		res, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		wantProviders(t, res, "example.com/outchk/prov.Prov")
+	})
+
+	t.Run("FailedImportWithGenuineErrorRejected", func(t *testing.T) {
+		// An undefined identifier used as a plain value is a genuine
+		// type error even when an import also failed.
+		dir := write(t, "package out\n\nimport \"example.com/missing\"\n\nvar X = missing.Missing\n\nvar Y = undefinedName\n")
+		_, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		wantErr(t, err, "example.com/outchk/out/out.go", "undefinedName")
+	})
+
+	t.Run("FailedImportWithGenuineQualifierRejected", func(t *testing.T) {
+		// An undefined identifier used as a selector qualifier with no
+		// corresponding import is a genuine type error even when
+		// another import also failed: it is not an element of any
+		// failed import's path, so it is not a consequence of the
+		// failed import and must not be masked.
+		dir := write(t, "package out\n\nimport \"example.com/missing\"\n\nvar X = missing.Missing\n\nvar Y = totallyUnrelated.Foo\n")
+		_, err := discover(t, dir, []string{"./prov"}, nil, nil, "out")
+		wantErr(t, err, "example.com/outchk/out/out.go", "totallyUnrelated")
+	})
+}
+
+// TestOutputPackageTypeCheckingWorkspace covers output-package
+// validation in an active workspace: module and workspace behavior
+// agree — a valid existing output package succeeds and an output
+// package with undefined identifiers is rejected.
+func TestOutputPackageTypeCheckingWorkspace(t *testing.T) {
+	dir := writeFixture(t, wsFixture)
+	env := discoverEnv(filepath.Join(dir, "go.work"))
+
+	t.Run("WorkspaceValidSucceeds", func(t *testing.T) {
+		res, err := Discover(DiscoverConfig{
+			Dir:      dir,
+			Env:      env,
+			Patterns: []string{"./b/..."},
+			OutDir:   "b/out",
+		})
+		if err != nil {
+			t.Fatalf("discover: %v", err)
+		}
+		if res.OutPath != "example.com/wb/out" {
+			t.Errorf("OutPath = %q, want example.com/wb/out", res.OutPath)
+		}
+		wantProviders(t, res, "example.com/wb.BProc")
+	})
+
+	t.Run("WorkspaceTypeErrorRejected", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(dir, "b", "out", "out.go"),
+			[]byte("package out\n\nvar X = undefinedName\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Discover(DiscoverConfig{
+			Dir:      dir,
+			Env:      env,
+			Patterns: []string{"./b/..."},
+			OutDir:   "b/out",
+		})
+		wantErr(t, err, "example.com/wb/out/out.go", "undefinedName")
 	})
 }
 

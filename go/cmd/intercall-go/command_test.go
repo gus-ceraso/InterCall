@@ -243,6 +243,155 @@ func readFile(t *testing.T, path string) []byte {
 	return src
 }
 
+// TestCLIExportOutputPackageTypeError covers RM-09 output-package
+// validation at the command level: an existing owned output package
+// whose binding does not type-check is not importable, so export
+// rejects it before any mutation and neither the binding nor the
+// interface is replaced. A real generated binding imports the intercall
+// runtime package, which the fixture module does not resolve; the
+// check must tell the failed import's consequences apart from a
+// genuine type error in the binding body.
+func TestCLIExportOutputPackageTypeError(t *testing.T) {
+	t.Run("SeededBindingTypeErrorRejected", func(t *testing.T) {
+		root := exportFixture(t)
+		cliEnv(t, root)
+		out := filepath.Join(root, "out")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		seedExportBinding(t, out, intf)
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		// Corrupt the owned binding's body with an undefined identifier:
+		// the ownership lines and the parse stay valid, so package-name
+		// resolution still succeeds and the output-package type check is
+		// what rejects the invocation.
+		seeded := readFile(t, bindingPath)
+		broken := strings.Replace(string(seeded), "const seed = 1", "const seed = undefinedName", 1)
+		if broken == string(seeded) {
+			t.Fatal("the seeded binding has no seed constant to corrupt")
+		}
+		if err := os.WriteFile(bindingPath, []byte(broken), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bindingBefore, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intfBefore, err := os.Stat(intf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov")
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "undefinedName") {
+			t.Errorf("stderr = %q, want the undefined-identifier diagnostic", stderr)
+		}
+		if got := readFile(t, bindingPath); string(got) != broken {
+			t.Error("the type-broken binding was modified")
+		}
+		if after, err := os.Stat(bindingPath); err != nil || !os.SameFile(bindingBefore, after) {
+			t.Error("the type-broken binding was replaced")
+		}
+		if after, err := os.Stat(intf); err != nil || !os.SameFile(intfBefore, after) {
+			t.Error("the interface was replaced despite the broken output package")
+		}
+		if strings.Contains(stderr, ".tmp-") {
+			t.Errorf("stderr reports a staging path: %q", stderr)
+		}
+	})
+
+	t.Run("GeneratedBindingTypeErrorRejected", func(t *testing.T) {
+		root := exportFixture(t)
+		cliEnv(t, root)
+		out := filepath.Join(root, "out")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		// The first run writes the real generated binding, which
+		// imports the intercall runtime package; the fixture module
+		// does not resolve that import.
+		if status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov"); status != 0 {
+			t.Fatalf("first export status = %d, stderr = %q", status, stderr)
+		}
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		generated := readFile(t, bindingPath)
+		broken := strings.Replace(string(generated), " = int(^uint(0) >> 1)", " = undefinedName", 1)
+		if broken == string(generated) {
+			t.Fatal("the generated binding has no max-int constant to corrupt")
+		}
+		if err := os.WriteFile(bindingPath, []byte(broken), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bindingBefore, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intfBefore, err := os.Stat(intf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov")
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "undefinedName") {
+			t.Errorf("stderr = %q, want the undefined-identifier diagnostic", stderr)
+		}
+		if got := readFile(t, bindingPath); string(got) != broken {
+			t.Error("the type-broken generated binding was modified")
+		}
+		if after, err := os.Stat(bindingPath); err != nil || !os.SameFile(bindingBefore, after) {
+			t.Error("the type-broken generated binding was replaced")
+		}
+		if after, err := os.Stat(intf); err != nil || !os.SameFile(intfBefore, after) {
+			t.Error("the interface was replaced despite the broken output package")
+		}
+	})
+
+	t.Run("GeneratedBindingUndeclaredQualifierRejected", func(t *testing.T) {
+		// A genuine undefined identifier used as a selector qualifier
+		// is not a consequence of the unresolved runtime import — it
+		// is an element of no failed import's path — so export must
+		// reject it instead of masking it and regenerating over the
+		// type-broken package.
+		root := exportFixture(t)
+		cliEnv(t, root)
+		out := filepath.Join(root, "out")
+		intf := filepath.Join(root, "interfaces", "api.intercall")
+		if status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov"); status != 0 {
+			t.Fatalf("first export status = %d, stderr = %q", status, stderr)
+		}
+		bindingPath := filepath.Join(out, "binding_gen.go")
+		generated := readFile(t, bindingPath)
+		broken := string(generated) + "\nvar Z = totallyUnrelated.Foo\n"
+		if err := os.WriteFile(bindingPath, []byte(broken), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bindingBefore, err := os.Stat(bindingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intfBefore, err := os.Stat(intf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, _, stderr := runCLI(t, "export", "--out", out, "--interface", intf, "./prov")
+		if status != 1 {
+			t.Errorf("status = %d, want 1", status)
+		}
+		if !strings.Contains(stderr, "totallyUnrelated") {
+			t.Errorf("stderr = %q, want the undeclared-qualifier diagnostic", stderr)
+		}
+		if got := readFile(t, bindingPath); string(got) != broken {
+			t.Error("the type-broken generated binding was modified")
+		}
+		if after, err := os.Stat(bindingPath); err != nil || !os.SameFile(bindingBefore, after) {
+			t.Error("the type-broken generated binding was replaced")
+		}
+		if after, err := os.Stat(intf); err != nil || !os.SameFile(intfBefore, after) {
+			t.Error("the interface was replaced despite the broken output package")
+		}
+	})
+}
+
 // TestCLI black-box tests the command surface: help and usage, exact
 // operand counts, required and distinct targets, the repeatable
 // include/exclude/go-name flags, package validation and defaults,

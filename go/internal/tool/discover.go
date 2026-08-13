@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/ast"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +19,9 @@ import (
 // This file implements SPEC.md "Package discovery and selection": export
 // operands are standard Go package patterns interpreted in the active
 // module or workspace and active Go build configuration, explicit
-// packages are deduplicated by canonical import path, patterns that
-// match no package are errors, and every explicit package must
+// packages are deduplicated by canonical import path, every operand is
+// accounted for — a pattern that matches no package is an error even
+// when another operand matched — and every explicit package must
 // type-check and be an importable non-main package. Only discovery code
 // uses golang.org/x/tools/go/packages, as AGENTS.md allows.
 
@@ -40,10 +42,15 @@ const discoverMode = packages.NeedName |
 	packages.NeedSyntax |
 	packages.NeedTypesInfo
 
-// outputMode is the light load mode of the output-directory resolution:
-// only the identity and directory of the package the output directory
-// resolves to.
-const outputMode = packages.NeedName | packages.NeedFiles
+// outputMode is the load mode of the output-directory resolution: the
+// identity and directory of the package the output directory resolves
+// to, plus its complete syntax, types, and import graph, so an existing
+// output package with syntax or type errors is rejected before any
+// output mutation. The resolution is one independent load: its
+// go/types objects are never mixed into the authoritative discovery
+// universe, and only the resolved import path and the package
+// diagnostics are used.
+const outputMode = discoverMode
 
 // DiscoverConfig configures one package discovery and procedure
 // selection pass.
@@ -108,9 +115,10 @@ type ExplicitPackage struct {
 
 // Discover loads the explicit packages of the export operands, checks
 // them, selects the providers, and validates the output directory, in a
-// deterministic order: operand and filter grammar first, then load and
-// package diagnostics, then documents, filter resolution, procedure
-// signatures, and finally output-package importability.
+// deterministic order: operand and filter grammar first, then per-
+// operand pattern accounting, load and package diagnostics, then
+// documents, filter resolution, procedure signatures, and finally
+// output-package importability.
 //
 // A diagnostic is an *Error. Pattern and filter diagnostics use the
 // operand text as their path and line 1, column 1; package diagnostics
@@ -139,15 +147,37 @@ func Discover(cfg DiscoverConfig) (*DiscoverResult, error) {
 	}
 	env := buildEnv(cfg.Env)
 
+	// Every export operand must match at least one package, even when
+	// another operand matched (SPEC.md "Package discovery and
+	// selection": "a pattern that matches no package is an error").
+	// The go command reports most unmatched operands as error packages
+	// of the load, but a wildcard that matches nothing in module mode
+	// yields no package at all and is silently dropped; one lightweight
+	// go list query accounts for every operand before the full load
+	// runs. The query carries no go/types objects, so the accounting
+	// never mixes objects from independent loads into the one
+	// authoritative combined type universe.
+	unmatched, err := unmatchedPatterns(dir, env, cfg.Patterns)
+	if err != nil {
+		return nil, fmt.Errorf("checking export package patterns: %v", err)
+	}
+	if len(unmatched) > 0 {
+		return nil, &Error{
+			Filename: unmatched[0],
+			Pos:      Position{Line: 1, Column: 1},
+			Msg:      fmt.Sprintf("pattern %q matched no package; every pattern must match at least one package", unmatched[0]),
+		}
+	}
+
 	pkgs, err := loadPackages(dir, env, cfg.Patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("loading export packages: %v", err)
 	}
 	if len(pkgs) == 0 {
-		// The go command reports unmatched patterns as error packages,
-		// but a wildcard that matches nothing in an empty module yields
-		// no packages at all; either way a pattern that matches no
-		// package is an error.
+		// Unreachable after pattern accounting; kept as a defensive
+		// guard so a pattern that matches no package is always an
+		// error even if the load and the accounting query ever
+		// disagree.
 		return nil, &Error{
 			Pos: Position{Line: 1, Column: 1},
 			Msg: "no package matched any export pattern; every pattern must match at least one package",
@@ -324,7 +354,9 @@ func withPathPrefix(env []string, dir string) []string {
 }
 
 // loadPackages runs one go/packages load of the export operands in the
-// active module or workspace of dir.
+// active module or workspace of dir. It is the one authoritative
+// combined type universe of a discovery pass: every go/types object
+// later phases use comes from this single load.
 func loadPackages(dir string, env []string, patterns ...string) ([]*packages.Package, error) {
 	cfg := &packages.Config{
 		Mode: discoverMode,
@@ -332,6 +364,50 @@ func loadPackages(dir string, env []string, patterns ...string) ([]*packages.Pac
 		Env:  env,
 	}
 	return packages.Load(cfg, patterns...)
+}
+
+// unmatchedPatterns reports the export operands that matched no
+// package, in operand order. The go list driver reports every package
+// matched by any operand together with the exact operand texts that
+// matched it (the Match field of its JSON output), so one lightweight
+// go list query accounts for every operand: an operand that appears in
+// no Match list matched no package. go/packages drops such operands
+// silently — a wildcard that matches nothing in module mode yields no
+// package at all — so the query must run even when another operand
+// matched. It returns only operand texts, never package data, so the
+// accounting creates no go/types objects to mix with the discovery
+// load.
+func unmatchedPatterns(dir string, env []string, patterns []string) ([]string, error) {
+	cmd := exec.Command(goTool(env), "list", "-e", "-json")
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Args = append(cmd.Args, patterns...)
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, err
+	}
+	matched := make(map[string]bool)
+	for dec := json.NewDecoder(bytes.NewReader(out)); dec.More(); {
+		var pkg struct {
+			Match []string
+		}
+		if err := dec.Decode(&pkg); err != nil {
+			return nil, fmt.Errorf("decoding go list output: %v", err)
+		}
+		for _, pattern := range pkg.Match {
+			matched[pattern] = true
+		}
+	}
+	var unmatched []string
+	for _, pattern := range patterns {
+		if !matched[pattern] {
+			unmatched = append(unmatched, pattern)
+		}
+	}
+	return unmatched, nil
 }
 
 // collectExplicit deduplicates the loaded packages by canonical import
@@ -509,7 +585,8 @@ func (p *ExplicitPackage) parseDocuments() error {
 // directory is accepted only when its to-be-created path falls under
 // the active module or one of the workspace modules, and the
 // importability checks then run against the import path the directory
-// would have.
+// would have. An existing output package must type-check: its syntax
+// and type diagnostics are reported before any output mutation.
 func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers []*Provider) (string, error) {
 	if cfg.OutDir == "" {
 		return "", &Error{
@@ -555,10 +632,14 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 			}
 			return outPath, nil
 		}
-		return "", &Error{
-			Filename: cfg.OutDir,
-			Pos:      Position{Line: 1, Column: 1},
-			Msg:      fmt.Sprintf("output directory %q: %s", cfg.OutDir, out.Errors[0].Msg),
+		// An existing output package with syntax or type errors is not
+		// importable and causes no output mutation. A package whose
+		// only diagnostics are import-resolution failures stays
+		// usable, so a checked-in binding can be regenerated over even
+		// when the active module does not resolve the intercall
+		// runtime package it imports.
+		if !outputPackageUsable(out) {
+			return "", outputPackageError(cfg.OutDir, out)
 		}
 	}
 	if out.Name == "main" {
@@ -583,6 +664,157 @@ func checkOutputPackage(cfg DiscoverConfig, dir string, env []string, providers 
 		return "", fmt.Errorf("internal error: the resolved output package %q has no import path", cfg.OutDir)
 	}
 	return out.PkgPath, nil
+}
+
+// outputPackageUsable reports whether an existing output package with
+// load diagnostics may still be regenerated over. A package whose
+// diagnostics are import-resolution failures stays usable: the
+// generated binding imports the intercall runtime package, which the
+// active module of a checked-in binding may not resolve, and
+// ownership-based replacement (SPEC.md "One-file ownership and safe
+// replacement") never requires the existing binding's imports to
+// resolve. The consequences of a failed import are exactly "could not
+// import" errors and "undefined" errors for the identifiers the
+// package's own files use as selector qualifiers for that import (see
+// outputErrorTolerated); any other syntax or type error is genuine and
+// rejects — such an output package is not importable and causes no
+// output mutation. Structural go list errors always reject.
+func outputPackageUsable(out *packages.Package) bool {
+	qualifiers := selectorQualifiers(out)
+	failedElements := failedImportPathElements(out)
+	failedImport := false
+	for _, e := range out.Errors {
+		switch e.Kind {
+		case packages.ListError, packages.ParseError, packages.UnknownError:
+			return false
+		case packages.TypeError:
+			if outputErrorTolerated(e, qualifiers, failedElements) {
+				if strings.HasPrefix(e.Msg, "could not import ") {
+					failedImport = true
+				}
+				continue
+			}
+			return false
+		}
+	}
+	return failedImport
+}
+
+// outputErrorTolerated reports whether one diagnostic of the resolved
+// output package is a tolerated consequence of a failed import: a
+// "could not import" error, or an "undefined" error for an identifier
+// the package's own files use as a selector qualifier for an import
+// that failed to resolve. The type checker cannot know the declared
+// name of a package whose import failed, so every reference to a
+// member of that package is reported as an undefined qualifier; that
+// qualifier is the imported package's declared name, which appears as
+// an element of the import path. An undefined identifier that is not
+// the qualifier of a failed import's path element — for example a
+// qualifier with no corresponding import, or a plain value or type
+// name — is genuine. Every other diagnostic is genuine.
+func outputErrorTolerated(e packages.Error, qualifiers, failedElements map[string]bool) bool {
+	if e.Kind != packages.TypeError {
+		return false
+	}
+	if strings.HasPrefix(e.Msg, "could not import ") {
+		return true
+	}
+	if name, ok := strings.CutPrefix(e.Msg, "undefined: "); ok && qualifiers[name] && failedElements[name] {
+		return true
+	}
+	return false
+}
+
+// selectorQualifiers returns the identifiers the package's own files
+// use as the qualifier of a selector expression (the X of X.sel). The
+// set lets the output-package check recognize "undefined" errors that
+// are consequences of a failed import rather than genuine type errors.
+func selectorQualifiers(out *packages.Package) map[string]bool {
+	qualifiers := make(map[string]bool)
+	for _, f := range out.Syntax {
+		ast.Inspect(f, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if id, ok := sel.X.(*ast.Ident); ok {
+					qualifiers[id.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	return qualifiers
+}
+
+// failedImportPathElements returns the path elements of every import
+// of the package that failed to resolve, as reported by the "could not
+// import" diagnostics. The elements identify the identifiers an
+// "undefined" error may legitimately name as a consequence of the
+// failed import: the source qualifies the failed import with the
+// imported package's declared name, which is an element of its own
+// import path (the intercall runtime, for example, declares the name
+// "intercall" as an element of "github.com/cerasos/intercall/go").
+func failedImportPathElements(out *packages.Package) map[string]bool {
+	elements := make(map[string]bool)
+	for _, e := range out.Errors {
+		path, ok := strings.CutPrefix(e.Msg, "could not import ")
+		if !ok {
+			continue
+		}
+		if i := strings.Index(path, " ("); i >= 0 {
+			path = path[:i]
+		}
+		for _, part := range strings.Split(path, "/") {
+			if part != "" {
+				elements[part] = true
+			}
+		}
+	}
+	return elements
+}
+
+// outputPackageError converts the first genuine diagnostic of the
+// resolved output package into an *Error, skipping the tolerated
+// consequences of failed imports. A positioned diagnostic uses the
+// canonical logical path of its file (SPEC.md "Diagnostics"); a
+// diagnostic without a position reports at line 1, column 1 of the
+// output operand and keeps the output-directory context.
+func outputPackageError(outDir string, out *packages.Package) *Error {
+	qualifiers := selectorQualifiers(out)
+	failedElements := failedImportPathElements(out)
+	for _, e := range out.Errors {
+		if outputErrorTolerated(e, qualifiers, failedElements) {
+			continue
+		}
+		return renderOutputPackageError(outDir, out, e)
+	}
+	// Every diagnostic is a tolerated import consequence; render the
+	// first one so the diagnostic is never empty. The caller only
+	// reaches here when a genuine diagnostic exists, so this is
+	// defensive.
+	return renderOutputPackageError(outDir, out, out.Errors[0])
+}
+
+// renderOutputPackageError renders one diagnostic of the resolved
+// output package as an *Error.
+func renderOutputPackageError(outDir string, out *packages.Package, e packages.Error) *Error {
+	pos := Position{Line: 1, Column: 1}
+	if e.Pos != "" {
+		if file, line, col, ok := splitFilePos(e.Pos); ok {
+			pkgPath := out.PkgPath
+			if pkgPath == "" {
+				pkgPath = outDir
+			}
+			return &Error{
+				Filename: logicalFilePath(pkgPath, out.Dir, file),
+				Pos:      Position{Line: line, Column: col},
+				Msg:      e.Msg,
+			}
+		}
+	}
+	return &Error{
+		Filename: outDir,
+		Pos:      pos,
+		Msg:      fmt.Sprintf("output directory %q: %s", outDir, e.Msg),
+	}
 }
 
 // checkOutputProviders verifies that a binding in the output package
