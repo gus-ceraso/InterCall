@@ -11,7 +11,11 @@
 // A connection is constructed with NewConnection over an established
 // ByteStream, bound into a context with WithConnection, retrieved by
 // generated callers with ConnectionFromContext, and ended with Close and
-// Wait. Close returns promptly after terminal publication without waiting
+// Wait. Raw NewConnection starts directly at the first InterCall frame and
+// does not negotiate. NewNegotiatedClientConnection and
+// NewNegotiatedServerConnection perform only the optional interface-ID
+// agreement before constructing that same raw connection; they do not dial or
+// listen. Close returns promptly after terminal publication without waiting
 // for a blocked writer, gate waiter, handler, or stream cleanup, while
 // Wait blocks until teardown and stream cleanup complete and returns the
 // permanent terminal cause, which is never nil. Framing is bounded by the

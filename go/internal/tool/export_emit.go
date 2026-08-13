@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"go/format"
 	"go/types"
@@ -61,7 +62,8 @@ var (
 
 // exportEmitter is the working state of one export binding emission.
 type exportEmitter struct {
-	model *ExportModel
+	model       *ExportModel
+	interfaceID [32]byte
 
 	wireTypes map[string]*syntax.TypeDecl // exact wire name -> type declaration
 	aliases   map[string]string           // import path -> deterministic alias
@@ -108,7 +110,8 @@ func GenerateExport(m *ExportModel, pkg string) (goFile []byte, interfaceBody []
 	if m == nil {
 		return nil, nil, fmt.Errorf("tool: internal error: no export model")
 	}
-	e := &exportEmitter{model: m}
+	body := m.CanonicalBody()
+	e := &exportEmitter{model: m, interfaceID: sha256.Sum256(body)}
 	if err := e.prepare(); err != nil {
 		return nil, nil, err
 	}
@@ -116,7 +119,7 @@ func GenerateExport(m *ExportModel, pkg string) (goFile []byte, interfaceBody []
 	if err != nil {
 		return nil, nil, err
 	}
-	return goFile, m.CanonicalBody(), nil
+	return goFile, body, nil
 }
 
 // prepare resolves the deterministic import aliases, the qualified Go
@@ -709,7 +712,11 @@ func (e *exportEmitter) emitProcCase(p *ExportProc, hasApp bool) {
 func (e *exportEmitter) emitSingleton() {
 	e.src.linef("var %s = func() intercall.ExportBinding {", exportBindingName)
 	e.src.open()
-	e.src.linef("b, err := intercall.NewExportBinding(%s)", dispatchName)
+	e.src.linef("b, err := intercall.NewExportBindingWithInterfaceID(%s,", dispatchName)
+	e.src.open()
+	emitInterfaceIDLiteral(&e.src, e.interfaceID)
+	e.src.close()
+	e.src.linef(")")
 	e.src.linef("if err != nil {")
 	e.src.open()
 	e.src.linef("panic(err)")

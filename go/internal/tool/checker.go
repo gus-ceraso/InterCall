@@ -457,7 +457,13 @@ func buildRuntimeSPIModel(imp types.Importer) (*types.Package, error) {
 	insert(types.NewFunc(noPos, pkg, "NewImportBindingWithInterfaceID", types.NewSignatureType(nil, nil, nil,
 		types.NewTuple(types.NewVar(noPos, pkg, "id", interfaceID)),
 		types.NewTuple(types.NewVar(noPos, pkg, "", importBinding)), false)))
-	insert(types.NewFunc(noPos, pkg, "NewConnection", types.NewSignatureType(nil, nil, nil,
+	insert(types.NewFunc(noPos, pkg, "EmptyExportBinding", types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(),
+		types.NewTuple(types.NewVar(noPos, pkg, "", exportBinding)), false)))
+	insert(types.NewFunc(noPos, pkg, "EmptyImportBinding", types.NewSignatureType(nil, nil, nil,
+		types.NewTuple(),
+		types.NewTuple(types.NewVar(noPos, pkg, "", importBinding)), false)))
+	newConnectionSig := types.NewSignatureType(nil, nil, nil,
 		types.NewTuple(
 			types.NewVar(noPos, pkg, "ctx", ctxType),
 			types.NewVar(noPos, pkg, "stream", byteStream),
@@ -467,7 +473,10 @@ func buildRuntimeSPIModel(imp types.Importer) (*types.Package, error) {
 		types.NewTuple(
 			types.NewVar(noPos, pkg, "", types.NewPointer(connection)),
 			types.NewVar(noPos, pkg, "", errType),
-		), false)))
+		), false)
+	insert(types.NewFunc(noPos, pkg, "NewConnection", newConnectionSig))
+	insert(types.NewFunc(noPos, pkg, "NewNegotiatedClientConnection", newConnectionSig))
+	insert(types.NewFunc(noPos, pkg, "NewNegotiatedServerConnection", newConnectionSig))
 	insert(types.NewFunc(noPos, pkg, "WithConnection", types.NewSignatureType(nil, nil, nil,
 		types.NewTuple(
 			types.NewVar(noPos, pkg, "ctx", ctxType),
@@ -483,7 +492,7 @@ func buildRuntimeSPIModel(imp types.Importer) (*types.Package, error) {
 
 	for _, name := range []string{
 		"ErrInvalidArgument", "ErrNoConnection", "ErrBindingMismatch", "ErrClosed",
-		"ErrRequestIDsExhausted", "ErrProtocol",
+		"ErrRequestIDsExhausted", "ErrProtocol", "ErrInterfaceMismatch",
 		"ErrProcedureNotFound", "ErrInvalidArguments", "ErrInternalException",
 	} {
 		insert(types.NewVar(noPos, pkg, name, errType))

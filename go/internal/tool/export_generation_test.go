@@ -126,9 +126,9 @@ func TestExportGeneration(t *testing.T) {
 			}
 		}
 		// The immutable export binding singleton constructs the handle
-		// once through NewExportBinding.
+		// once through the metadata-aware constructor.
 		for _, want := range []string{
-			"intercall.NewExportBinding(" + dispatchName + ")",
+			"intercall.NewExportBindingWithInterfaceID(" + dispatchName + ",",
 			"func ExportBinding() intercall.ExportBinding {",
 		} {
 			if !strings.Contains(gen, want) {

@@ -110,6 +110,7 @@ func TestImportGeneratedFixtureCompiles(t *testing.T) {
 type moduleImporter struct {
 	fset   *token.FileSet
 	parsed map[string]*types.Package
+	std    types.Importer
 	dirs   map[string]string // import path -> source directory, defaulting to moduleSourceDirs
 }
 
@@ -127,12 +128,15 @@ func (mi *moduleImporter) Import(path string) (*types.Package, error) {
 	if mi.dirs == nil {
 		mi.dirs = moduleSourceDirs
 	}
+	if mi.std == nil {
+		mi.std = importer.Default()
+	}
 	if pkg := mi.parsed[path]; pkg != nil {
 		return pkg, nil
 	}
 	dir, ok := mi.dirs[path]
 	if !ok {
-		pkg, err := importer.Default().Import(path)
+		pkg, err := mi.std.Import(path)
 		if err != nil {
 			return nil, err
 		}

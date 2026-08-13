@@ -87,7 +87,7 @@ func TestImportGeneration(t *testing.T) {
 		}
 		// The immutable binding singleton.
 		for _, want := range []string{
-			"var importBinding = intercall.NewImportBinding()",
+			"var importBinding = intercall.NewImportBindingWithInterfaceID(",
 			"func ImportBinding() intercall.ImportBinding {",
 		} {
 			if !strings.Contains(gen, want) {
@@ -129,7 +129,7 @@ func TestImportGeneration(t *testing.T) {
 		if !strings.Contains(gen, `const _intercallSemantic = ""`) {
 			t.Errorf("empty interface lacks the empty semantic constant:\n%s", gen)
 		}
-		if !strings.Contains(gen, "var importBinding = intercall.NewImportBinding()") {
+		if !strings.Contains(gen, "var importBinding = intercall.NewImportBindingWithInterfaceID(") {
 			t.Error("empty interface lacks the binding singleton")
 		}
 		if strings.Contains(gen, `"context"`) {

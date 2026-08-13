@@ -33,6 +33,11 @@ var (
 	// ErrProtocol reports a terminal framing or matched-response protocol
 	// error. Runtime conditions, not provider matching, select it.
 	ErrProtocol error = sentinel("intercall: protocol error")
+
+	// ErrInterfaceMismatch reports a negotiated interface ID that differs
+	// from the local export interface ID. It is a setup error, not a frame
+	// protocol error and not an authentication result.
+	ErrInterfaceMismatch error = sentinel("intercall: interface mismatch")
 )
 
 // Fixed Go runtime wire exceptions. These are the three no-payload wire

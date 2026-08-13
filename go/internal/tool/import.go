@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"go/format"
@@ -207,7 +208,7 @@ func generateImportFile(pkg string, body []byte, m *Model) ([]byte, error) {
 	for _, p := range m.Procs {
 		emitImportProc(&src, m, p)
 	}
-	emitImportSingleton(&src)
+	emitImportSingleton(&src, sha256.Sum256(body))
 	return format.Source(src.bytes())
 }
 
@@ -599,8 +600,12 @@ const (
 // package constructs its handle exactly once into an unexported package
 // variable, and ImportBinding returns it. Copying the returned handle
 // copies the pointer and retains identity.
-func emitImportSingleton(src *source) {
-	src.linef("var %s = intercall.NewImportBinding()", importBindingName)
+func emitImportSingleton(src *source, interfaceID [32]byte) {
+	src.linef("var %s = intercall.NewImportBindingWithInterfaceID(", importBindingName)
+	src.open()
+	emitInterfaceIDLiteral(src, interfaceID)
+	src.close()
+	src.linef(")")
 	src.blank()
 	src.linef("// ImportBinding returns the package's immutable import binding.")
 	src.linef("func %s() intercall.ImportBinding {", importAccessorName)

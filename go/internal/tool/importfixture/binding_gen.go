@@ -1593,7 +1593,42 @@ func Tiny(_intercallctx_01508600011dfaaf context.Context, tag Empty) (uint32, er
 	return _intercallout_017985000140fe4c, _intercallexc_01578600012419e6
 }
 
-var importBinding = intercall.NewImportBinding()
+var importBinding = intercall.NewImportBindingWithInterfaceID(
+	intercall.InterfaceID{
+		0x7d,
+		0x46,
+		0x32,
+		0x35,
+		0xda,
+		0x10,
+		0xe8,
+		0xdb,
+		0xb6,
+		0x31,
+		0xac,
+		0xa4,
+		0x25,
+		0xf0,
+		0x31,
+		0xb0,
+		0x60,
+		0x97,
+		0xbf,
+		0x16,
+		0x8f,
+		0x27,
+		0x89,
+		0x01,
+		0xe3,
+		0x31,
+		0x3f,
+		0xb4,
+		0xec,
+		0xec,
+		0xab,
+		0x58,
+	},
+)
 
 // ImportBinding returns the package's immutable import binding.
 func ImportBinding() intercall.ImportBinding {

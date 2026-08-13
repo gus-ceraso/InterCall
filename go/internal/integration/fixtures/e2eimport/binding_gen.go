@@ -3477,7 +3477,42 @@ func Wave(_intercallctx_01508600011dfaaf context.Context, samples []uint8) (uint
 	return _intercallout_017985000140fe4c, _intercallexc_01578600012419e6
 }
 
-var importBinding = intercall.NewImportBinding()
+var importBinding = intercall.NewImportBindingWithInterfaceID(
+	intercall.InterfaceID{
+		0xec,
+		0x88,
+		0xd7,
+		0xcc,
+		0x99,
+		0x51,
+		0x38,
+		0xd9,
+		0x03,
+		0xf3,
+		0x38,
+		0xd7,
+		0x30,
+		0x30,
+		0xe7,
+		0x87,
+		0x69,
+		0xe9,
+		0x50,
+		0x00,
+		0xe2,
+		0xf5,
+		0xbe,
+		0x52,
+		0x38,
+		0x5a,
+		0x36,
+		0xf1,
+		0x00,
+		0x3e,
+		0x37,
+		0x07,
+	},
+)
 
 // ImportBinding returns the package's immutable import binding.
 func ImportBinding() intercall.ImportBinding {

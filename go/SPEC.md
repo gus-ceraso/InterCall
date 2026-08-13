@@ -202,11 +202,11 @@ scalar values and directive-like text, and replaces per-slot selector machinery
 with one private semantic value.
 
 The `_intercallSemantic` metadata is a generation aid, not runtime binding
-identity. The current generated bindings still use the metadata-free
-constructors, and the raw runtime embeds no interface digest or performs any
-handshake or interface exchange. The metadata-aware binding constructors are
-available for the later negotiated transport profile; they do not change raw
-`NewConnection` behavior.
+identity. Generated import and export bindings embed the SHA-256 digest of
+this canonical body in metadata-aware binding constructors. The digest is
+also the artifact stamp, but it is not a credential. Raw `NewConnection`
+embeds no interface exchange and starts at the first frame; negotiated
+constructors use the metadata without changing raw behavior.
 
 ## Go Export Model
 
@@ -599,11 +599,26 @@ func NewExportBinding(Dispatch) (ExportBinding, error)
 func NewExportBindingWithInterfaceID(Dispatch, InterfaceID) (ExportBinding, error)
 func NewImportBinding() ImportBinding
 func NewImportBindingWithInterfaceID(InterfaceID) ImportBinding
+func EmptyExportBinding() ExportBinding
+func EmptyImportBinding() ImportBinding
 
 func (ExportBinding) InterfaceID() (InterfaceID, bool)
 func (ImportBinding) InterfaceID() (InterfaceID, bool)
 
 func NewConnection(
+	context.Context,
+	ByteStream,
+	ExportBinding,
+	ImportBinding,
+) (*Connection, error)
+
+func NewNegotiatedClientConnection(
+	context.Context,
+	ByteStream,
+	ExportBinding,
+	ImportBinding,
+) (*Connection, error)
+func NewNegotiatedServerConnection(
 	context.Context,
 	ByteStream,
 	ExportBinding,
@@ -638,11 +653,44 @@ the zero ID and `false`. The metadata does not affect binding equality or
 `NewExportBindingWithInterfaceID` both reject a nil dispatch function with
 `ErrInvalidArgument`.
 
+`EmptyExportBinding` and `EmptyImportBinding` return process-wide singleton
+handles for the canonical no-procedure interface whose body is exactly:
+
+```text
+exception internal_exception;
+
+exception invalid_arguments;
+
+exception procedure_not_found;
+```
+
+Both carry that body's SHA-256 `InterfaceID`. The empty export dispatch
+returns `procedure_not_found` with an empty payload for every complete
+request. Empty means no callable procedures; it is not a zero-byte interface.
+Copies returned by the accessors retain the singleton's process-local handle
+identity.
+
 `NewConnection` rejects a nil context or stream interface and zero bindings
 before taking ownership of the stream. It also returns an already available
 `ctx.Err()` before ownership. On success, it stores exactly one export and one
 import handle for the connection; neither can change. The raw constructor
+
 does not require, inspect, or exchange interface metadata.
+
+`NewNegotiatedClientConnection` and `NewNegotiatedServerConnection` require
+nonzero bindings with present interface IDs. They take ownership only after
+local validation and an already-available context check, then perform one
+setup exchange before calling the same raw connection constructor. The client
+writes exactly its import/expected-server ID, the server reads and compares
+it to its export ID, and only after a match writes exactly its
+import/expected-client ID. The client then reads and compares that ID to its
+export ID. No export ID, magic, version, length, acknowledgment, or
+interface-document record is sent. A mismatch wraps `ErrInterfaceMismatch`;
+missing metadata wraps `ErrInvalidArgument`, and setup transport errors retain
+underlying error identity. The setup phase uses the earlier caller deadline
+or ten seconds. The original context, not the temporary setup context, owns
+the resulting connection. On setup failure the owned stream is closed once
+and cleanup is complete before the constructor returns.
 
 There is no generated `Run`, descriptor callback layer, startup state, or
 startup wait. `NewConnection` completely initializes the connection and starts
@@ -704,6 +752,7 @@ ErrBindingMismatch
 ErrClosed
 ErrRequestIDsExhausted
 ErrProtocol
+ErrInterfaceMismatch
 ```
 
 It also exports the three wire-exception sentinels listed below. Sentinels work
@@ -1029,8 +1078,8 @@ The proof of concept does not include:
 
 - TypeScript or any other non-Go binding;
 - WebSocket, WebTransport, or independent per-call stream adapters;
-- handshake, version, runtime interface-agreement digest, or remote interface
-  verification;
+- a mandatory handshake for raw `NewConnection`, or any claim that
+  interface IDs authenticate or authorize a peer;
 - authentication, authorization, policy, or procedure whitelists;
 - configurable policy resource limits; the fixed 64 MiB frame-payload safety
   ceiling and the strict Go projection's 4,096-occurrence depth boundary are

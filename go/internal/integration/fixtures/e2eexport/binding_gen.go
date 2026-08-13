@@ -1565,7 +1565,42 @@ func _intercalldispatch_6ba7a6d72caedc56(_intercallctx_01508600011dfaaf context.
 }
 
 var _intercallbinding_47f982b7aff8567b = func() intercall.ExportBinding {
-	b, err := intercall.NewExportBinding(_intercalldispatch_6ba7a6d72caedc56)
+	b, err := intercall.NewExportBindingWithInterfaceID(_intercalldispatch_6ba7a6d72caedc56,
+		intercall.InterfaceID{
+			0xec,
+			0x88,
+			0xd7,
+			0xcc,
+			0x99,
+			0x51,
+			0x38,
+			0xd9,
+			0x03,
+			0xf3,
+			0x38,
+			0xd7,
+			0x30,
+			0x30,
+			0xe7,
+			0x87,
+			0x69,
+			0xe9,
+			0x50,
+			0x00,
+			0xe2,
+			0xf5,
+			0xbe,
+			0x52,
+			0x38,
+			0x5a,
+			0x36,
+			0xf1,
+			0x00,
+			0x3e,
+			0x37,
+			0x07,
+		},
+	)
 	if err != nil {
 		panic(err)
 	}

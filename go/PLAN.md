@@ -910,9 +910,11 @@ go test . ./internal/tool
 go test ./...
 ```
 
-### Task 2 — Pin interface-aware runtime-model parity
+### Task 2 — Pin interface-aware runtime-model parity — **Complete**
 
 **Commit:** `tool: pin interface-aware runtime model parity`
+
+**Status:** Implemented and verified in the current working tree.
 
 **Files:**
 
@@ -941,9 +943,11 @@ go test ./internal/tool
 go test ./...
 ```
 
-### Task 3 — Embed canonical interface IDs in generated bindings
+### Task 3 — Embed canonical interface IDs in generated bindings — **Complete**
 
 **Commit:** `generator: embed canonical interface IDs in bindings`
+
+**Status:** Implemented, fixtures regenerated, and focused generator tests verified in the current working tree.
 
 **Files:**
 
@@ -983,9 +987,11 @@ go test ./internal/tool ./internal/integration
 go test ./...
 ```
 
-### Task 4 — Add built-in empty-direction bindings
+### Task 4 — Add built-in empty-direction bindings — **Complete**
 
 **Commit:** `runtime: add empty negotiated binding pair`
+
+**Status:** Implemented, parity model updated, and focused runtime/tool tests verified in the current working tree.
 
 **Files:**
 
@@ -1022,9 +1028,11 @@ go test . ./internal/tool
 go test ./...
 ```
 
-### Task 5 — Implement the exact directional interface handshake
+### Task 5 — Implement the exact directional interface handshake — **Complete**
 
 **Commit:** `runtime: negotiate expected peer interface IDs`
+
+**Status:** Implemented and verified with focused handshake, raw-frame-position, runtime-model, and generator tests in the current working tree.
 
 **Files:**
 
@@ -1079,9 +1087,11 @@ go test . ./internal/tool
 go test ./...
 ```
 
-### Task 6 — Make negotiated setup cancellation-safe and leak-free
+### Task 6 — Make negotiated setup cancellation-safe and leak-free — **Complete**
 
 **Commit:** `runtime: harden negotiated connection setup lifecycle`
+
+**Status:** Implemented and verified with focused cancellation/timeout tests and repeated race-detector runs in the current working tree.
 
 **Files:**
 

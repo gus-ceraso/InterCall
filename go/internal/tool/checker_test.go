@@ -175,6 +175,141 @@ func TestRuntimeSPIModelParity(t *testing.T) {
 	})
 }
 
+// TestRuntimeSPIMetadataCheckerProbes pins the generated-source checker
+// boundary for the interface-aware runtime additions. Correct constructor
+// and accessor uses type-check, while wrong ID types, missing arguments, and
+// wrong result arity are rejected by the synthetic model.
+func TestRuntimeSPIMetadataCheckerProbes(t *testing.T) {
+	checker := NewImportGoChecker()
+	const logical = "metadata/binding_gen.go"
+	probes := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "correct constructors and accessors",
+			src: `package p
+
+import (
+	"context"
+	ic "github.com/cerasos/intercall/go"
+)
+
+var (
+	id ic.InterfaceID
+	export, exportErr = ic.NewExportBindingWithInterfaceID(func(context.Context, uint64, []byte) (uint64, []byte) { return 0, nil }, id)
+	imp = ic.NewImportBindingWithInterfaceID(id)
+	emptyExport = ic.EmptyExportBinding()
+	emptyImport = ic.EmptyImportBinding()
+	stream ic.ByteStream
+	conn, connErr = ic.NewNegotiatedClientConnection(nil, stream, export, imp)
+	serverConn, serverErr = ic.NewNegotiatedServerConnection(nil, stream, export, imp)
+	errMismatch = ic.ErrInterfaceMismatch
+	exportID, exportOK = export.InterfaceID()
+	importID, importOK = imp.InterfaceID()
+)
+`,
+		},
+		{
+			name: "wrong ID type",
+			src: `package p
+
+import ic "github.com/cerasos/intercall/go"
+
+var imp = ic.NewImportBindingWithInterfaceID([16]byte{})
+`,
+			want: "cannot use",
+		},
+		{
+			name: "missing ID argument",
+			src: `package p
+
+import ic "github.com/cerasos/intercall/go"
+
+var imp = ic.NewImportBindingWithInterfaceID()
+`,
+			want: "not enough arguments",
+		},
+		{
+			name: "wrong result arity",
+			src: `package p
+
+import ic "github.com/cerasos/intercall/go"
+
+var one, two = ic.NewImportBindingWithInterfaceID(ic.InterfaceID{})
+`,
+			want: "assignment mismatch",
+		},
+	}
+	for _, tc := range probes {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checker.CheckGo(logical, []byte(tc.src))
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("checker rejected valid source: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("checker accepted invalid source")
+			}
+			var de *Error
+			if !errors.As(err, &de) {
+				t.Fatalf("error type %T, want *Error: %v", err, err)
+			}
+			if !strings.Contains(de.Msg, tc.want) {
+				t.Errorf("diagnostic %q does not contain %q", de.Msg, tc.want)
+			}
+		})
+	}
+}
+
+// TestRuntimeSPIParityTargetedDrift pins the individual parity dimensions
+// added for interface-aware bindings: InterfaceID's array length, one
+// metadata-aware constructor signature, and one binding accessor method.
+func TestRuntimeSPIParityTargetedDrift(t *testing.T) {
+	mi := &moduleImporter{fset: token.NewFileSet(), parsed: make(map[string]*types.Package)}
+	actual, err := mi.Import(runtimeImportPath)
+	if err != nil {
+		t.Fatalf("loading the actual root package: %v", err)
+	}
+	model, err := buildRuntimeSPIModel(mi)
+	if err != nil {
+		t.Fatalf("building the synthetic runtime SPI model: %v", err)
+	}
+
+	t.Run("InterfaceID array length", func(t *testing.T) {
+		pkg := types.NewPackage(runtimeImportPath, "intercall")
+		tn := types.NewTypeName(token.NoPos, pkg, "InterfaceID", nil)
+		types.NewNamed(tn, types.NewArray(types.Typ[types.Byte], 31), nil)
+		if msg := parityObject("InterfaceID", tn, actual.Scope().Lookup("InterfaceID")); msg == "" {
+			t.Fatal("array-length drift was not detected")
+		}
+	})
+
+	t.Run("metadata constructor signature", func(t *testing.T) {
+		actualFn := actual.Scope().Lookup("NewImportBindingWithInterfaceID").(*types.Func)
+		sig := actualFn.Type().(*types.Signature)
+		altered := types.NewFunc(token.NoPos, types.NewPackage(runtimeImportPath, "intercall"), actualFn.Name(), types.NewSignatureType(nil, nil, nil, types.NewTuple(), sig.Results(), false))
+		if msg := parityObject(actualFn.Name(), altered, actualFn); msg == "" {
+			t.Fatal("constructor signature drift was not detected")
+		}
+	})
+
+	t.Run("binding accessor method", func(t *testing.T) {
+		pkg := types.NewPackage(runtimeImportPath, "intercall")
+		tn := types.NewTypeName(token.NoPos, pkg, "ImportBinding", nil)
+		named := types.NewNamed(tn, types.NewStruct(nil, nil), nil)
+		methodSig := types.NewSignatureType(types.NewVar(token.NoPos, pkg, "b", named), nil, nil,
+			types.NewTuple(), types.NewTuple(types.NewVar(token.NoPos, pkg, "", types.Typ[types.Bool])), false)
+		named.AddMethod(types.NewFunc(token.NoPos, pkg, "InterfaceID", methodSig))
+		if msg := parityObject("ImportBinding", tn, model.Scope().Lookup("ImportBinding")); msg == "" {
+			t.Fatal("binding accessor method drift was not detected")
+		}
+	})
+}
+
 // alteredConnection builds one model-shaped Connection whose Call
 // method carries an extra int parameter, with Close and Wait identical
 // to the real model, so the parity comparison can only attribute the

@@ -10,8 +10,9 @@ import (
 // The stream must allow one read and one write concurrently, make Close
 // unblock both, deliver bytes reliably and in order, and begin at the first
 // InterCall frame. EOF and either half-close terminate the whole connection.
-// The runtime does not dial, listen, negotiate, or assign initiator and
-// acceptor roles.
+// Raw NewConnection does not dial, listen, negotiate, or assign initiator
+// and acceptor roles; metadata-aware negotiated constructors perform only
+// their explicit interface agreement.
 type ByteStream interface {
 	io.Reader
 	io.Writer
