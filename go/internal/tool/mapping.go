@@ -124,6 +124,11 @@ type NamedType struct {
 // emitted, the lexicographically smallest exact wire name is chosen.
 func MapValues(providers []*Provider, outPath string) (*TypeMap, error) {
 	m := newMapper(providers, outPath)
+	// The strict Go projection depth preflight runs before any
+	// recursive mapping (SPEC.md "Strict Go projection depth").
+	if err := m.preflightGoDepth(providers, nil); err != nil {
+		return nil, err
+	}
 	tm, err := m.mapProviders(providers)
 	if err != nil {
 		return nil, err

@@ -99,6 +99,15 @@ func RecoverSemantic(goFile *ast.File, doc *Document) (*Semantic, error) {
 	if err := syntax.Validate(f); err != nil {
 		return nil, mErr(doc, vs.Pos(), "decoded %s: %v", semanticConstantName, err)
 	}
+	// The strict Go projection depth preflight runs before any
+	// recursive metadata projection or comparison: a cross-row named
+	// chain of the decoded semantic declarations beyond the
+	// 4,096-occurrence ceiling is rejected at the constant's physical
+	// position before any row is projected (SPEC.md "Strict Go
+	// projection depth" and "Safe import and re-export metadata").
+	if err := checkSyntaxProjectionDepth(f); err != nil {
+		return nil, mErr(doc, vs.Pos(), "decoded %s: %s", semanticConstantName, depthMsg(err))
+	}
 	if formatted := syntax.Format(f); !bytes.Equal(formatted, raw) {
 		return nil, mErr(doc, vs.Pos(), "decoded %s is not canonical: the decoded bytes differ from their canonical reformatting", semanticConstantName)
 	}

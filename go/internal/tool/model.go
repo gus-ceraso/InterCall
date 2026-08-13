@@ -86,6 +86,12 @@ type TypeFact struct {
 // are computed from the validated wire structure. BuildModel reports the
 // first naming or fact error, which is deterministic for a given file.
 func BuildModel(f *syntax.File) (*Model, error) {
+	// The strict Go projection depth preflight runs before any
+	// recursive naming, model, or codec-fact work (SPEC.md "Strict Go
+	// projection depth").
+	if err := checkSyntaxProjectionDepth(f); err != nil {
+		return nil, err
+	}
 	return buildModel(f, nil)
 }
 

@@ -194,6 +194,15 @@ func MapExport(res *DiscoverResult, outPath string) (*ExportModel, error) {
 		m.addExplicit(p)
 	}
 	m.scanExceptions(res.Packages)
+	// The strict Go projection depth preflight runs before any
+	// recursive mapping, metadata projection, override, model, codec,
+	// or emission work and reports the first over-limit physical Go
+	// occurrence at its exact source position (SPEC.md "Strict Go
+	// projection depth"). Recursive graphs abort the preflight and
+	// keep their existing recursive-type diagnostic.
+	if err := m.preflightGoDepth(res.Providers, res.Packages); err != nil {
+		return nil, err
+	}
 	tm, err := m.mapProviders(res.Providers)
 	if err != nil {
 		return nil, err

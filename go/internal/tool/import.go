@@ -68,6 +68,13 @@ var (
 // MapImport reports the first reservation, naming, or fact error, which
 // is deterministic for a given file.
 func MapImport(f *syntax.File, overrides []Override) (*Model, error) {
+	// The strict Go projection depth preflight runs before any
+	// recursive override resolution, naming, model, codec, or emission
+	// work and reports the first over-limit interface occurrence at its
+	// exact source position (SPEC.md "Strict Go projection depth").
+	if err := checkSyntaxProjectionDepth(f); err != nil {
+		return nil, err
+	}
 	if err := checkImportFixed(f); err != nil {
 		return nil, err
 	}
