@@ -325,7 +325,7 @@ Remediation tasks:
 - [x] [RM-11 — Enforce safe native Go projection depth](#rm-11--enforce-safe-native-go-projection-depth) — `e08710995ee1c19b7773a32e16e7bd2ec58d14b1`
 - [x] [RM-12 — Reserve complete generated namespaces](#rm-12--reserve-complete-generated-namespaces) — `f68a807955082facad70aa05b8e25e49cc9476a5`
 - [x] [RM-13 — Type-check generated bindings before mutation](#rm-13--type-check-generated-bindings-before-mutation) — `0f9c96e85609f9f08bb7833a8b8d08ea2210f2a1`
-- [ ] [RM-14 — Require canonical owned interface bodies](#rm-14--require-canonical-owned-interface-bodies)
+- [x] [RM-14 — Require canonical owned interface bodies](#rm-14--require-canonical-owned-interface-bodies) — `3e75c72723ee12d5377b2884fda17936f1e3d507`
 - [ ] [RM-15 — Reconcile documentation, fixtures, and final remediation](#rm-15--reconcile-documentation-fixtures-and-final-remediation)
 
 ## Executable tasks
