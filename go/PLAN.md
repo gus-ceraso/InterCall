@@ -1227,9 +1227,11 @@ go test -race ./transport/unixsocket
 go test ./...
 ```
 
-### Task 9 — Add negotiated Unix dial and accept helpers
+### Task 9 — Add negotiated Unix dial and accept helpers — **Complete**
 
 **Commit:** `unixsocket: construct negotiated connections`
+
+**Status:** Implemented and verified with negotiated Unix connection and race-detector tests in the current working tree.
 
 **Files:**
 
