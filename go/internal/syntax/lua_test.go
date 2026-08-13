@@ -18,8 +18,8 @@ import (
 // compared, and any difference must be investigated against README.md,
 // never resolved by following Lua.
 //
-// When lua or LPeg is unavailable the test skips; PLAN.md's evidence
-// command guards this case in the shell first.
+// When lua or LPeg is unavailable the test skips; the validation
+// evidence commands guard this case in the shell first.
 func TestLuaDifferential(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {

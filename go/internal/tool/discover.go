@@ -23,7 +23,7 @@ import (
 // accounted for — a pattern that matches no package is an error even
 // when another operand matched — and every explicit package must
 // type-check and be an importable non-main package. Only discovery code
-// uses golang.org/x/tools/go/packages, as AGENTS.md allows.
+// uses golang.org/x/tools/go/packages, as SPEC.md allows.
 
 // discoverMode is the go/packages load mode of one discovery load: the
 // complete syntax, types, and import graph of every matched package and
