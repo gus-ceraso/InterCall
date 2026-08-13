@@ -870,6 +870,14 @@ Remediation tasks:
 
 ## Final definition of done
 
+> Machine-capacity amendment (user-approved): on the 2-core/3.9 GB host, the
+> internal/tool race suite needs ~1042s and the 18-test targeted command ~240s;
+> the race gate carries `-timeout=3600s` and the targeted command
+> `-timeout=2400s` as failure bounds. Zero test failures; extended-bound runs
+> pass. Per plan-authority direction the RM-15 Reviewer may skip the two
+> full-suite commands when wall-clock time is a constraint, recording the skip
+> explicitly in its handoff.
+
 All tasks are separately approved and integrated in DAG order. For `RM-15`, the
 Worker and Reviewer initialize their role-specific `fuzz_gate` and run from
 `go/`:
@@ -877,7 +885,7 @@ Worker and Reviewer initialize their role-specific `fuzz_gate` and run from
 ```bash
 test "$(/usr/local/go/bin/go env GOVERSION)" = go1.26.5
 /usr/local/go/bin/go test -count=1 ./...
-/usr/local/go/bin/go test -race -count=1 ./...
+/usr/local/go/bin/go test -race -count=1 -timeout=3600s ./...
 /usr/local/go/bin/go vet ./...
 /usr/local/go/bin/go mod tidy -diff
 test -z "$(find . -type f -name '*.go' -not -path './.git/*' -print0 | xargs -0 -r /usr/local/go/bin/gofmt -l)"
@@ -889,7 +897,7 @@ fuzz_gate /usr/local/go/bin/go test -run '^$' -fuzz '^FuzzImportResponseDecoder$
 fuzz_gate /usr/local/go/bin/go test -run '^$' -fuzz '^FuzzExportRequestDecoder$' -fuzztime=1000x ./internal/tool
 /usr/local/go/bin/go test -race . -run '^(TestConnectionCloseStalledWriter|TestConnectionCloseBlockedGateWaiter|TestConnectionCloseBlockedStreamClose|TestTerminalPublicationClaimsPendingBeforeCleanup|TestReceiveIncomingReuseAtDelivery|TestReceiveDeferredReuseDoesNotBlockResponses|TestReceiveIncomingWriteFailureWithDuplicate|TestReceiveStopsAfterTerminal)$' -count=100 -timeout=180s
 /usr/local/go/bin/go test ./internal/syntax -run '^(TestDeepTypeProcessingUsesBoundedStack|TestAttachDocsSharedLineTypeAnchors)$' -count=1 -timeout=120s
-/usr/local/go/bin/go test ./internal/tool ./cmd/intercall-go -run '^(TestMappingPhysicalPositionsAcrossFileSets|TestDirectiveDeclarationGroups|TestUnicodeProcedureSelectors|TestPackagePatternAccounting|TestOutputPackageTypeChecking|TestSemanticMachineTableValidation|TestGoProjectionDepthLimit|TestDeepImportProjectionBoundary|TestDeepImportNamedChainBoundary|TestDeepExportProjectionBoundary|TestDeepExportNamedAliasChainBoundary|TestDeepMetadataNamedChainBoundary|TestGeneratedNamespaceValidation|TestGeneratedGoTypeChecking|TestGeneratedImportCheckerProjectionBoundary|TestGeneratedExportCheckerProjectionBoundary|TestRuntimeSPIModelParity|TestParseInterfaceOwnershipRequiresCanonicalBody)$' -count=1 -timeout=180s
+/usr/local/go/bin/go test ./internal/tool ./cmd/intercall-go -run '^(TestMappingPhysicalPositionsAcrossFileSets|TestDirectiveDeclarationGroups|TestUnicodeProcedureSelectors|TestPackagePatternAccounting|TestOutputPackageTypeChecking|TestSemanticMachineTableValidation|TestGoProjectionDepthLimit|TestDeepImportProjectionBoundary|TestDeepImportNamedChainBoundary|TestDeepExportProjectionBoundary|TestDeepExportNamedAliasChainBoundary|TestDeepMetadataNamedChainBoundary|TestGeneratedNamespaceValidation|TestGeneratedGoTypeChecking|TestGeneratedImportCheckerProjectionBoundary|TestGeneratedExportCheckerProjectionBoundary|TestRuntimeSPIModelParity|TestParseInterfaceOwnershipRequiresCanonicalBody)$' -count=1 -timeout=2400s
 /usr/local/go/bin/go test ./internal/tool -run '^(TestArtifactDeterminism|TestArtifactFilesystemSafety|TestArtifactInterruptedExportRepair|TestImportGenerationDeterminism|TestExportGenerationDeterminism|TestCommandDeterminism)$' -count=1
 /usr/local/go/bin/go test ./internal/integration -run '^(TestGeneratedFixtureModules|TestCheckedInGeneratedFixturesAreCurrent|TestGeneratedOutputDeterminism)$' -count=1
 /usr/local/go/bin/go test -race ./internal/integration -run '^(TestBidirectional|TestNested|TestConcurrent|TestCancellation|TestMalformed|TestShutdown)$' -count=20 -timeout=180s
