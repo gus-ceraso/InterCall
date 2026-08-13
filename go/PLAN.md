@@ -1316,9 +1316,11 @@ go test -race ./transport/unixsocket
 go test ./...
 ```
 
-### Task 11 — Harden Unix serving under repeated races
+### Task 11 — Harden Unix serving under repeated races — **Complete**
 
 **Commit:** `unixsocket: cover shutdown and ownership races`
+
+**Status:** Implemented and verified with repeated Unix lifecycle and race-detector tests in the current working tree.
 
 **Files:**
 
