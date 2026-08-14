@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, invokeExportProvider, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+
+test("invokes providers with one immutable context and positional values", async () => {
+    const controller = new AbortController();
+    let received;
+    const result = await invokeExportProvider(async (context, first, second) => {
+        received = [context, first, second];
+        return first + second;
+    }, controller.signal, [2, 3]);
+    assert.equal(result, 5);
+    assert.deepEqual(received.slice(1), [2, 3]);
+    assert.equal(Object.isFrozen(received[0]), true);
+    await assert.rejects(() => invokeExportProvider(() => 1, controller.signal, []), /Promise/);
+});
 
 test("rejects invalid procedure context and result signatures", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery-invalid.json"));
