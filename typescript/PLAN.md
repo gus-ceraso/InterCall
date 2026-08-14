@@ -1022,8 +1022,9 @@ without stack overflow.
 12. **Done.** Add focused zero-width-list and nested-container tests immediately
     below and above the node budget, proving rejection occurs before a large
     allocation.
-13. Add randomized Go/TypeScript round-trip vector exchange: Go writes fixture
-    bytes decoded by TypeScript and TypeScript writes bytes decoded by Go.
+13. **Done.** Add randomized Go/TypeScript round-trip vector exchange: Go
+    writes fixture bytes decoded by TypeScript and TypeScript writes bytes
+    decoded by Go.
 
 **Gate:** codec vectors are byte-identical to Go for values within the fixed
 TypeScript safety bounds. Tests classify node-budget rejection separately and
