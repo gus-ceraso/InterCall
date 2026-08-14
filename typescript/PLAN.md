@@ -1274,7 +1274,8 @@ contracts on Linux, macOS, and Windows CI.
 
 1. **Done.** Emit canonical semantic metadata and generated machine rows from
    import.
-2. Detect the exact generated marker when export reaches a generated type.
+2. **Done.** Detect the exact generated marker when export reaches a generated
+   type.
 3. Validate the complete marked file before consuming one row.
 4. Decode, parse, validate, and recanonicalize metadata.
 5. Verify the machine-row bijection and TypeScript/wire structural parity.
