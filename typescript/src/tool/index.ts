@@ -30,6 +30,8 @@ export type { ProviderImport } from "./provider-imports.js";
 export { orderDiscoveredExports } from "./source-order.js";
 export { buildExportInterface } from "./export-interface.js";
 export type { ExportInterfaceResult } from "./export-interface.js";
+export { emitProviderImports } from "./export-emitter.js";
+export type { EmittedProviderImport } from "./export-emitter.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { buildExportInterface, discoverSourceExports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { buildExportInterface, discoverSourceExports, emitProviderImports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
 test("rejects invalid procedure context and result signatures", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery-invalid.json"));
@@ -16,6 +16,7 @@ test("discovers directly exported tagged procedures, exceptions, and types", () 
     const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/discovery.ts"]);
     const providerImports = resolveProviderImports(project, operands);
     assert.equal(providerImports[0].emittedSpecifier, "./runtime.js");
+    assert.match(emitProviderImports(providerImports)[0].source, /^import \* as provider_0 from \"\.\/runtime\.js\";/);
     const discovered = discoverSourceExports(project, operands);
     validateDiscoveredProcedure(project, discovered.procedures[0]);
     for (const exception of discovered.exceptions) validateDiscoveredException(project, exception);
