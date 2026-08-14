@@ -18,3 +18,25 @@ export type {
     Uint64,
 } from "./runtime/types.js";
 export { PayloadException } from "./runtime/types.js";
+export {
+    BindingMismatchError,
+    ConnectionClosedError,
+    InterfaceMismatchError,
+    InterCallAbortError,
+    InterCallError,
+    InternalException,
+    InvalidArgumentError,
+    InvalidArguments,
+    ProcedureNotFound,
+    ProtocolError,
+    RemoteException,
+    RequestIDsExhaustedError,
+    ResourceLimitError,
+    TransportError,
+    emptyExportBinding,
+    emptyImportBinding,
+    emptyInterfaceID,
+    internalException,
+    invalidArguments,
+    procedureNotFound,
+} from "./runtime/index.js";

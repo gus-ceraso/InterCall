@@ -7,6 +7,10 @@ import {
     makeExportBinding,
     makeImportBinding,
 } from "../runtime/binding.js";
+export {
+    emptyExportBinding,
+    emptyImportBinding,
+} from "../runtime/empty.js";
 
 export interface DispatchResult {
     readonly exceptionKey: bigint;

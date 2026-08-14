@@ -38,3 +38,10 @@ export {
     procedureNotFound,
 } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
+export {
+    EMPTY_INTERFACE_CANONICAL_BODY,
+    EMPTY_PROCEDURE_NOT_FOUND_KEY,
+    emptyExportBinding,
+    emptyImportBinding,
+    emptyInterfaceID,
+} from "./empty.js";

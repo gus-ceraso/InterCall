@@ -1042,8 +1042,8 @@ same accept/reject classification.
    wire-exception singletons.
 4. **Done.** Implement `PayloadException<T>`, generated remote payload
    exception support, and exact payload ownership.
-5. Implement the empty import/export singletons, fixed dispatch, exact canonical
-   body, fixed keys, and Go-identical interface ID.
+5. **Done.** Implement the empty import/export singletons, fixed dispatch,
+   exact canonical body, fixed keys, and Go-identical interface ID.
 6. Define and freeze the generated-code dispatch, request encoder, response
    decoder, and codec-program SPI.
 7. Add constructor validation, identity, copy/reference, zero-ID, singleton,
