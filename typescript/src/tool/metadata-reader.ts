@@ -1,4 +1,4 @@
-import { formatInterface, parseInterface, validateInterface, type InterfaceFile } from "../syntax/index.js";
+import { attachDocumentation, formatInterface, parseInterface, validateInterface, type InterfaceFile } from "../syntax/index.js";
 import { interfaceID, interfaceIDHex } from "./interface-id.js";
 import { isCanonicalWireName, isValidTypeScriptIdentifier } from "./name.js";
 
@@ -12,6 +12,14 @@ export interface GeneratedMetadata {
 
 export function hasGeneratedTypeScriptMarker(source: string): boolean {
     return source.startsWith(GENERATED_TYPESCRIPT_MARKER);
+}
+
+export function semanticDocumentation(file: InterfaceFile): ReadonlyMap<string, string> {
+    const documentation = new Map<string, string>();
+    for (const declaration of file.declarations) {
+        if (declaration.kind === "type-decl" || declaration.kind === "exception-decl" || declaration.kind === "procedure-decl") documentation.set(declaration.name.name, declaration.doc);
+    }
+    return documentation;
 }
 
 export function validateMetadataRows(file: InterfaceFile, rows: readonly { readonly wireName: string; readonly nativeName: string }[]): void {
@@ -32,6 +40,7 @@ export function decodeGeneratedInterface(metadata: GeneratedMetadata): Interface
     try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error("invalid metadata UTF-8"); }
     const file = parseInterface("generated-metadata.intercall", bytes);
     validateInterface(file);
+    attachDocumentation(file);
     if (formatInterface(file) !== text) throw new Error("metadata interface is not canonical");
     if (interfaceIDHex(interfaceID(text)) !== metadata.interfaceIDHex) throw new Error("metadata interface ID does not match");
     return file;

@@ -1280,8 +1280,8 @@ contracts on Linux, macOS, and Windows CI.
 4. **Done.** Decode, parse, validate, and recanonicalize metadata.
 5. **Done.** Verify the machine-row bijection and TypeScript/wire structural
    parity.
-6. Transfer exact nested semantic documentation to the export AST without
-   directive rescanning.
+6. **Done.** Transfer exact nested semantic documentation to the export AST
+   without directive rescanning.
 7. Add round-trip tests:
    `.intercall -> TypeScript import -> TypeScript export -> .intercall`, requiring
    byte-identical canonical semantic bodies and IDs.
