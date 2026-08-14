@@ -881,9 +881,9 @@ source, tests, documentation, and regenerated fixtures together.
    occurrences. The pinned TypeScript 5.9.3 compiler compiles the tested
    4,096-edge alias chain, so the profile limit is retained rather than lowered
    to a compiler-specific value.
-6. Add a compatibility table mapping every normative README wire rule and every
-   inherited Go-profile rule to its intended TypeScript implementation and test
-   file.
+6. **Done.** Add a compatibility table mapping every normative README wire rule
+   and every inherited Go-profile rule to its intended TypeScript implementation
+   and test file. See `COMPATIBILITY.md`.
 
 **Gate:** profile review complete; experiments run with the pinned compiler;
 there are no unresolved wire, native mapping, exception, or public API choices.
