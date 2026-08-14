@@ -22,6 +22,7 @@ export { scanTypeScriptDirectives } from "./directives.js";
 export type { TypeScriptDirective, TypeScriptDirectiveKind } from "./directives.js";
 export { discoverSourceExports } from "./source-discovery.js";
 export type { DiscoveredException, DiscoveredProcedure, DiscoveredType, DiscoveryFilterOptions, SourceDiscovery } from "./source-discovery.js";
+export { validateDiscoveredException, validateDiscoveredProcedure } from "./source-validation.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,

@@ -1191,9 +1191,9 @@ compile strictly, and call a fake Go-compatible peer successfully.
    sentinels, payload classes, and tagged named types.
 5. **Done.** Implement include/exclude filters and deterministic diagnostics
    for malformed, duplicate, unknown, ineligible, or non-explicit selectors.
-6. Validate exact `HandlerContext`, `Promise`, marker aliases, `Uint8Array`,
-   arrays, records, aliases, named types, and `PayloadException<T>` by compiler
-   symbol identity.
+6. **Done.** Validate exact `HandlerContext`, `Promise`, marker aliases,
+   `Uint8Array`, arrays, records, aliases, named types, and `PayloadException<T>`
+   by compiler symbol identity.
 7. Walk reachable type graphs iteratively, preserving source property order,
    flattening untagged aliases, retaining tagged types, rejecting cycles and
    unsupported TypeScript constructs, and enforcing the strict depth boundary.

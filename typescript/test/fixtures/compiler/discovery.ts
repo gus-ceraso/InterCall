@@ -1,7 +1,7 @@
-import { PayloadException } from "./runtime.js";
+import { PayloadException, type HandlerContext } from "./runtime.js";
 
 /** @intercall procedure add */
-export function add(_context: unknown, value: number): Promise<number> { return Promise.resolve(value); }
+export function add(_context: HandlerContext, value: number): Promise<number> { return Promise.resolve(value); }
 
 /** @intercall exception denied */
 export const Denied = new Error("denied");
