@@ -3,6 +3,14 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { discoverSourceExports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
+test("rejects invalid procedure context and result signatures", () => {
+    const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery-invalid.json"));
+    const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/discovery-invalid.ts"]);
+    const discovered = discoverSourceExports(project, operands);
+    assert.throws(() => validateDiscoveredProcedure(project, discovered.procedures[0]), /HandlerContext/);
+    assert.throws(() => validateDiscoveredProcedure(project, discovered.procedures[1]), /Promise/);
+});
+
 test("discovers directly exported tagged procedures, exceptions, and types", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery.json"));
     const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/discovery.ts"]);

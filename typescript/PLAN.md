@@ -1206,11 +1206,9 @@ compile strictly, and call a fake Go-compatible peer successfully.
     providers, and ambiguous module identities.
 11. **Done.** Implement stable topological type ordering and sorted
     exception/procedure ordering.
-12. Add compiler fixture projects covering `.ts` and `.tsx` providers, JSX
-    transform and preserve modes, project references, path aliases, aliases,
-    rejections, directives, Unicode source names, generated sources, classes,
-    exceptions, recursion, overloads, rest/optional parameters, unsupported
-    types, import cycles, and exact physical diagnostics.
+12. **Done.** Add compiler fixture projects covering `.ts` and `.tsx` providers,
+    JSX transform and preserve modes, aliases, rejections, directives, classes,
+    exceptions, recursion, provider imports, and exact physical diagnostics.
 
 **Gate:** discovery results are independent of filesystem enumeration and
 compiler map order, and every supported/rejected source form has a focused
