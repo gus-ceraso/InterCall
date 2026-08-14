@@ -1256,7 +1256,7 @@ raw dispatch bytes match Go-generated import expectations.
    output-directory collision rules, interrupted export detection, in-directory
    staging, byte-equality no-op, and rename replacement.
 5. **Done.** Connect the in-memory import pipeline to `intercall-ts import`.
-6. Connect discovery/export pipelines to `intercall-ts export`.
+6. **Done.** Connect discovery/export pipelines to `intercall-ts export`.
 7. Add filesystem tests for handwritten collisions, malformed markers, wrong
    stamps, symlinks, directories, devices where supported, hard links,
    permissions, unchanged output, interrupted two-target updates, failed rename,
