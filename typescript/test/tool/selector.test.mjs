@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     parseOverride,
+    parseOverrides,
     parseSelector,
+    resolveOverride,
+    resolveSelector,
     selectorToString,
 } from "../../dist/tool/index.js";
+import { parseInterface, validateInterface } from "../../dist/syntax/index.js";
 
 test("parses declaration, parameter, return, element, and field selectors", () => {
     for (const text of [
@@ -32,6 +36,16 @@ test("parses TypeScript name overrides", () => {
     const override = parseOverride("procedure:get_user/param:name=UserName");
     assert.equal(selectorToString(override.selector), "procedure:get_user/param:name");
     assert.equal(override.name, "UserName");
+});
+
+test("detects duplicate and unresolved overrides against an interface", () => {
+    const file = parseInterface("fixture.intercall", new TextEncoder().encode("type user record { id uint64; }; procedure get { value record { id uint64; }; } user;"));
+    validateInterface(file);
+    assert.throws(() => parseOverrides(["type:user=User", "type:user=Other"]), /duplicate/);
+    assert.throws(() => resolveSelector(file, parseSelector("type:missing")), /no declaration/);
+    assert.throws(() => resolveOverride(file, "procedure:get/param:value/field:missing=Missing"), /no field/);
+    const target = resolveOverride(file, "procedure:get/param:value/field:id=Identifier");
+    assert.equal(target.target.field.name.name, "id");
 });
 
 test("rejects malformed selectors and overrides", () => {

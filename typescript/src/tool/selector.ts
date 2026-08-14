@@ -1,4 +1,12 @@
 import { requireTypeScriptIdentifier, isValidWireName } from "./name.js";
+import type {
+    Declaration,
+    Field,
+    InterfaceFile,
+    Param,
+    RecordType,
+    TypeExpr,
+} from "../syntax/index.js";
 
 export type SelectorKind = "type" | "exception" | "procedure";
 export type Step =
@@ -17,6 +25,14 @@ export interface Override {
     readonly selector: Selector;
     readonly name: string;
     readonly text: string;
+}
+
+export interface SelectorTarget {
+    readonly selector: Selector;
+    readonly declaration: Declaration;
+    readonly parameter?: Param;
+    readonly field?: Field;
+    readonly record?: RecordType;
 }
 
 export function selectorToString(selector: Selector): string {
@@ -44,7 +60,7 @@ export function parseSelector(text: string): Selector {
         name: string;
         param?: string;
         return?: boolean;
-        steps: readonly Step[];
+        steps: Step[];
     };
 
     if (kind !== "procedure") {
@@ -77,7 +93,91 @@ export function parseOverride(text: string): Override {
 }
 
 export function parseOverrides(texts: readonly string[]): Override[] {
-    return texts.map(parseOverride);
+    const overrides: Override[] = [];
+    const seen = new Set<string>();
+    for (const text of texts) {
+        const override = parseOverride(text);
+        const selector = selectorToString(override.selector);
+        if (seen.has(selector)) throw new Error(`duplicate --ts-name override for ${selector}`);
+        seen.add(selector);
+        overrides.push(override);
+    }
+    return overrides;
+}
+
+export function resolveSelector(file: InterfaceFile, selector: Selector): SelectorTarget {
+    const declaration = file.declarations.find((candidate) => declarationName(candidate) === selector.name);
+    if (declaration === undefined) throw new Error(`selector ${selectorToString(selector)}: no declaration named ${JSON.stringify(selector.name)}`);
+    if (selector.kind === "type") {
+        if (declaration.kind !== "type-decl") throw new Error(`selector ${selectorToString(selector)}: ${JSON.stringify(selector.name)} is not a type`);
+        return resolveTypeTarget(selector, declaration, declaration.type);
+    }
+    if (selector.kind === "exception") {
+        if (isFixedException(selector.name)) throw new Error(`selector ${selectorToString(selector)}: fixed runtime exception cannot be overridden`);
+        if (declaration.kind !== "exception-decl") throw new Error(`selector ${selectorToString(selector)}: ${JSON.stringify(selector.name)} is not an exception`);
+        if (declaration.type === undefined && selector.steps.length > 0) throw new Error(`selector ${selectorToString(selector)}: exception has no payload`);
+        return resolveTypeTarget(selector, declaration, declaration.type);
+    }
+    if (declaration.kind !== "procedure-decl") throw new Error(`selector ${selectorToString(selector)}: ${JSON.stringify(selector.name)} is not a procedure`);
+    return resolveProcedureTarget(selector, declaration);
+}
+
+export function resolveOverride(file: InterfaceFile, text: string): { readonly override: Override; readonly target: SelectorTarget } {
+    const override = parseOverride(text);
+    return { override, target: resolveSelector(file, override.selector) };
+}
+
+function resolveTypeTarget(selector: Selector, declaration: Declaration, root: TypeExpr | undefined): SelectorTarget {
+    if (selector.steps.length === 0) return { selector, declaration };
+    if (root === undefined) throw new Error(`selector ${selectorToString(selector)}: selected declaration has no payload type`);
+    const result = walkFieldPath(selector, root);
+    return { selector, declaration, field: result.field, record: result.record };
+}
+
+function resolveProcedureTarget(selector: Selector, declaration: Extract<Declaration, { readonly kind: "procedure-decl" }>): SelectorTarget {
+    if (selector.param !== undefined) {
+        const parameter = declaration.params.find((candidate) => candidate.name.name === selector.param);
+        if (parameter === undefined) throw new Error(`selector ${selectorToString(selector)}: procedure has no parameter named ${JSON.stringify(selector.param)}`);
+        if (selector.steps.length === 0) return { selector, declaration, parameter };
+        const result = walkFieldPath(selector, parameter.type);
+        return { selector, declaration, parameter, field: result.field, record: result.record };
+    }
+    if (selector.return === true) {
+        if (declaration.result === undefined) throw new Error(`selector ${selectorToString(selector)}: procedure has no return value`);
+        const result = walkFieldPath(selector, declaration.result);
+        return { selector, declaration, field: result.field, record: result.record };
+    }
+    if (selector.steps.length > 0) throw new Error(`selector ${selectorToString(selector)}: procedure root cannot have a field path`);
+    return { selector, declaration };
+}
+
+function walkFieldPath(selector: Selector, root: TypeExpr): { readonly field: Field; readonly record: RecordType } {
+    let current = root;
+    for (let index = 0; index < selector.steps.length; index += 1) {
+        const step = selector.steps[index]!;
+        if (current.kind === "named") {
+            throw new Error(`selector ${selectorToString(selector)}: named reference ${JSON.stringify(current.name.name)} is not traversed`);
+        }
+        if (step.kind === "element") {
+            if (current.kind !== "list") throw new Error(`selector ${selectorToString(selector)}: /element requires a list`);
+            current = current.elem;
+            continue;
+        }
+        if (current.kind !== "record") throw new Error(`selector ${selectorToString(selector)}: /field:${step.field} requires an inline record`);
+        const field = current.fields.find((candidate) => candidate.name.name === step.field);
+        if (field === undefined) throw new Error(`selector ${selectorToString(selector)}: no field ${JSON.stringify(step.field)}`);
+        if (index === selector.steps.length - 1) return { field, record: current };
+        current = field.type;
+    }
+    throw new Error(`selector ${selectorToString(selector)}: field path has no final field`);
+}
+
+function declarationName(declaration: Declaration): string {
+    return declaration.name.name;
+}
+
+function isFixedException(name: string): boolean {
+    return name === "internal_exception" || name === "invalid_arguments" || name === "procedure_not_found";
 }
 
 function parseFieldPath(text: string, rest: string): Step[] {

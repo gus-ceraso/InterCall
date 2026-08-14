@@ -981,9 +981,9 @@ specified as TypeScript-specific.
    dispatch/provider facts.
 6. **Done.** Implement the iterative strict projection-depth preflight and
    exact boundary diagnostics before recursive compiler/emitter work.
-7. Add unit tests for every initialism, inverse projection, invalid identifier,
-   selector resolution, duplicate override, unresolved override, collision,
-   and 4,096 boundary case.
+7. **Done.** Add unit tests for every initialism, inverse projection, invalid
+   identifier, selector resolution, duplicate override, unresolved override,
+   collision, and 4,096 boundary case.
 
 **Gate:** naming and selectors are deterministic and all boundary tests run
 without stack overflow.

@@ -21,12 +21,15 @@ export {
     parseOverride,
     parseOverrides,
     parseSelector,
+    resolveOverride,
+    resolveSelector,
     selectorToString,
 } from "./selector.js";
 export type {
     Override,
     Selector,
     SelectorKind,
+    SelectorTarget,
     Step,
 } from "./selector.js";
 export {
