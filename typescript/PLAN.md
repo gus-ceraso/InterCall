@@ -1014,11 +1014,11 @@ without stack overflow.
    classes.
 10. **Done.** Generate codec programs in memory from syntax generation
     records.
-11. Port Go codec fixtures and add golden wire vectors for every primitive,
-    signed boundaries, infinities, signed zero, canonical/noncanonical NaNs,
-    invalid strings, bytes versus list-uint8, nested records, named chains,
-    zero-width records/lists, truncation, trailing data, excessive counts, and
-    allocation boundaries.
+11. **Done.** Port Go codec fixtures and add golden wire vectors for every
+    primitive, signed boundaries, infinities, signed zero,
+    canonical/noncanonical NaNs, invalid strings, bytes versus list-uint8,
+    nested records, named chains, zero-width records/lists, truncation, trailing
+    data, excessive counts, and allocation boundaries.
 12. Add focused zero-width-list and nested-container tests immediately below and
     above the node budget, proving rejection occurs before a large allocation.
 13. Add randomized Go/TypeScript round-trip vector exchange: Go writes fixture
