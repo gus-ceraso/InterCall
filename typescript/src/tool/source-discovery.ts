@@ -2,7 +2,7 @@ import ts from "typescript";
 import type { CompilerProject, SourceOperand } from "./compiler-project.js";
 import { scanTypeScriptDirectives, sourceDocumentation, type TypeScriptDirective } from "./directives.js";
 import { isValidWireName, typeScriptToWire } from "./name.js";
-import { decodeGeneratedInterface, hasGeneratedTypeScriptMarker, readGeneratedMetadata, validateMetadataRows } from "./metadata-reader.js";
+import { decodeGeneratedInterface, hasGeneratedTypeScriptMetadata, readGeneratedMetadata, validateMetadataRows } from "./metadata-reader.js";
 
 export interface DiscoveredProcedure {
     readonly sourceName: string;
@@ -74,7 +74,7 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
                 const sourceName = declarationName(declaration);
                 const row = sourceName === undefined ? undefined : metadataRows.get(sourceName);
                 if (sourceName !== undefined && (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration))) {
-                    if (hasGeneratedTypeScriptMarker(declarationFile.getFullText()) && row === undefined) throw new Error(`generated metadata has no row for exported type ${sourceName}`);
+                    if (hasGeneratedTypeScriptMetadata(declarationFile.getFullText()) && row === undefined) throw new Error(`generated metadata has no row for exported type ${sourceName}`);
                     if (row !== undefined) namedTypes.push({ sourceName, wireName: row.wireName, sourceFile: declarationFile, declaration, documentation: row.documentation, metadataDeclaration: row.declaration });
                 }
                 continue;
@@ -100,7 +100,7 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
         }
     }
     const knownGeneratedTypes = new Set(namedTypes.map((type) => `${type.sourceFile.fileName}\u0000${type.sourceName}`));
-    for (const sourceFile of project.program.getSourceFiles().filter((file) => hasGeneratedTypeScriptMarker(file.getFullText())).sort((left, right) => left.fileName.localeCompare(right.fileName))) {
+    for (const sourceFile of project.program.getSourceFiles().filter((file) => hasGeneratedTypeScriptMetadata(file.getFullText())).sort((left, right) => left.fileName.localeCompare(right.fileName))) {
         for (const [nativeName, row] of metadataRowsFor(sourceFile, metadataCache)) {
             const declaration = sourceFile.statements.find((statement) => (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) && statement.name?.text === nativeName);
             if (declaration === undefined || (!ts.isTypeAliasDeclaration(declaration) && !ts.isInterfaceDeclaration(declaration))) throw new Error(`generated metadata has no TypeScript declaration for ${nativeName}`);
@@ -167,7 +167,7 @@ function metadataRowsFor(
 ): ReadonlyMap<string, { readonly wireName: string; readonly documentation: string; readonly declaration: import("../syntax/index.js").TypeDecl }> {
     const cached = cache.get(sourceFile.fileName);
     if (cached !== undefined) return cached;
-    if (!hasGeneratedTypeScriptMarker(sourceFile.getFullText())) {
+    if (!hasGeneratedTypeScriptMetadata(sourceFile.getFullText())) {
         const empty = new Map<string, { readonly wireName: string; readonly documentation: string; readonly declaration: import("../syntax/index.js").TypeDecl }>();
         cache.set(sourceFile.fileName, empty);
         return empty;

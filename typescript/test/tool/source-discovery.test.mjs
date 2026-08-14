@@ -52,6 +52,14 @@ test("flattens nonrecursive record and list aliases", () => {
     assert.match(buildExportInterface(project, discovered).canonicalText, /procedure use \{bag record \{x int32;\}; bags list record \{x int32;\};\};/);
 });
 
+test("projects handwritten strings while ignoring a generated export binding in the project", () => {
+    const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-string.json"));
+    const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/string.ts"]);
+    const discovered = discoverSourceExports(project, operands);
+    validateDiscoveredProcedure(project, discovered.procedures[0]);
+    assert.match(buildExportInterface(project, discovered).canonicalText, /procedure echo \{value string;\} string\s*;/);
+});
+
 test("keeps same-named types from separate modules distinct", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-same.json"));
     const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/same-a.ts", "test/fixtures/compiler/same-b.ts"]);

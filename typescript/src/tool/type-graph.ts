@@ -1,6 +1,6 @@
 import ts from "typescript";
 import type { CompilerProject } from "./compiler-project.js";
-import { hasGeneratedTypeScriptMarker } from "./metadata-reader.js";
+import { hasGeneratedTypeScriptMetadata } from "./metadata-reader.js";
 
 export const MAX_SOURCE_TYPE_DEPTH = 4_096;
 
@@ -37,7 +37,7 @@ export function walkReachableType(project: CompilerProject, root: ts.Node, limit
             continue;
         }
         const symbol = type.aliasSymbol ?? type.symbol;
-        if (symbol?.declarations?.some((declaration) => (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) && hasGeneratedTypeScriptMarker(declaration.getSourceFile().getFullText()))) continue;
+        if (symbol?.declarations?.some((declaration) => (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) && hasGeneratedTypeScriptMetadata(declaration.getSourceFile().getFullText()))) continue;
         if (symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration))) throw new Error(`unsupported class type ${checker.typeToString(type)}`);
         if (symbol !== undefined && symbol !== work.expandedAlias && isExpandable(symbol, type)) {
             if (work.active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);

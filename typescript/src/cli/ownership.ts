@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { formatInterface, parseInterface, validateInterface } from "../syntax/index.js";
+import { attachDocumentation, formatInterface, parseInterface, validateInterface } from "../syntax/index.js";
 import { dirname, basename, join } from "node:path";
 
 export type ArtifactKind = "import" | "export";
@@ -65,6 +65,7 @@ export async function assertReplaceableInterface(path: string): Promise<void> {
     try {
         const parsed = parseInterface(path, new TextEncoder().encode(body));
         validateInterface(parsed);
+        attachDocumentation(parsed);
         if (formatInterface(parsed) !== body) throw new Error("noncanonical interface");
     } catch (error) {
         throw new Error(`target interface ownership is invalid: ${path}`, { cause: error });

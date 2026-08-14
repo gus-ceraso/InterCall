@@ -4,7 +4,7 @@ import type { CompilerProject } from "./compiler-project.js";
 import type { DiscoveredException, DiscoveredProcedure, DiscoveredType, SourceDiscovery } from "./source-discovery.js";
 import { orderDiscoveredExports } from "./source-order.js";
 import { sourceDocumentation, sourceParameterDocumentation, sourceReturnDocumentation } from "./directives.js";
-import { hasGeneratedTypeScriptMarker } from "./metadata-reader.js";
+import { hasGeneratedTypeScriptMetadata } from "./metadata-reader.js";
 import { isExactRuntimeMarker } from "./source-validation.js";
 import { typeScriptToWire } from "./name.js";
 import { walkReachableType } from "./type-graph.js";
@@ -108,7 +108,7 @@ function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile:
     if (symbol?.declarations?.some((declaration) => ts.isTypeAliasDeclaration(declaration))) {
         const declaration = symbol.declarations.find(ts.isTypeAliasDeclaration);
         if (declaration !== undefined) {
-            const generated = hasGeneratedTypeScriptMarker(declaration.getSourceFile().getFullText());
+            const generated = hasGeneratedTypeScriptMetadata(declaration.getSourceFile().getFullText());
             if (symbol !== expandedAlias && !(generated && expandedGenerated.has(symbol))) {
                 if (active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);
                 const next = new Set(active);
@@ -130,7 +130,7 @@ function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile:
         const elementNode = arrayElementNode(node);
         return `list ${typeText(project, checker, sourceFile, element, active, wireNames, elementNode, fieldWireNames, expandedGenerated)}`;
     }
-    if ((type.flags & ts.TypeFlags.StringLike) !== 0 && expandedGenerated.size > 0) return "string";
+    if ((type.flags & ts.TypeFlags.String) !== 0) return "string";
     if ((type.flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike)) !== 0) throw new Error(`unsupported unmarked primitive ${checker.typeToString(type)}`);
     if (type.getProperties().length > 0) {
         if (type.getProperties().some((property) => (property.flags & ts.SymbolFlags.Optional) !== 0)) throw new Error(`optional properties are unsupported in ${checker.typeToString(type)}`);

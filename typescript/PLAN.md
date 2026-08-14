@@ -1345,7 +1345,8 @@ both directions for every supported value and failure class.
 7. Complete `TYPESCRIPT.md` command reference, mapping tables, exception/catch
    examples, cancellation, lifecycle, same-origin/WSS/authentication guidance,
    and Makefile integration.
-8. Add a complete bidirectional hello-world example and a kitchen-sink example.
+8. **Partial.** `../example` is a complete bidirectional hello-world example;
+   add a kitchen-sink example.
 9. Verify package exports and declarations in a clean consumer project with a
    representative browser bundler, without making that bundler a runtime
    dependency.
