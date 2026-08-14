@@ -858,9 +858,10 @@ source, tests, documentation, and regenerated fixtures together.
 
 1. **Done.** Create `typescript/SPEC.md` from Sections 2–9 of this plan,
    resolving the TypeScript/browser profile before runtime code depends on it.
-2. Create `typescript/TYPESCRIPT.md` with the bidirectional hello-world flow,
-   build requirements, JSDoc directives, exception examples, generation
-   commands, same-origin deployment guidance, and connection lifecycle.
+2. **Done.** Create `typescript/TYPESCRIPT.md` with the bidirectional
+   hello-world flow, build requirements, JSDoc directives, exception examples,
+   generation commands, same-origin deployment guidance, and connection
+   lifecycle.
 3. Record browser constraints that prevent literal Go API behavior:
    `WebSocket.send` has no completion callback, browser sockets cannot be
    force-closed synchronously, messages arrive already allocated, and custom
