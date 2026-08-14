@@ -28,6 +28,7 @@ export function attachRawSocket(
     socket: WebSocketLike,
     bindings: ConnectionBindings,
     messageLimit: number,
+    existingQueue?: WebSocketMessageQueue,
 ): Connection {
     const transport: RuntimeTransport = {
         bufferedAmount: () => socket.bufferedAmount,
@@ -36,7 +37,7 @@ export function attachRawSocket(
         close: () => { try { socket.close(); } catch { /* terminal cause is already selected */ } },
     };
     const runtime = new ConnectionRuntime(transport, bindings.importBinding, bindings.exportBinding);
-    const queue = new WebSocketMessageQueue(messageLimit);
+    const queue = existingQueue ?? new WebSocketMessageQueue(messageLimit);
     let events: { cleanup: () => void };
     events = bindWebSocketEvents(socket, queue, (chunk) => runtime.receiveChunk(chunk), (cause) => {
         events.cleanup();

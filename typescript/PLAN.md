@@ -1139,8 +1139,9 @@ no promise is left unresolved after terminal teardown.
    of open and negotiation timeouts, send throws, non-open sends,
    `bufferedAmount` drain and saturation, message ordering, aggregate queue
    overflow, text rejection, close races, and negotiation residual bytes.
-9. Add Playwright tests in Chromium, Firefox, and WebKit for binary sends,
-   chunk queues, abort behavior, relative URLs, and browser close behavior.
+9. **Done.** Add Playwright tests in Chromium, Firefox, and WebKit for binary
+   sends, chunk queues, abort behavior, relative URLs, and browser close
+   behavior.
 
 **Gate:** raw and negotiated browser connections pass the same runtime suite,
 and browser entry points contain no Node imports.
