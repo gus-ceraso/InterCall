@@ -1576,9 +1576,11 @@ go test -race ./transport/websocket
 go test ./...
 ```
 
-### Task 17 — Add handler shutdown and active connection ownership
+### Task 17 — Add handler shutdown and active connection ownership — **Complete**
 
 **Commit:** `websocket: shut down active handler connections`
+
+**Status:** Implemented and verified with active-handler shutdown, admission, concurrent shutdown, and repeated race-detector tests in the current working tree.
 
 **Files:**
 
