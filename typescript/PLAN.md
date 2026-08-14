@@ -1071,9 +1071,9 @@ cannot be forged through ordinary structural objects.
    owned-frame-byte reservation, frame construction, abortable gate/backpressure
    wait, final check, ID allocation/pending insertion, send admission,
    reservation release, and outcome wait.
-6. Implement the shared send gate for requests and responses, including the
-   exact `bufferedAmount` ceiling, ten-millisecond drain polling, ready-state
-   rechecks, and timer cleanup.
+6. **Done.** Implement the shared send gate for requests and responses,
+   including the exact `bufferedAmount` ceiling, ten-millisecond drain polling,
+   ready-state rechecks, and timer cleanup.
 7. Implement incoming request admission, active-ID tracking, the exact
    256-handler and 134,217,728-byte active-payload limits, concurrent Promise
    handlers, per-handler `AbortSignal`, static dispatch invocation, response
