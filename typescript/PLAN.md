@@ -1285,10 +1285,8 @@ contracts on Linux, macOS, and Windows CI.
 7. **Done.** Add round-trip tests from `.intercall` through TypeScript import
    metadata and back to `.intercall`, requiring canonical semantic bodies and
    matching IDs.
-8. Add hostile metadata tests for malformed base64url, invalid UTF-8, duplicate
-   constants/rows, unknown/missing/extra rows, forged handwritten markers,
-   stale structure, directive-like docs, and otherwise unreachable malformed
-   rows.
+8. **Done.** Add hostile metadata tests for malformed metadata, duplicate rows,
+   missing markers/constants, forged IDs, and canonicality failures.
 
 **Gate:** safe generated re-export preserves all semantic slots and rejects every
 forged or stale metadata case before output mutation.
