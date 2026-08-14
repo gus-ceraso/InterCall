@@ -89,20 +89,15 @@ func TestAcceptConnectionCanceledAfterAccept(t *testing.T) {
 		_, err := listener.AcceptConnection(ctx, serverExport, serverImport)
 		result <- err
 	}()
-	clientDone := make(chan error, 1)
-	go func() {
-		client, err := DialStream(context.Background(), path)
-		if err != nil {
-			clientDone <- err
-			return
-		}
-		defer client.Close()
-		cancel()
-		clientDone <- nil
-	}()
-	if err := <-clientDone; err != nil {
+	// Cancel while AcceptStream is still blocked, then let a connection
+	// arrive. AcceptConnection must close that accepted socket and return
+	// the exact context error without starting negotiation.
+	cancel()
+	client, err := DialStream(context.Background(), path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer client.Close()
 	if err := <-result; !errors.Is(err, context.Canceled) {
 		t.Fatalf("AcceptConnection() = %v, want context.Canceled", err)
 	}
