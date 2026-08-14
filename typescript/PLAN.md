@@ -1187,8 +1187,8 @@ compile strictly, and call a fake Go-compatible peer successfully.
    deterministic logical paths, preserving each source's project `jsx` behavior.
 3. **Done.** Implement exact JSDoc directive scanning and physical source
    positions from source AST ranges.
-4. Discover directly exported eligible procedures, no-payload sentinels,
-   payload classes, and tagged named types.
+4. **Done.** Discover directly exported eligible procedures, no-payload
+   sentinels, payload classes, and tagged named types.
 5. Implement include/exclude filters and deterministic diagnostics for malformed,
    duplicate, unknown, ineligible, or non-explicit selectors.
 6. Validate exact `HandlerContext`, `Promise`, marker aliases, `Uint8Array`,

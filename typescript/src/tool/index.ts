@@ -20,6 +20,8 @@ export { loadCompilerProject, normalizeSourceOperands } from "./compiler-project
 export type { CompilerProject, SourceOperand } from "./compiler-project.js";
 export { scanTypeScriptDirectives } from "./directives.js";
 export type { TypeScriptDirective, TypeScriptDirectiveKind } from "./directives.js";
+export { discoverSourceExports } from "./source-discovery.js";
+export type { DiscoveredException, DiscoveredProcedure, DiscoveredType, SourceDiscovery } from "./source-discovery.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
