@@ -7,7 +7,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 npm install --prefix "$tmp" --no-save --no-package-lock --ignore-scripts \
     typescript@5.9.3
-TS_MODULE="$tmp/node_modules/typescript" node run.mjs
+TS_MODULE="$tmp/node_modules/typescript" node compiler-experiments.test.mjs
 ```
 
 The experiment checks marker-symbol resolution through aliases, JSDoc tag

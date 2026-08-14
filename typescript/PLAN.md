@@ -923,8 +923,9 @@ there are no unresolved wire, native mapping, exception, or public API choices.
 5. **Done.** Add a static import-boundary test that walks emitted browser
    modules and rejects `node:*`, all Node built-ins, CLI/tool dependencies, and
    every external browser dependency.
-6. Add build, unit-test, browser-test, fixture-check, and package-dry-run npm
-   scripts.
+6. **Done.** Add build, unit-test, browser-test, fixture-check, and
+   package-dry-run npm scripts. Current scaffold gates are executable without
+   accidentally running TypeScript fixture sources as JavaScript.
 
 **Gate:** `npm ci`, declaration build, browser build, an empty Node test run,
 and `npm pack --dry-run` pass.
