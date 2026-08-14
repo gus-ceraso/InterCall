@@ -1,0 +1,6 @@
+type user_id uint64;
+type t /* named */ user_id;
+procedure p {
+    x /* int */ int8;
+    y /* list of */ list /* of bytes */ bytes;
+} /* result */ record {};

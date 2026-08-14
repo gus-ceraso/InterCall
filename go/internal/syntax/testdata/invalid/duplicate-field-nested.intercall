@@ -1,0 +1,1 @@
+type t record { r record { f uint8; f string; }; };

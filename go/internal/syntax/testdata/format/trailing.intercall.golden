@@ -1,0 +1,15 @@
+/* first */
+type t uint8;
+
+/* second */
+type u int16;
+
+type v
+/* after name */
+int32;
+
+/* third */
+exception e;
+
+/* fourth */
+type w list uint8;

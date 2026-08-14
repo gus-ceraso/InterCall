@@ -1,0 +1,2 @@
+offset 36
+testdata/invalid/duplicate-field-nested.intercall:1:37: duplicate field "f" in field "r" of type t

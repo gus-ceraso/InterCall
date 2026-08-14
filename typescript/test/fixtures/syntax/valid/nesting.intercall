@@ -1,0 +1,14 @@
+type a list uint8;
+type b list list uint8;
+type c list list list float64;
+type d list record { x uint8; };
+type e record {};
+type f record { r record { inner list string; }; };
+type g record { xs list record { y int64; }; };
+type u uint8;
+type v list u;
+type w u;
+procedure p { xs list list bytes; } record { ok uint8; };
+procedure q { a int8; b record { c uint16; }; } list u;
+exception ep record {};
+exception el list string;

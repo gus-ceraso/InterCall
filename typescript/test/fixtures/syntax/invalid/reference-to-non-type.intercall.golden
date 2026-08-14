@@ -1,0 +1,2 @@
+offset 26
+testdata/invalid/reference-to-non-type.intercall:2:8: unresolved type reference "e" in type a

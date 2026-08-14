@@ -1,0 +1,2 @@
+offset 7
+testdata/invalid/invalid-character.intercall:1:8: invalid character '!'

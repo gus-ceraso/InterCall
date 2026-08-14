@@ -1,0 +1,2 @@
+offset 154
+testdata/invalid/key-collision-cross.intercall:4:11: key collision: exception "k53gkqh4kufnc" collides with procedure "oopqz20a4nrzy"

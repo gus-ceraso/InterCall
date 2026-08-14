@@ -1,0 +1,2 @@
+offset 23
+testdata/invalid/duplicate-exception.intercall:2:11: duplicate exception name "e" (first declared at line 1)

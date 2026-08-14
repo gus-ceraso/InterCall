@@ -1,0 +1,30 @@
+/* A user returned by this peer. */
+type user record {
+    name string;
+    sex uint8;
+};
+
+/* An implementation-defined failure without a payload. */
+exception unknown;
+
+/* Another implementation-defined failure. */
+exception procedure_not_found
+    /* The procedures known to the peer. */
+    record {
+        available_procedures list string;
+    };
+
+/* Finds a user by name. */
+procedure get_user {
+    /* The name to find. */
+    name string;
+} /* The matching user. */ user;
+
+/* Draws an image and returns no value. */
+procedure draw_image {
+    colors list record {
+        red uint8;
+        green uint8;
+        blue uint8;
+    };
+};

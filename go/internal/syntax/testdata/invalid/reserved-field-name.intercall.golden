@@ -1,0 +1,2 @@
+offset 16
+testdata/invalid/reserved-field-name.intercall:1:17: expected identifier, found 'bytes'

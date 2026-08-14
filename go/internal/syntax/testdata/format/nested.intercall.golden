@@ -1,0 +1,47 @@
+/* The account type. */
+type account
+/* The underlying payload. */
+record {
+    /* The owner. */
+    owner
+    /* The owner id. */
+    string;
+    /* The aliases. */
+    aliases list
+    /* The element. */
+    string;
+};
+
+/* A failure. */
+exception failure
+/* The payload. */
+record {
+    /* The code. */
+    code
+    /* The code value. */
+    int16;
+};
+
+/* A call. */
+procedure call {
+    /* The target. */
+    target
+    /* The target name. */
+    string;
+    /* The options. */
+    options
+    /* The option list. */
+    list record {
+        /* The option name. */
+        name
+        /* The name value. */
+        bytes;
+    };
+}
+/* The outcome. */
+record {
+    /* The status. */
+    status
+    /* The status value. */
+    int8;
+};

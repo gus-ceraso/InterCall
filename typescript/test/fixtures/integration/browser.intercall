@@ -1,0 +1,196 @@
+/* User identity. */
+/* A user identifier is an opaque 64-bit value assigned by the identity
+   service at account creation. It is the primary key of every user
+   record, is never reused, and never changes for the lifetime of an
+   account. Callers should treat it as an opaque handle. */
+type user_id uint64;
+
+/* A geometric point. */
+/* A point is a two-dimensional location in the canvas coordinate
+   system, expressed in double-precision floating point. The x axis
+   grows to the right and the y axis grows downward, matching screen
+   conventions. Points are dimensionless and have no origin. */
+type point record {
+    /* Horizontal coordinate. */
+    x float64;
+    /* Vertical coordinate. */
+    y float64;
+};
+
+/* An empty record. */
+/* The empty record carries no wire bytes at all. It is the canonical
+   zero-width type of the interface and is used wherever a value must
+   exist on the wire without occupying any space. */
+type empty record {};
+
+/* A list of names. */
+/* A name list is an ordered sequence of strings without a fixed
+   length. The order is the caller's order and is preserved exactly by
+   the wire encoding. */
+type names list string;
+
+/* Raw byte payload. */
+/* A blob is an uninterpreted sequence of bytes carried verbatim. The
+   interface never interprets blob contents; any structure inside a
+   blob belongs to the application. */
+type blob bytes;
+
+/* Access denied. */
+/* The denied exception reports that the caller is not authorized for
+   the requested procedure. It carries no payload. */
+exception denied;
+
+/* Operation failed. */
+/* The failed exception reports an application-level failure with a
+   machine-readable code and a human-readable message. The code is
+   stable across releases; the message is diagnostic text only. */
+exception failed record {
+    /* Stable failure code. */
+    code int32;
+    /* Human-readable failure message. */
+    message string;
+};
+
+/* Overloaded result. */
+/* The overloaded exception reports that a procedure produced more
+   results than the caller can consume, and carries the produced name
+   list as its payload. */
+exception overloaded names;
+
+/* Unknown procedure. */
+/* The procedure_not_found exception reports that the request named a
+   procedure the peer does not declare. It is a fixed runtime exception
+   and carries no payload. */
+exception procedure_not_found;
+
+/* Invalid arguments. */
+/* The invalid_arguments exception reports that a request payload did
+   not encode the procedure's parameters exactly. It is a fixed runtime
+   exception and carries no payload. */
+exception invalid_arguments;
+
+/* Internal failure. */
+/* The internal_exception exception reports an unexpected failure inside
+   the peer. It is a fixed runtime exception and carries no payload. */
+exception internal_exception;
+
+/* Echo a value. */
+/* The echo procedure returns its input unchanged. It exists to verify
+   round trips of single values and to measure latency without
+   allocation on the wire. */
+procedure echo {
+    /* The value to echo. */
+    value string;
+} string;
+
+/* Add two integers. */
+/* The add procedure returns the exact sum of its two arguments. The
+   result is the mathematical sum modulo 2^64; overflow wraps like
+   two's-complement arithmetic. */
+procedure add {
+    /* First addend. */
+    a int64;
+    /* Second addend. */
+    b int64;
+} int64;
+
+/* Sample bytes. */
+/* The sample procedure returns the byte payload it received. It
+   exercises the distinct bytes and list uint8 wire forms: the data
+   parameter is bytes and the channel selector is an unsigned octet. */
+procedure sample {
+    /* Byte payload to sample. */
+    data bytes;
+    /* Channel selector. */
+    channel uint8;
+} bytes;
+
+/* Wave samples. */
+/* The wave procedure consumes a list of unsigned octets and returns
+   the number of samples. The list uint8 wire form keeps the byte
+   spelling distinct from the bytes form of the sample procedure. */
+procedure wave {
+    /* Sample values. */
+    samples list uint8;
+} uint32;
+
+/* Paint a rectangle. */
+/* The paint procedure places a rectangle whose origin and size are
+   given as anonymous inline records and returns the same size. */
+procedure paint {
+    /* Rectangle origin. */
+    origin record {
+        /* Horizontal origin coordinate. */
+        x int32;
+        /* Vertical origin coordinate. */
+        y int32;
+    };
+    /* Rectangle size. */
+    size record {
+        /* Rectangle width. */
+        width uint32;
+        /* Rectangle height. */
+        height uint32;
+    };
+} record {
+    /* Result width. */
+    width uint32;
+    /* Result height. */
+    height uint32;
+};
+
+/* Locate a box. */
+/* The locate procedure takes a nested anonymous box record and returns
+   its corner as a named point. The nested corner record inside the box
+   shares its wire structure with the paint origin. */
+procedure locate {
+    /* The box to locate. */
+    box record {
+        /* Box corner. */
+        corner record {
+            /* Corner x. */
+            x int32;
+            /* Corner y. */
+            y int32;
+        };
+        /* Box label. */
+        label string;
+    };
+} point;
+
+/* Fetch a blob. */
+/* The fetch procedure retrieves the blob stored for a user. The
+   user_id parameter is a named type and the result is the named blob
+   type. */
+procedure fetch {
+    /* The user whose blob is fetched. */
+    id user_id;
+} blob;
+
+/* Ping. */
+/* The ping procedure has no parameters and no return value. A
+   successful response is an empty payload. */
+procedure ping {};
+
+/* Stamp. */
+/* The stamp procedure returns an empty record, exercising a zero-width
+   return value whose successful response is an empty payload. */
+procedure stamp {} record {};
+
+/* Load empties. */
+/* The load procedure returns a list of empty records, exercising a
+   list whose elements occupy zero wire bytes: only the element count
+   is encoded. */
+procedure load {
+    /* Number of empty records to load. */
+    count uint64;
+} list empty;
+
+/* Tiny marker. */
+/* The tiny procedure takes one zero-width empty record parameter and
+   returns a marker count. Zero-width parameters occupy no wire bytes,
+   so a tiny request payload is exactly empty. */
+procedure tiny {
+    /* Zero-width marker. */
+    tag empty;
+} uint32;

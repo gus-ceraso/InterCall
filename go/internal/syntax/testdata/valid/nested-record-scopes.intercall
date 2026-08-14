@@ -1,0 +1,19 @@
+/* Nested records each own a fresh local scope: the same field name may
+   appear in sibling and nested records and inside exception payloads. */
+type t record {
+    x uint8;
+    r record {
+        x uint8;
+        s record {
+            x string;
+        };
+    };
+    q record {
+        x list uint8;
+    };
+};
+exception e record {
+    x record {
+        x uint8;
+    };
+};

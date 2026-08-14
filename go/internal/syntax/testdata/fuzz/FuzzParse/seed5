@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("type a list list uint8; type b list record { x uint8; }; procedure p { xs list bytes; } record { ok uint8; };")

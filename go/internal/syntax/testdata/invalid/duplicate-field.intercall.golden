@@ -1,0 +1,2 @@
+offset 25
+testdata/invalid/duplicate-field.intercall:1:26: duplicate field "f" in type t

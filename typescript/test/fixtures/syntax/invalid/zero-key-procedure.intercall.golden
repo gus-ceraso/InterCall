@@ -1,0 +1,2 @@
+offset 68
+testdata/invalid/zero-key-procedure.intercall:2:11: key of procedure "p3vuYLtJYAr" is 0, which is invalid

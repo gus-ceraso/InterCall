@@ -1,0 +1,1 @@
+type x uint8; /* never closed

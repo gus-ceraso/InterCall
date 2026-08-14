@@ -1,0 +1,2 @@
+offset 19
+testdata/invalid/duplicate-type.intercall:2:6: duplicate type name "t" (first declared at line 1)

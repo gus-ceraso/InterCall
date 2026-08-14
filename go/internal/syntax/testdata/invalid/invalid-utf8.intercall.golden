@@ -1,0 +1,2 @@
+offset 7
+testdata/invalid/invalid-utf8.intercall:1:8: invalid UTF-8 encoding

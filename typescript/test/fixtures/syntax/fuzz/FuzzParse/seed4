@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("type user record {\x0a    name string;\x0a    sex uint8;\x0a};\x0a\x0aexception unknown;\x0aprocedure get_user {\x0a    name string;\x0a} user;\x0a")

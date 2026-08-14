@@ -1,0 +1,2 @@
+offset 7
+testdata/invalid/forward-reference.intercall:1:8: unresolved type reference "b" in type a

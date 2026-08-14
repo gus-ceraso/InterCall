@@ -1,0 +1,2 @@
+offset 24
+testdata/invalid/duplicate-cross-kind.intercall:2:11: duplicate exception name "t" (first declared at line 1)

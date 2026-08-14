@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("type x record {\x0d\x0a\x09f uint8;\x0d\x0a};")

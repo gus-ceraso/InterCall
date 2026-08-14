@@ -1,0 +1,2 @@
+/* doc */ type t uint8;
+/* more */ type u int16;

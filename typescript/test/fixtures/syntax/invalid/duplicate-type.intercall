@@ -1,0 +1,2 @@
+type t uint8;
+type t string;

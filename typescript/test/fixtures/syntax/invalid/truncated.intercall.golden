@@ -1,0 +1,2 @@
+offset 33
+testdata/invalid/truncated.intercall:3:1: expected '}' or field, found end of file

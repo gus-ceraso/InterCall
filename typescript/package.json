@@ -1,0 +1,72 @@
+{
+  "name": "@cerasos/intercall",
+  "version": "0.1.0",
+  "description": "Bidirectional InterCall RPC for TypeScript browser clients",
+  "type": "module",
+  "license": "CC0-1.0",
+  "author": "Luiz Gustavo Ceraso Filho <gus@ceraso.dev>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gus-ceraso/InterCall.git",
+    "directory": "typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/gus-ceraso/InterCall/issues"
+  },
+  "homepage": "https://github.com/gus-ceraso/InterCall/tree/master/typescript",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "bin": {
+    "intercall-ts": "./dist/cli/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js"
+    },
+    "./generated": {
+      "types": "./dist/generated-spi/index.d.ts",
+      "import": "./dist/generated-spi/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "LICENSE.txt",
+    "README.md",
+    "SPEC.md",
+    "TYPESCRIPT.md"
+  ],
+  "scripts": {
+    "build": "npm run build:browser && npm run build:cli",
+    "build:browser": "tsc -p tsconfig.browser.json",
+    "build:cli": "tsc -p tsconfig.cli.json",
+    "typecheck": "tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.cli.json && tsc --noEmit -p tsconfig.tests.json",
+    "test": "npm run test:browser-imports && npm run test:binding && npm run test:codec && npm run test:syntax && npm run test:tool && node --test test/tool/browser-import-boundary.test.mjs test/fixtures/compiler/compiler-experiments.test.mjs",
+    "test:browser-imports": "npm run build:browser && node --test test/tool/browser-import-boundary.test.mjs",
+    "test:binding": "npm run build:browser && node --test test/runtime/binding.test.mjs test/runtime/errors.test.mjs test/runtime/payload-exception.test.mjs test/runtime/empty.test.mjs test/runtime/spi.test.mjs test/runtime/chunk-queue.test.mjs test/runtime/connection-core.test.mjs test/runtime/frame.test.mjs test/runtime/request-state.test.mjs test/runtime/call-order.test.mjs test/runtime/send-gate.test.mjs test/runtime/incoming-state.test.mjs test/runtime/dispatch-result.test.mjs test/runtime/connection-runtime.test.mjs test/runtime/url.test.mjs test/runtime/options.test.mjs test/runtime/socket.test.mjs test/runtime/message-queue.test.mjs test/runtime/events.test.mjs test/runtime/raw.test.mjs test/runtime/negotiation.test.mjs test/runtime/browser-connect.test.mjs",
+    "test:codec": "npm run build:cli && node --test test/codec/program.test.mjs test/codec/encoder-buffer.test.mjs test/codec/primitive-codec.test.mjs test/codec/text-codec.test.mjs test/codec/bytes-codec.test.mjs test/codec/list-codec.test.mjs test/codec/record-codec.test.mjs test/codec/codec-vm.test.mjs test/codec/budget.test.mjs test/codec/compiler.test.mjs test/codec/go-fixture.test.mjs test/codec/go-roundtrip.test.mjs test/codec/nested-budget.test.mjs",
+    "test:syntax": "npm run build:cli && node --test test/syntax/scanner.test.mjs test/syntax/parser.test.mjs test/syntax/validator.test.mjs test/syntax/docs.test.mjs test/syntax/format.test.mjs test/syntax/golden.test.mjs test/syntax/fuzz.test.mjs",
+    "test:tool": "npm run build:cli && node --test test/tool/interface-id.test.mjs test/tool/name.test.mjs test/tool/mangle.test.mjs test/tool/selector.test.mjs test/tool/depth.test.mjs test/tool/import.test.mjs test/tool/import-validation.test.mjs test/tool/import-emitter.test.mjs test/tool/exception-emitter.test.mjs test/tool/codec-emitter.test.mjs test/tool/binding-emitter.test.mjs test/tool/client-emitter.test.mjs test/tool/metadata-emitter.test.mjs test/tool/generator-format.test.mjs test/tool/generated-check.test.mjs test/tool/import-golden.test.mjs test/tool/compiler-project.test.mjs test/tool/directives.test.mjs test/tool/source-discovery.test.mjs test/tool/export-golden.test.mjs test/tool/cli-args.test.mjs test/tool/cli-diagnostics.test.mjs test/tool/cli-transaction.test.mjs test/tool/cli-ownership.test.mjs test/tool/cli-import.test.mjs test/tool/cli-export.test.mjs test/tool/cli-help.test.mjs test/tool/integration-fixtures.test.mjs",
+    "test:browser": "npm run build:browser && playwright test",
+    "test:integration": "node --test test/integration/*.test.mjs",
+    "check:fixtures": "node test/fixtures/compiler/compiler-experiments.test.mjs && node --test test/fixtures/syntax-integrity.test.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "typescript": "5.9.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}

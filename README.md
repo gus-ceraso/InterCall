@@ -10,310 +10,26 @@ format while leaving tooling, native APIs, connection management, and transport
 bindings to implementations.
 
 Each connection joins two peers. A peer exports an interface describing the
-functions it accepts and the errors it may return; the other peer imports that
-interface. Either peer may call the other, including while handling an incoming
-call. Any binding may carry InterCall frames if it reliably delivers every
-frame in full and preserves the sequence of bytes within each frame.
+procedures it accepts and the exceptions it may throw; the other peer imports
+that interface. Either peer may call the other, including while handling an
+incoming call. Any binding may carry InterCall frames if it reliably delivers
+every frame in full and preserves the sequence of bytes within each frame.
 
 ### Scope
 
-InterCall models calls whose arguments, returns, and errors are finite, acyclic
-values. It does not define streaming parameters or results, shared memory,
-object identity, offline delivery, service discovery, deployment, or general
-distributed-system workflows. Transport streams, including QUIC streams, carry
-complete frames; they do not make function values streaming.
-
-## Hello, world!
-
-A small example is the quickest way to see how InterCall works. We will call a
-Go function from a browser, then call a browser function from Go over the same
-connection. We will use the generated code, but we will not edit it.
-
-Assume that `intercall-go` and `intercall-ts` are on `PATH`. Make a new module:
-
-```sh
-mkdir intercall-hello
-cd intercall-hello
-go mod init hello
-```
-
-### Write `Hello` in Go
-
-Create `hello.go`:
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-)
-
-// Hello returns a personalized greeting.
-//
-// @intercall
-// @param name the name to greet
-// @return the personalized greeting
-func Hello(ctx context.Context, name string) (string, error) {
-	return fmt.Sprintf("Hello, %s!", name), nil
-}
-```
-
-### Translate it
-
-```sh
-intercall-go export hello.go \
-    --interface hello.intercall \
-    --out intercall
-```
-
-Here is `hello.intercall`:
-
-```text
-/* Hello returns a personalized greeting. */
-function hello {
-    /* the name to greet */
-    name string;
-} /* the personalized greeting */ string;
-```
-
-Generated interfaces are meant to be read and checked in, but not changed.
-
-### Write the server
-
-Create `main.go`:
-
-```go
-package main
-
-import (
-	"log"
-
-	"hello/intercall"
-)
-
-func main() {
-	log.Fatal(intercall.WSListenAndServe(":8080"))
-}
-```
-
-`WSListenAndServe` accepts WebSocket connections at `ws://localhost:8080`. The
-generated code already knows about `Hello`.
-
-### Generate the TypeScript caller
-
-Translate `hello.intercall` to TypeScript:
-
-```sh
-mkdir -p web
-intercall-ts import hello.intercall --out web/intercall
-```
-
-The new `web/intercall` module contains the TypeScript caller and runtime.
-
-### Write the browser
-
-Create `web/main.ts`:
-
-```ts
-import { connect } from "./intercall";
-
-async function main(): Promise<void> {
-    const app = document.querySelector<HTMLElement>("#app")!;
-    app.innerHTML = `
-        <form id="hello-form">
-            <label>
-                Your name
-                <input name="name" autocomplete="name" required>
-            </label>
-            <button type="submit" disabled>Greet me</button>
-        </form>
-        <p id="greeting" role="status"></p>
-    `;
-
-    const form = document.querySelector<HTMLFormElement>("#hello-form")!;
-    const button = form.querySelector<HTMLButtonElement>("button")!;
-    const greeting = document.querySelector<HTMLElement>("#greeting")!;
-    const peer = await connect("ws://localhost:8080");
-
-    button.disabled = false;
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        button.disabled = true;
-
-        try {
-            const data = new FormData(form);
-            const name = String(data.get("name") ?? "");
-            greeting.textContent = await peer.hello(name);
-        } catch (error) {
-            greeting.textContent = `Call failed: ${String(error)}`;
-        } finally {
-            button.disabled = false;
-        }
-    });
-}
-
-void main().catch((error) => {
-    document.querySelector<HTMLElement>("#app")!.textContent =
-        `Connection failed: ${String(error)}`;
-});
-```
-
-`connect` runs once. Every form submission uses the same peer.
-
-The program also needs a page. Create `web/index.html`:
-
-```html
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>InterCall hello</title>
-</head>
-<body>
-    <main id="app"></main>
-    <script src="./app.js"></script>
-</body>
-</html>
-```
-
-### Build and run
-
-Bundle the program into a classic browser script:
-
-```sh
-npx --yes esbuild web/main.ts \
-    --bundle \
-    --format=iife \
-    --outfile=web/app.js
-```
-
-The IIFE bundle works from a local file, so the example requires neither a
-TypeScript configuration nor a static server. The contents of `app.js` could be
-inlined, but a separate file keeps the build command short.
-
-In another terminal, start Go:
-
-```sh
-go run .
-```
-
-Now open `web/index.html` directly in a browser. Enter `Alice` and press
-**Greet me**. The page displays:
-
-```text
-Hello, Alice!
-```
-
-### Add a TypeScript function
-
-Now add a call in the other direction. Create `web/locale.ts`:
-
-```ts
-/**
- * Returns the browser's preferred locale.
- *
- * @intercall
- * @returns the browser's preferred locale
- */
-export function locale(): string {
-    return navigator.language;
-}
-```
-
-### Translate `locale`
-
-Export the TypeScript function:
-
-```sh
-intercall-ts export web/locale.ts \
-    --interface browser.intercall \
-    --out web/intercall
-```
-
-Here is `browser.intercall`:
-
-```text
-/* Returns the browser's preferred locale. */
-function locale {
-} /* the browser's preferred locale */ string;
-```
-
-Then translate the interface for Go:
-
-```sh
-intercall-go import browser.intercall --out intercall
-```
-
-The first command adds a `locale` dispatcher to the browser runtime. The second
-adds a `locale` caller to the Go runtime.
-
-### Call `locale` from Go
-
-Replace `hello.go` with:
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"strings"
-
-	"hello/intercall"
-)
-
-// Hello returns a personalized greeting.
-//
-// @intercall
-// @param name the name to greet
-// @return the personalized greeting
-func Hello(ctx context.Context, name string) (string, error) {
-	locale, err := intercall.Locale(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	greeting := "Hello"
-	if strings.HasPrefix(strings.ToLower(locale), "pt") {
-		greeting = "Olá"
-	}
-	return fmt.Sprintf("%s, %s!", greeting, name), nil
-}
-```
-
-`intercall.Locale(ctx)` takes the current connection from `ctx` and calls the
-browser. The connection itself remains hidden. The `hello` contract has not
-changed, so there is no need to translate it again.
-
-### Run it again
-
-Rebuild the browser bundle:
-
-```sh
-npx --yes esbuild web/main.ts \
-    --bundle \
-    --format=iife \
-    --outfile=web/app.js
-```
-
-Restart `go run .` and reload `web/index.html`. With the browser locale set to
-English, entering `Alice` still produces:
-
-```text
-Hello, Alice!
-```
-
-Set the browser's preferred language to Portuguese and reload the page. The
-same form now displays:
-
-```text
-Olá, Alice!
-```
-
-Calls now originate from both peers. The browser calls `hello`; before returning
-the greeting, Go calls `locale` over the same WebSocket.
+InterCall models calls whose arguments, returns, and exceptions are finite,
+acyclic values. It does not define streaming parameters or results, shared
+memory, object identity, offline delivery, service discovery, deployment, or
+general distributed-system workflows. Transport streams, including QUIC
+streams, carry complete frames; they do not make procedure parameters or
+returns streaming.
+
+## Examples
+
+- [Bidirectional hello world](examples/hello_world/README.md) connects a
+  TypeScript browser client to a Go server over a WebSocket. The browser exports
+  its locale, and the server exports a localized `hello` procedure that calls
+  back into the browser before returning its greeting.
 
 ## Interface
 
@@ -325,13 +41,14 @@ omitted concepts can be modeled explicitly with the supported constructs;
 others remain outside InterCall.
 
 An InterCall interface is a UTF-8 file containing the complete exported
-interface for one peer. It declares the functions that peer accepts and the
-errors it may return. The opposing peer imports the interface to make calls and
-interpret responses.
+interface for one peer. It declares the procedures that peer accepts and the
+exceptions it may throw. The opposing peer imports the interface to make calls
+and interpret responses.
 
-The `.intercall` extension is conventional. A file is a sequence of type, error,
-and function declarations; it has no enclosing block, interface name,
-namespace, version, header, import, or include. An empty interface is valid.
+The `.intercall` extension is conventional. A file is a sequence of type,
+exception, and procedure declarations; it has no enclosing block, interface
+name, namespace, version, header, import, or include. An empty interface is
+valid.
 
 For example:
 
@@ -343,23 +60,23 @@ type user record {
 };
 
 /* An implementation-defined failure without a payload. */
-error unknown;
+exception unknown;
 
 /* Another implementation-defined failure. */
-error function_not_found
-    /* The functions known to the peer. */
+exception procedure_not_found
+    /* The procedures known to the peer. */
     record {
-        available_functions list string;
+        available_procedures list string;
     };
 
 /* Finds a user by name. */
-function get_user {
+procedure get_user {
     /* The name to find. */
     name string;
 } /* The matching user. */ user;
 
 /* Draws an image and returns no value. */
-function draw_image {
+procedure draw_image {
     colors list record {
         red uint8;
         green uint8;
@@ -368,8 +85,8 @@ function draw_image {
 };
 ```
 
-The error names in this example are not standard. InterCall defines no
-canonical errors or functions.
+The exception names in this example are not standard. InterCall defines no
+canonical exceptions or procedures.
 
 ### Data Types
 
@@ -415,7 +132,7 @@ type point record {
     y float64;
 };
 
-function transform {
+procedure transform {
     points list point;
     origin record {
         x float64;
@@ -454,7 +171,7 @@ type tree record {
 #### Unsupported Types
 
 InterCall has no boolean, enum, optional, map, variant, character, pointer, or
-function-value type and no general constant declarations. It has no separate
+callable-value type and no general constant declarations. It has no separate
 unit type; `record {}` provides a zero-width value when one is needed. InterCall
 performs no implicit coercion between the types it does define.
 
@@ -479,20 +196,20 @@ interface ::=
 
 declaration ::=
       type-declaration
-    | error-declaration
-    | function-declaration
+    | exception-declaration
+    | procedure-declaration
     ;
 
 type-declaration ::=
     "type" IDENT type-specifier ";"
     ;
 
-error-declaration ::=
-    "error" IDENT type-specifier? ";"
+exception-declaration ::=
+    "exception" IDENT type-specifier? ";"
     ;
 
-function-declaration ::=
-    "function" IDENT "{"
+procedure-declaration ::=
+    "procedure" IDENT "{"
         parameter*
     "}" type-specifier? ";"
     ;
@@ -561,35 +278,35 @@ above.
 
 Identifiers follow the lexical form used by C: `_aJ1234z` is valid, while
 `123Go` is not. Identifiers are ASCII and case-sensitive. The reserved words
-are `type`, `error`, `function`, `list`, and `record`, together with every
+are `type`, `exception`, `procedure`, `list`, and `record`, together with every
 primitive type name. These exact lowercase spellings are unavailable in every
-identifier position; differently cased spellings such as `Function` are valid.
+identifier position; differently cased spellings such as `Procedure` are valid.
 
-Type, error, and function declarations share one global name scope. Each
-function parameter list and each record has its own local name scope. Names
+Type, exception, and procedure declarations share one global name scope. Each
+procedure parameter list and each record has its own local name scope. Names
 must be unique within their scope, but a local name may equal a global name.
 Local names do not affect type resolution. In a type position, an identifier
 resolves case-sensitively to an earlier global type declaration.
 
 Every declaration is validated even when no other declaration references it.
 An interface is invalid if it contains unknown syntax, an unresolved type
-reference, or a duplicate name in one scope. Nested type, error, and
-function declarations are not part of the format. Implementation-specific
+reference, or a duplicate name in one scope. Nested type, exception, and
+procedure declarations are not part of the format. Implementation-specific
 extensions are outside the InterCall interface format.
 
-### Functions and Errors
+### Procedures and Exceptions
 
-#### Functions
+#### Procedures
 
-A function has an ordered list of named parameters and at most one unnamed
+A procedure has an ordered list of named parameters and at most one unnamed
 return value. Omitting the return type declares no return value:
 
 ```text
-function ping {};
-function notify {
+procedure ping {};
+procedure notify {
     message string;
 };
-function add {
+procedure add {
     a int32;
     b int32;
 } int32;
@@ -598,36 +315,36 @@ function add {
 A request payload contains the parameters in declaration order. Parameter names
 and the enclosing braces are not encoded.
 
-#### Errors and Responses
+#### Exceptions and Responses
 
-An error has a name and at most one unnamed payload value. Omitting the payload
-type declares an error without a payload:
+An exception has a name and at most one unnamed payload value. Omitting the
+payload type declares an exception without a payload:
 
 ```text
-error unavailable;
-error invalid_input record {
+exception unavailable;
+exception invalid_input record {
     field string;
     reason string;
 };
 ```
 
-Every declared error is available to every function, regardless of declaration
-order. An interface may contain no errors.
+Every declared exception is available to every procedure, regardless of
+declaration order. An interface may contain no exceptions.
 
-InterCall assigns no special meaning to an error name or payload. Runtime errors
-are ordinary declarations chosen by an implementation. An implementation must
-include every error it can send in the peer interface, whether that error comes
-from application code or the runtime.
+InterCall assigns no special meaning to an exception name or payload. Runtime
+exceptions are ordinary declarations chosen by an implementation. An
+implementation must include every exception it can send in the peer interface,
+whether that exception comes from application code or the runtime.
 
-The error key determines a response's payload:
+The exception key determines a response's payload:
 
-| Error key | Payload |
+| Exception key | Payload |
 | --- | --- |
-| `0` | The function's return value |
-| A declared nonzero error key | That error's payload |
+| `0` | The procedure's return value |
+| A declared nonzero exception key | That exception's payload |
 
-An error response has no return value. An omitted return or error payload
-produces an empty payload, as does any selected type with a zero-byte
+An exception response has no return value. An omitted return or exception
+payload produces an empty payload, as does any selected type with a zero-byte
 representation. The format does not require implementations to expose these
 cases in the same way; a named zero-width type remains available to the
 implementation.
@@ -635,9 +352,9 @@ implementation.
 In every case, the selected value must consume the frame payload exactly. The
 Transport section defines the frame and value encodings.
 
-### Function and Error Keys
+### Procedure and Exception Keys
 
-Functions and errors have unsigned 64-bit keys derived from their exact,
+Procedures and exceptions have unsigned 64-bit keys derived from their exact,
 case-sensitive names. The keys are intended for fast dispatch-table lookups.
 The calculation uses 64-bit FNV-0:
 
@@ -650,24 +367,25 @@ for each input byte:
     hash = hash XOR byte
 ```
 
-A function key hashes the ASCII bytes of the literal `function ` followed by the
-function name. An error key hashes `error ` followed by the error name:
+A procedure key hashes the ASCII bytes of the literal `procedure ` followed by
+the procedure name. An exception key hashes `exception ` followed by the
+exception name:
 
 | Declaration | Key |
 | --- | --- |
-| `function get_user` | `0x71914ed5b4301bda` |
-| `error function_not_found` | `0x77ab6b9220caa941` |
+| `procedure get_user` | `0x4c63cc5048869eb7` |
+| `exception procedure_not_found` | `0x970e76fcc5e2dacb` |
 
 The space after each declaration kind is part of the input. The input has no
 length prefix, terminator, initial offset, seed, or other marker. Because
 identifiers contain only ASCII characters, encoding them as ASCII or UTF-8
 produces the same bytes.
 
-Key `0` is invalid for both function and error declarations. A processor must
-also reject a collision between any two function or error declarations in the
-same interface, including a collision between a function key and an error key.
-Keys are validated independently for each peer interface and may repeat in
-opposing interfaces. Types do not have keys.
+Key `0` is invalid for both procedure and exception declarations. A processor
+must also reject a collision between any two procedure or exception
+declarations in the same interface, including a collision between a procedure
+key and an exception key. Keys are validated independently for each peer
+interface and may repeat in opposing interfaces. Types do not have keys.
 
 Only the declaration kind and exact name participate in the key. Parameters,
 return and payload types, comments, native names, and unrelated declarations do
@@ -677,11 +395,11 @@ not. A key is a lookup value, not a fingerprint of the declaration's contract.
 
 An implementation decides how interface declarations appear in a native
 language. This includes identifier projection, keyword escaping, wrappers,
-ownership, error handling, synchronous or asynchronous APIs, source
-annotations, comment handling, and the use of generated code, reflection,
-interpreters, or handwritten adapters. An implementation may also choose not
-to expose an otherwise valid declaration in a native API. These choices do not
-change the interface or wire formats.
+ownership, exception mapping, native error handling, synchronous or asynchronous
+APIs, source annotations, comment handling, and the use of generated code,
+reflection, interpreters, or handwritten adapters. An implementation may also
+choose not to expose an otherwise valid declaration in a native API. These
+choices do not change the interface or wire formats.
 
 ## Transport
 
@@ -702,8 +420,8 @@ WebSockets with or without TLS.
 
 ### Value Encoding
 
-All multibyte integers, lengths, counts, request IDs, function and error keys,
-and floating-point bit patterns are little-endian. Values have no implicit
+All multibyte integers, lengths, counts, request IDs, procedure and exception
+keys, and floating-point bit patterns are little-endian. Values have no implicit
 alignment or padding. Implementations must not serialize native structure memory
 directly.
 
@@ -744,21 +462,24 @@ bytes. A list of zero-width values still carries its element count.
 
 ### Frames
 
-The connection initiator and acceptor use separate request ID ranges:
+The most significant bit of the `request_id` field distinguishes requests from
+responses. It is clear in a request and set in a response. The remaining 63 bits
+form the request ID, from `0x0000000000000000` through
+`0x7fffffffffffffff`. A response copies the request's ID into those bits.
 
-- the initiator uses `0x0000000000000000` through `0x7fffffffffffffff`;
-- the acceptor uses `0x8000000000000000` through `0xffffffffffffffff`.
-
-The transport binding determines which peer is the initiator. Request ID zero
-is valid. A peer must not have two outstanding requests with the same ID and
-should not reuse an ID after a request completes. The other peer is not required
-to remember IDs or enforce the recommendation against reuse.
+Both peers use the same request ID range independently, so requests in opposing
+directions may have the same ID. Request ID zero is valid. A peer must not have
+two outstanding requests with the same ID. Once it receives the response to a
+request, it may reuse that request's ID. A request abandoned locally, such as
+after a timeout, remains outstanding for ID-allocation purposes until its
+response arrives or the connection closes. The other peer is not required to
+remember IDs across completed requests.
 
 A request frame is:
 
 ```text
 request_id     uint64
-function_key   uint64
+procedure_key  uint64
 payload_length uint64
 payload        payload_length bytes
 ```
@@ -767,7 +488,7 @@ A response frame is:
 
 ```text
 request_id     uint64
-error_key      uint64
+exception_key  uint64
 payload_length uint64
 payload        payload_length bytes
 ```
@@ -777,9 +498,9 @@ padding. `payload_length` counts only the bytes immediately following the
 header. Value decoding is bounded by that length and must never consume bytes
 from another frame.
 
-A response repeats the request ID. On receipt, an ID in the remote peer's range
-identifies a request, while an ID in the local peer's range identifies a
-response. No separate frame-kind field is encoded.
+A receiver uses the most significant bit of `request_id` to select the frame
+layout, then clears that bit before matching a response to a pending request. No
+separate frame-kind field is encoded.
 
 Both peers may have multiple outstanding requests. Responses may arrive in any
 order, and InterCall gives separate requests no execution-order guarantee. An
@@ -791,64 +512,64 @@ application handlers.
 
 ### Requests and Responses
 
-A request payload contains the function parameters encoded consecutively in
+A request payload contains the procedure parameters encoded consecutively in
 declaration order. It contains no parameter names, parameter count, or enclosing
 record marker. The arguments must consume the frame payload exactly.
 
-Every request has a response unless the connection closes. A function with no
+Every request has a response unless the connection closes. A procedure with no
 return value still receives a successful response with an empty payload. The
-response's error key selects its payload:
+response's exception key selects its payload:
 
-| Error key | Payload |
+| Exception key | Payload |
 | --- | --- |
-| `0` | The function's return value |
-| A declared nonzero error key | That error's payload |
+| `0` | The procedure's return value |
+| A declared nonzero exception key | That exception's payload |
 
-`payload_length` must be zero for an omitted return or error payload and for any
-selected zero-width type. Otherwise, the selected value must consume the
-response payload exactly. An error response contains no return value.
+`payload_length` must be zero for an omitted return or exception payload and for
+any selected zero-width type. Otherwise, the selected value must consume the
+response payload exactly. An exception response contains no return value.
 
-Every nonzero error key sent by a peer must be declared in that peer's
-interface. InterCall defines no canonical errors or error meanings. Each peer
-decides which errors to declare and when to return them.
+Every nonzero exception key sent by a peer must be declared in that peer's
+interface. InterCall defines no canonical exceptions or exception meanings.
+Each peer decides which exceptions to declare and when to throw them.
 
 ### Wire Example
 
 Consider this interface:
 
 ```text
-error failed;
-function echo {
+exception failed;
+procedure echo {
     value uint16;
 } uint16;
 ```
 
-The function key is `0xf84e1e0e300214c3`, and the error key is
-`0x9f42862f8fc4d5f1`. The following fields form a request from the connection
-initiator with request ID `1` and argument `0x1234`:
+The procedure key is `0x0159eb91a98f8f42`, and the exception key is
+`0x583fb304d69368ca`. The following fields form a request with request ID `1`
+and argument `0x1234`:
 
 ```text
 request_id     01 00 00 00 00 00 00 00
-function_key   c3 14 02 30 0e 1e 4e f8
+procedure_key  42 8f 8f a9 91 eb 59 01
 payload_length 02 00 00 00 00 00 00 00
 payload        34 12
 ```
 
-A successful response returning `0x1234` is:
+A successful response returning `0x1234` sets the response bit:
 
 ```text
-request_id     01 00 00 00 00 00 00 00
-error_key      00 00 00 00 00 00 00 00
+request_id     01 00 00 00 00 00 00 80
+exception_key  00 00 00 00 00 00 00 00
 payload_length 02 00 00 00 00 00 00 00
 payload        34 12
 ```
 
-The same function may instead return the declared `failed` error without a
+The same procedure may instead throw the declared `failed` exception without a
 payload:
 
 ```text
-request_id     01 00 00 00 00 00 00 00
-error_key      f1 d5 c4 8f 2f 86 42 9f
+request_id     01 00 00 00 00 00 00 80
+exception_key  ca 68 93 d6 04 b3 3f 58
 payload_length 00 00 00 00 00 00 00 00
 ```
 
@@ -856,20 +577,20 @@ payload_length 00 00 00 00 00 00 00 00
 
 After reading a request header, a receiver that keeps the connection open must
 consume or discard exactly `payload_length` bytes before reading another frame
-from the same ordered stream. For an unknown function, malformed arguments,
+from the same ordered stream. For an unknown procedure, malformed arguments,
 authorization rejection, resource rejection, or unexpected implementation
-failure, it should return an appropriate declared error when practical. It may
-close the connection instead. A handler is not invoked when its arguments are
-malformed.
+failure, it should throw an appropriate declared exception when practical. It
+may close the connection instead. A handler is not invoked when its arguments
+are malformed.
 
 A response matching a pending request is malformed if it contains an undeclared
-error key, does not encode the selected return or error value exactly, or has
-trailing bytes. The receiver closes the InterCall connection after such a
+exception key, does not encode the selected return or exception value exactly,
+or has trailing bytes. The receiver closes the InterCall connection after such a
 response.
 
 A response whose request ID does not correspond to a pending request is ignored.
 Its payload is consumed or discarded as opaque bytes and is not validated. A
-recipient is not required to detect reused request IDs or duplicate responses.
+recipient is not required to detect duplicate responses.
 
 Handling of incomplete frames, local timeouts, cancellation, half-closure, and
 transport failure is implementation-defined. Closing a connection is always
@@ -885,35 +606,34 @@ limit.
 
 ### Interface Agreement
 
-Function and error keys are derived only from the declaration kind and name.
-They are not globally unique and do not identify parameter, return, or payload
-types. Peer interfaces may associate the same key with different declarations
-or with incompatible contracts for the same name, causing peers to misinterpret
-payload bytes.
+Procedure and exception keys are derived only from the declaration kind and
+name. They are not globally unique and do not identify parameter, return, or
+payload types. Peer interfaces may associate the same key with different
+declarations or with incompatible contracts for the same name, causing peers to
+misinterpret payload bytes.
 
-Implementations should therefore verify that each peer uses the exact interface
-expected by the other. One simple approach is for each peer to send the
-SHA3-256 digest of the interface file it imported. The receiver computes the
-SHA3-256 digest of the interface file it exported and compares the two digests.
+Implementations should therefore verify that each peer uses the exact
+interface expected by the other. The identity input, digest algorithm,
+exchange format, timing, mismatch handling, and any version agreement are
+implementation-defined. Interface identities are not credentials or
+capabilities.
 
-The digest input is the exact file bytes and is not canonicalized. Comments,
-whitespace, formatting, and line endings therefore affect it. The SHA3-256
-digest of a zero-byte interface file is:
-
-```text
-a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a
-```
-
-The exchange format, timing, mismatch handling, and any version agreement are
-implementation-defined.
+The Go profile in `go/SPEC.md` uses the SHA-256 digest of the canonical
+interface body already used for generated-artifact ownership. Each endpoint
+sends only the ID of the interface it imports, meaning the interface it
+expects the other endpoint to export. The client sends first; the server
+compares and then sends its expected-client ID; the client compares. This
+profile does not add a version, magic value, acknowledgment, or interface
+file exchange. It is one Go transport convention, not a requirement on other
+InterCall implementations.
 
 ### Security
 
 The InterCall wire format provides no confidentiality, authentication,
-authorization, or integrity mechanism. Interface digests and function keys are
+authorization, or integrity mechanism. Interface digests and procedure keys are
 not credentials or capabilities. Implementations use an appropriate secure
 transport and authenticate peers as required by their environment.
 
-Function whitelists and other authorization rules are local policy, not wire
-data. A peer may reject a call with one of its declared errors, such as an
-implementation-defined `forbidden_function`, or close the connection.
+Procedure whitelists and other authorization rules are local policy, not wire
+data. A peer may reject a call with one of its declared exceptions, such as an
+implementation-defined `forbidden_procedure`, or close the connection.
