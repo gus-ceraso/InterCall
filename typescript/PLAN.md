@@ -979,8 +979,8 @@ specified as TypeScript-specific.
    nodes remain the source of wire order, names, docs, and positions; the
    records add only projected names, compiler-object slots, codec roots, and
    dispatch/provider facts.
-6. Implement the iterative strict projection-depth preflight and exact boundary
-   diagnostics before recursive compiler/emitter work.
+6. **Done.** Implement the iterative strict projection-depth preflight and
+   exact boundary diagnostics before recursive compiler/emitter work.
 7. Add unit tests for every initialism, inverse projection, invalid identifier,
    selector resolution, duplicate override, unresolved override, collision,
    and 4,096 boundary case.
