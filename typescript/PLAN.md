@@ -1248,7 +1248,8 @@ raw dispatch bytes match Go-generated import expectations.
 
 1. **Done.** Implement argument parsing without a CLI framework, exact help
    text, repeatable flags, and exit status 0/1.
-2. Implement logical diagnostics and deterministic multi-error sorting.
+2. **Done.** Implement logical diagnostics and deterministic multi-error
+   sorting.
 3. Implement source/generated validation sequencing so no validation error
    creates an output directory.
 4. Implement ownership parsing, regular-leaf/symlink checks, output-directory
