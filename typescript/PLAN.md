@@ -990,8 +990,8 @@ without stack overflow.
 
 ### Phase 4 — Implement the codec VM and vectors
 
-1. Define a private immutable flat instruction format for primitive, list,
-   record, named-reference, root, and zero-value operations.
+1. **Done.** Define a private immutable flat instruction format for primitive,
+   list, record, named-reference, root, and zero-value operations.
 2. Implement a checked growable encoder buffer that never exposes reused
    storage.
 3. Implement all primitive encoders and decoders with `DataView`, explicit raw
