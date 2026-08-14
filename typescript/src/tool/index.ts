@@ -6,6 +6,18 @@ export {
 export type { InterfaceID } from "./interface-id.js";
 export { manglePrivate, PublicNameScope } from "./mangle.js";
 export {
+    parseOverride,
+    parseOverrides,
+    parseSelector,
+    selectorToString,
+} from "./selector.js";
+export type {
+    Override,
+    Selector,
+    SelectorKind,
+    Step,
+} from "./selector.js";
+export {
     initialisms,
     isCanonicalWireName,
     isInitialism,

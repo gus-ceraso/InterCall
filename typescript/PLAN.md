@@ -973,8 +973,8 @@ specified as TypeScript-specific.
    accepting quoted or computed names as a silent escape.
 3. **Done.** Implement collision-safe deterministic private mangling using
    content-derived suffixes; public collisions remain diagnostics.
-4. Implement `--ts-name` parsing and the complete root/element/field selector
-   path grammar.
+4. **Done.** Implement `--ts-name` parsing and the complete
+   root/element/field selector path grammar.
 5. Define small command-specific generation records. Keep syntax AST nodes as
    the source of wire order, names, docs, and positions; add only projected
    names, compiler objects, codec roots, and dispatch facts.
