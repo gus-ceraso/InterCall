@@ -49,8 +49,7 @@ test("dispatches incoming requests and sends a response without escaping provide
     });
     const runtime = new ConnectionRuntime(transport, createImportBinding(), exportBinding);
     runtime.receiveChunk(buildFrame("request", 3n, 77n, Uint8Array.of(4)));
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let index = 0; index < 20 && transport.sent.length === 0; index += 1) await Promise.resolve();
     const response = lastHeader(transport);
     assert.equal(calls, 1);
     assert.equal(response.header.kind, "response");
@@ -125,6 +124,6 @@ test("terminates on malformed matched responses but keeps unmatched responses op
     const pending = call(runtime.connection, binding, 3n, () => new Uint8Array(), () => { throw new Error("bad response"); });
     for (let index = 0; index < 4; index += 1) await Promise.resolve();
     runtime.receiveChunk(buildFrame("response", 0n, 0n, new Uint8Array()));
-    await assert.rejects(pending, /bad response/);
+    await assert.rejects(pending, /malformed matched response/);
     assert.equal(runtime.core.isTerminal, true);
 });

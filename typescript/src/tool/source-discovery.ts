@@ -1,7 +1,8 @@
 import ts from "typescript";
 import type { CompilerProject, SourceOperand } from "./compiler-project.js";
-import { scanTypeScriptDirectives, type TypeScriptDirective } from "./directives.js";
+import { scanTypeScriptDirectives, sourceDocumentation, type TypeScriptDirective } from "./directives.js";
 import { isCanonicalWireName, typeScriptToWire } from "./name.js";
+import { decodeGeneratedInterface, hasGeneratedTypeScriptMarker, readGeneratedMetadata, validateMetadataRows } from "./metadata-reader.js";
 
 export interface DiscoveredProcedure {
     readonly sourceName: string;
@@ -22,6 +23,7 @@ export interface DiscoveredType {
     readonly wireName: string;
     readonly sourceFile: ts.SourceFile;
     readonly declaration: ts.TypeAliasDeclaration | ts.InterfaceDeclaration;
+    readonly documentation?: string;
 }
 export interface SourceDiscovery {
     readonly procedures: readonly DiscoveredProcedure[];
@@ -42,27 +44,46 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
     for (const operand of operands) {
         const sourceFile = project.program.getSourceFile(operand.fileName);
         if (sourceFile === undefined) throw new Error(`source file is not in the program: ${operand.fileName}`);
+        const sourceText = sourceFile.getFullText();
+        let metadataRows: ReadonlyMap<string, { readonly nativeName: string; readonly documentation: string }> = new Map();
+        if (hasGeneratedTypeScriptMarker(sourceText)) {
+            const metadata = readGeneratedMetadata(sourceText);
+            const semanticFile = decodeGeneratedInterface(metadata);
+            validateMetadataRows(semanticFile, metadata.machineTypes);
+            const documentation = new Map<string, string>();
+            for (const declaration of semanticFile.declarations) documentation.set(declaration.name.name, declaration.doc ?? "");
+            metadataRows = new Map(metadata.machineTypes.map((row) => [row.nativeName, { nativeName: row.nativeName, documentation: documentation.get(row.wireName) ?? "" }]));
+        }
         const directives = scanTypeScriptDirectives(sourceFile);
         for (const declaration of directExportDeclarations(sourceFile)) {
             const directive = directiveFor(declaration, directives);
-            if (directive === undefined) continue;
+            if (directive === undefined) {
+                const sourceName = declarationName(declaration);
+                const row = sourceName === undefined ? undefined : metadataRows.get(sourceName);
+                if (sourceName !== undefined && row !== undefined && (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration))) namedTypes.push({ sourceName, wireName: row.nativeName, sourceFile, declaration, documentation: row.documentation });
+                continue;
+            }
             const sourceName = declarationName(declaration);
             if (sourceName === undefined) continue;
+            if (directive.kind === "procedure" && !ts.isFunctionDeclaration(declaration) || directive.kind === "exception" && !ts.isVariableStatement(declaration) && !ts.isClassDeclaration(declaration) || directive.kind === "type" && !ts.isTypeAliasDeclaration(declaration) && !ts.isInterfaceDeclaration(declaration)) {
+                throw new Error(`directive ${directive.kind} is misplaced on ${sourceName}`);
+            }
             if (directive.kind === "procedure" && ts.isFunctionDeclaration(declaration)) {
                 procedures.push({ sourceName, wireName: resolveWireName(sourceName, directive, "camel"), sourceFile, declaration, signature: checker.getTypeAtLocation(declaration) });
             } else if (directive.kind === "exception" && (ts.isVariableStatement(declaration) || ts.isClassDeclaration(declaration))) {
                 exceptions.push({ sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile, declaration, payloadClass: ts.isClassDeclaration(declaration) });
             } else if (directive.kind === "type" && (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration))) {
-                namedTypes.push({ sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile, declaration });
+                const documentation = sourceDocumentation(declaration);
+                namedTypes.push(documentation === undefined ? { sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile, declaration } : { sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile, declaration, documentation });
             }
         }
     }
     const known = [...procedures, ...exceptions, ...namedTypes];
     validateWireNames(known);
-    const include = validateFilters(filters.include, known);
-    const exclude = new Set(validateFilters(filters.exclude, known));
-    const selected = <T extends { readonly sourceName: string; readonly wireName: string }>(records: readonly T[]): T[] => records.filter((record) => (include.length === 0 || include.includes(record.sourceName) || include.includes(record.wireName)) && !exclude.has(record.sourceName) && !exclude.has(record.wireName));
-    return { procedures: selected(procedures), exceptions: selected(exceptions), namedTypes: selected(namedTypes) };
+    const include = validateFilters(filters.include, procedures);
+    const exclude = new Set(validateFilters(filters.exclude, procedures));
+    const selectedProcedures = procedures.filter((record) => (include.length === 0 || include.includes(record.sourceName) || include.includes(record.wireName)) && !exclude.has(record.sourceName) && !exclude.has(record.wireName));
+    return { procedures: selectedProcedures, exceptions, namedTypes };
 }
 
 function validateWireNames(known: readonly { readonly sourceName: string; readonly wireName: string }[]): void {
@@ -107,9 +128,10 @@ function declarationName(declaration: ts.Node): string | undefined {
 }
 
 function directiveFor(node: ts.Node, directives: readonly TypeScriptDirective[]): TypeScriptDirective | undefined {
-    return directives
-        .filter((directive) => directive.start >= node.getFullStart() && directive.end <= node.getStart())
-        .at(-1);
+    const matches = directives.filter((directive) => (directive.kind === "procedure" || directive.kind === "exception" || directive.kind === "type") && directive.start >= node.getFullStart() && directive.end <= node.getStart());
+    const last = matches.at(-1);
+    if (last !== undefined && matches.filter((directive) => directive.kind === last.kind).length > 1) throw new Error(`multiple InterCall directives precede ${declarationName(node) ?? "declaration"}`);
+    return last;
 }
 
 function resolveWireName(sourceName: string, directive: TypeScriptDirective, nameCase: "camel" | "pascal"): string {

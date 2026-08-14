@@ -18,7 +18,7 @@ export { formatGeneratedSource } from "./generator-format.js";
 export { validateGeneratedSource } from "./generated-check.js";
 export { loadCompilerProject, normalizeSourceOperands } from "./compiler-project.js";
 export type { CompilerProject, SourceOperand } from "./compiler-project.js";
-export { scanTypeScriptDirectives, sourceDocumentation } from "./directives.js";
+export { scanTypeScriptDirectives, sourceDocumentation, sourceParameterDocumentation, sourceReturnDocumentation } from "./directives.js";
 export type { TypeScriptDirective, TypeScriptDirectiveKind } from "./directives.js";
 export { discoverSourceExports } from "./source-discovery.js";
 export type { DiscoveredException, DiscoveredProcedure, DiscoveredType, DiscoveryFilterOptions, SourceDiscovery } from "./source-discovery.js";

@@ -1,18 +1,17 @@
-import { PayloadException, type HandlerContext } from "./runtime.js";
+import { PayloadException, type HandlerContext, type Int32 } from "./runtime.js";
 
 /** @intercall procedure */
-export function add(_context: HandlerContext, value: number): Promise<number> { return Promise.resolve(value); }
+export function add(_context: HandlerContext, value: Int32): Promise<Int32> { return Promise.resolve(value); }
 
 /** @intercall exception denied */
 export const Denied = new Error("denied");
 
 /** @intercall exception failed */
-export class Failed extends PayloadException<{ readonly code: number }> {}
+export class Failed extends PayloadException<{ readonly code: Int32 }> {}
 
-/** @intercall type point */
 /** @intercall type alias */
 export type Alias = Point;
 
 /** @intercall type */
-export interface Point { readonly x: number; }
+export interface Point { readonly x: Int32; }
 export interface Recursive { readonly next: Recursive; }

@@ -14,6 +14,18 @@ export interface TypeScriptDirective {
 
 const directivePattern = /^\s*\*?\s*@(intercall\s+(?:procedure|exception|type|param|field)|param|returns)(?:\s+(.*?))?\s*$/u;
 
+export function sourceParameterDocumentation(node: ts.Node, parameterName: string): string | undefined {
+    if (!ts.isFunctionDeclaration(node)) return undefined;
+    const parameter = node.parameters.find((candidate) => candidate.name.getText() === parameterName);
+    const tag = parameter === undefined ? undefined : ts.getJSDocParameterTags(parameter)[0];
+    return tag === undefined ? undefined : jsDocCommentText(tag.comment);
+}
+
+export function sourceReturnDocumentation(node: ts.Node): string | undefined {
+    const tag = ts.getJSDocReturnTag(node);
+    return tag === undefined ? undefined : jsDocCommentText(tag.comment);
+}
+
 export function sourceDocumentation(node: ts.Node): string | undefined {
     const parts: string[] = [];
     for (const comment of ts.getJSDocCommentsAndTags(node)) {
@@ -28,6 +40,12 @@ export function sourceDocumentation(node: ts.Node): string | undefined {
     return parts.length === 0 ? undefined : parts.join("\n");
 }
 
+function jsDocCommentText(comment: string | ts.NodeArray<ts.JSDocComment> | undefined): string | undefined {
+    if (comment === undefined) return undefined;
+    const text = typeof comment === "string" ? comment : comment.map((part) => part.text).join("");
+    return text.trim() === "" ? undefined : text.trim();
+}
+
 export function scanTypeScriptDirectives(sourceFile: ts.SourceFile): TypeScriptDirective[] {
     const text = sourceFile.getFullText();
     const starts = new Set<number>();
@@ -39,7 +57,12 @@ export function scanTypeScriptDirectives(sourceFile: ts.SourceFile): TypeScriptD
             const comment = text.slice(range.pos, range.end);
             let offset = 0;
             for (const line of comment.split(/\r\n|\r|\n/u)) {
-                const match = directivePattern.exec(line.replace(/\/\*\*?|\*\//gu, ""));
+                const normalizedLine = line.replace(/\/\*\*?|\*\//gu, "");
+                const match = directivePattern.exec(normalizedLine);
+                if (normalizedLine.includes("@intercall") && match === null) {
+                    const position = sourceFile.getLineAndCharacterOfPosition(range.pos + offset + normalizedLine.indexOf("@intercall"));
+                    throw new Error(`malformed InterCall directive at ${sourceFile.fileName}:${position.line + 1}:${position.character + 1}`);
+                }
                 if (match !== null) {
                     const tag = match[1]!;
                     const kind = tag.startsWith("intercall") ? tag.slice("intercall ".length) as TypeScriptDirectiveKind : tag as TypeScriptDirectiveKind;

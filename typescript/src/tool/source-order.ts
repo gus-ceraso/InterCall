@@ -35,5 +35,9 @@ function stableTypeOrder(types: readonly DiscoveredType[]): DiscoveredType[] {
 }
 
 function compareWireNames(left: { readonly wireName: string; readonly sourceName: string }, right: { readonly wireName: string; readonly sourceName: string }): number {
-    return left.wireName.localeCompare(right.wireName) || left.sourceName.localeCompare(right.sourceName);
+    return compareText(left.wireName, right.wireName) || compareText(left.sourceName, right.sourceName);
+}
+
+function compareText(left: string, right: string): number {
+    return left < right ? -1 : left > right ? 1 : 0;
 }

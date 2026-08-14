@@ -13,11 +13,12 @@ export function emitImportExceptions(generation: ImportGenerationRecord): string
     for (const record of generation.exceptions) {
         const fixedName = fixed.get(record.declaration.name.name);
         if (fixedName !== undefined) {
-            lines.push(`export { ${fixedName} as ${record.nativeName} } from "@cerasos/intercall";`, "");
+            lines.push(`import { ${fixedName} } from "@cerasos/intercall";`, `export { ${fixedName} as ${record.nativeName} };`, "");
         } else if (record.declaration.type === undefined) {
             lines.push(`export const ${record.nativeName} = new Error(${JSON.stringify(record.declaration.name.name)});`, "");
         } else {
-            lines.push(`export class ${record.nativeName} extends PayloadException<${emitTypeExpression(record.declaration.type, names)}> {`, "}", "");
+            const payloadType = emitTypeExpression(record.declaration.type, names);
+            lines.push(`export class ${record.nativeName} extends PayloadException<${payloadType}> {`, `    constructor(payload: ${payloadType}) {`, "        super(payload);", "    }", "}", "");
         }
     }
     return lines.join("\n");

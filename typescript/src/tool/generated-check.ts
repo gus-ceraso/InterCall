@@ -16,6 +16,9 @@ const spiDeclarations = `
 declare module "@cerasos/intercall/generated" {
   export interface CodecProgram { readonly instructions: readonly unknown[]; readonly root: number; readonly zeroWidth: boolean; }
   export function makeCodecProgram(instructions: readonly unknown[], root: number): CodecProgram;
+  export function encodeProgram(program: CodecProgram, value: unknown): Uint8Array;
+  export function decodeProgram(program: CodecProgram, payload: Uint8Array): unknown;
+  export function decodeProgramsFromPayload(programs: readonly CodecProgram[], payload: Uint8Array): unknown[];
   export function requireCodecProgram(program: CodecProgram): CodecProgram;
   export function call(connection: import("@cerasos/intercall").Connection, binding: unknown, key: bigint, encode: () => Uint8Array, decode: (key: bigint, payload: Uint8Array) => void, options?: import("@cerasos/intercall").CallOptions): Promise<void>;
   export function createImportBindingWithInterfaceID(id: Uint8Array): unknown;

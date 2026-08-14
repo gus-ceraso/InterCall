@@ -35,7 +35,11 @@ export class ConnectionRuntime {
     ) {
         assertImportBinding(importBinding);
         assertExportBinding(exportBinding);
-        this.core = new ConnectionCore(() => transport.close());
+        this.core = new ConnectionCore(() => {
+            this.receiver.clear();
+            this.pendingResolvers.clear();
+            transport.close();
+        });
         this.outgoing = new OutgoingRequestState(this.core);
         this.incoming = new IncomingRequestState(this.core);
         runtimeConnections.set(this.connection as unknown as object, this);
@@ -73,9 +77,11 @@ export class ConnectionRuntime {
                 if (binding !== this.importBinding) throw new BindingMismatchError();
                 if (typeof procedureKey !== "bigint" || procedureKey === 0n) throw new TypeError("invalid procedure key");
                 if (typeof encode !== "function" || typeof decode !== "function") throw new TypeError("invalid call codec");
+                if (this.core.terminal !== undefined) throw this.core.terminal;
                 if (!this.isTransportOpen()) throw new TransportError();
             },
             ready: () => this.isTransportOpen() && !this.core.isTerminal,
+            terminalCause: () => this.core.terminal,
             reserveCall: () => this.outgoing.reserve(),
             encode,
             reserveFrameBytes: (length) => this.reserveFrameBytes(length + FRAME_HEADER_SIZE),
@@ -108,9 +114,10 @@ export class ConnectionRuntime {
                 try {
                     this.transport.send(buildFrame("request", id, procedureKey, payload));
                 } catch (error) {
-                    this.core.terminate(new TransportError("intercall: transport send failed", { cause: error }));
+                    const cause = new TransportError("intercall: transport send failed", { cause: error });
+                    this.core.terminate(cause);
                     this.core.markReceiveStopped();
-                    throw error;
+                    throw cause;
                 } finally {
                     sendLease?.();
                     sendLease = undefined;
@@ -136,16 +143,37 @@ export class ConnectionRuntime {
                 resolver.decode(frame.header.key, frame.payload);
                 resolver.resolve();
             } catch (error) {
-                resolver.reject(error instanceof Error ? error : new ProtocolError("intercall: response decode failed", { cause: error }));
-                this.core.terminate(new ProtocolError("intercall: malformed matched response", { cause: error }));
+                const cause = new ProtocolError("intercall: malformed matched response", { cause: error });
+                this.core.terminate(cause);
+                resolver.reject(cause);
             }
             return;
         }
         const lease = this.incoming.admit(frame.header.requestID, frame.payload.byteLength);
         const context: HandlerContext = { connection: this.connection, signal: lease.signal };
-        void invokeDispatch(bindingDispatch(this.exportBinding), context, frame.header.key, frame.payload).then((result) => {
-            if (!this.core.sendIfActive(() => this.transport.send(buildFrame("response", frame.header.requestID, result.exceptionKey, result.payload)))) return;
-        }).catch(() => undefined).finally(() => lease.finish());
+        void invokeDispatch(bindingDispatch(this.exportBinding), context, frame.header.key, frame.payload).then(async (result) => {
+            if (this.core.isTerminal) return;
+            const response = buildFrame("response", frame.header.requestID, result.exceptionKey, result.payload);
+            let releaseFrame: (() => void) | undefined;
+            let releaseSend: (() => void) | undefined;
+            try {
+                releaseFrame = this.reserveFrameBytes(response.byteLength);
+                releaseSend = await this.sendGate.acquire({
+                    frameLength: response.byteLength,
+                    bufferedAmount: () => this.transportBufferedAmount(),
+                    terminalCause: () => this.core.terminal,
+                });
+                if (this.core.isTerminal) return;
+                this.transport.send(response);
+            } catch (error) {
+                const cause = error instanceof TransportError ? error : new TransportError("intercall: transport response send failed", { cause: error });
+                this.core.terminate(cause);
+                this.core.markReceiveStopped();
+            } finally {
+                releaseSend?.();
+                releaseFrame?.();
+            }
+        }).finally(() => lease.finish());
     }
 
     private transportBufferedAmount(): number {

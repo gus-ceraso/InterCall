@@ -6,7 +6,11 @@ export interface LogicalDiagnostic {
 }
 
 export function sortDiagnostics(diagnostics: readonly LogicalDiagnostic[]): LogicalDiagnostic[] {
-    return [...diagnostics].sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column || left.message.localeCompare(right.message));
+    return [...diagnostics].sort((left, right) => compareText(left.path, right.path) || left.line - right.line || left.column - right.column || compareText(left.message, right.message));
+}
+
+function compareText(left: string, right: string): number {
+    return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export function formatDiagnostics(diagnostics: readonly LogicalDiagnostic[]): string {

@@ -41,6 +41,19 @@ export function encodeProgram(program: CodecProgram, value: unknown, budget = ne
 
 export function decodeProgram(program: CodecProgram, bytes: Uint8Array, budget = new CodecBudget()): unknown {
     const cursor = new DecoderCursor(bytes);
+    const result = decodeProgramValue(program, cursor, budget);
+    if (cursor.remaining !== 0) throw new PrimitiveCodecError("trailing bytes after payload");
+    return result;
+}
+
+export function decodeProgramsFromPayload(programs: readonly CodecProgram[], bytes: Uint8Array, budget = new CodecBudget()): unknown[] {
+    const cursor = new DecoderCursor(bytes);
+    const values = programs.map((program) => decodeProgramValue(program, cursor, budget));
+    if (cursor.remaining !== 0) throw new PrimitiveCodecError("trailing bytes after payload");
+    return values;
+}
+
+function decodeProgramValue(program: CodecProgram, cursor: DecoderCursor, budget: CodecBudget): unknown {
     let result: unknown;
     const stack: Array<{ readonly index: number; readonly assign: (value: unknown) => void }> = [
         { index: program.root, assign: (value) => { result = value; } },
@@ -54,24 +67,13 @@ export function decodeProgram(program: CodecProgram, bytes: Uint8Array, budget =
         }
         const instruction = requireInstruction(program, frame.index);
         switch (instruction.op) {
-            case "primitive":
-                frame.assign(decodePrimitiveValue(cursor, instruction));
-                break;
-            case "zero":
-                frame.assign(program.zeroValues[frame.index]);
-                break;
-            case "named":
-                stack.push({ index: instruction.target, assign: frame.assign });
-                break;
-            case "list":
-                decodeListFrame(program, instruction, cursor, frame.assign, stack, budget);
-                break;
-            case "record":
-                decodeRecordFrame(instruction, cursor, frame.assign, stack, budget);
-                break;
+            case "primitive": frame.assign(decodePrimitiveValue(cursor, instruction)); break;
+            case "zero": frame.assign(program.zeroValues[frame.index]); break;
+            case "named": stack.push({ index: instruction.target, assign: frame.assign }); break;
+            case "list": decodeListFrame(program, instruction, cursor, frame.assign, stack, budget); break;
+            case "record": decodeRecordFrame(instruction, cursor, frame.assign, stack, budget); break;
         }
     }
-    if (cursor.remaining !== 0) throw new PrimitiveCodecError("trailing bytes after payload");
     return result;
 }
 

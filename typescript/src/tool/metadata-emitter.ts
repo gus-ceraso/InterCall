@@ -11,7 +11,6 @@ export function emitImportMetadata(file: InterfaceFile, generation: ImportGenera
     const chunks: string[] = [];
     for (let offset = 0; offset < encoded.length; offset += 4096) chunks.push(encoded.slice(offset, offset + 4096));
     return [
-        `/** @intercall generated metadata */`,
         `export const interfaceBody = ${JSON.stringify(body)};`,
         `export const interfaceBodyChunks = Object.freeze(${JSON.stringify(chunks)});`,
         `export const interfaceIDHex = ${JSON.stringify(id)};`,

@@ -32,7 +32,11 @@ export function resolveProviderImports(project: CompilerProject, operands: reado
         edges.set(resolve(operand.fileName), targets);
     }
     detectCycles(edges);
-    return imports.sort((left, right) => left.from.localeCompare(right.from) || left.specifier.localeCompare(right.specifier));
+    return imports.sort((left, right) => compareText(left.from, right.from) || compareText(left.specifier, right.specifier));
+}
+
+function compareText(left: string, right: string): number {
+    return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function emittedModuleSpecifier(from: string, resolvedFile: string, jsx: ts.JsxEmit | undefined): string {

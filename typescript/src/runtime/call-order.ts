@@ -14,6 +14,7 @@ export interface OrderedCallDriver<Result> {
     send(id: bigint, payload: Uint8Array): void;
     cancel(id: bigint, reason: Error): void;
     fail(cause: unknown): void;
+    terminalCause?(): Error | undefined;
 }
 
 export async function runOrderedCall<Result>(
@@ -22,7 +23,7 @@ export async function runOrderedCall<Result>(
 ): Promise<Result> {
     driver.validate();
     throwIfAborted(signal);
-    if (!driver.ready()) throw new Error("intercall: connection is not ready");
+    if (!driver.ready()) throw driver.terminalCause?.() ?? new Error("intercall: connection is not ready");
 
     const slot = driver.reserveCall();
     let releaseFrame: (() => void) | undefined;
@@ -33,10 +34,10 @@ export async function runOrderedCall<Result>(
         throwIfAborted(signal);
         const payload = driver.encode();
         if (!(payload instanceof Uint8Array)) throw new InvalidArgumentError("request encoder did not return Uint8Array");
-        if (!driver.ready()) throw new Error("intercall: connection closed during encoding");
+        if (!driver.ready()) throw driver.terminalCause?.() ?? new Error("intercall: connection closed during encoding");
         releaseFrame = driver.reserveFrameBytes(payload.byteLength);
         await driver.waitForSend(signal, payload.byteLength);
-        if (!driver.ready()) throw new Error("intercall: connection closed before send");
+        if (!driver.ready()) throw driver.terminalCause?.() ?? new Error("intercall: connection closed before send");
         requestID = driver.allocateID(slot);
         pending = driver.registerPending(requestID, slot);
         void pending.catch(() => undefined);

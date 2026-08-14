@@ -54,7 +54,7 @@
     "test:syntax": "npm run build:cli && node --test test/syntax/scanner.test.mjs test/syntax/parser.test.mjs test/syntax/validator.test.mjs test/syntax/docs.test.mjs test/syntax/format.test.mjs test/syntax/golden.test.mjs test/syntax/fuzz.test.mjs",
     "test:tool": "npm run build:cli && node --test test/tool/interface-id.test.mjs test/tool/name.test.mjs test/tool/mangle.test.mjs test/tool/selector.test.mjs test/tool/depth.test.mjs test/tool/import.test.mjs test/tool/import-validation.test.mjs test/tool/import-emitter.test.mjs test/tool/exception-emitter.test.mjs test/tool/codec-emitter.test.mjs test/tool/binding-emitter.test.mjs test/tool/client-emitter.test.mjs test/tool/metadata-emitter.test.mjs test/tool/generator-format.test.mjs test/tool/generated-check.test.mjs test/tool/import-golden.test.mjs test/tool/compiler-project.test.mjs test/tool/directives.test.mjs test/tool/source-discovery.test.mjs test/tool/export-golden.test.mjs test/tool/cli-args.test.mjs test/tool/cli-diagnostics.test.mjs test/tool/cli-transaction.test.mjs test/tool/cli-ownership.test.mjs test/tool/cli-import.test.mjs test/tool/cli-export.test.mjs test/tool/cli-help.test.mjs test/tool/integration-fixtures.test.mjs",
     "test:browser": "npm run build:browser && playwright test",
-    "test:integration": "node --test test/integration",
+    "test:integration": "node --test test/integration/*.test.mjs",
     "check:fixtures": "node test/fixtures/compiler/compiler-experiments.test.mjs && node --test test/fixtures/syntax-integrity.test.mjs",
     "pack:check": "npm pack --dry-run"
   },

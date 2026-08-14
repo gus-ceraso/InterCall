@@ -1,6 +1,6 @@
 export type CliCommand =
     | { readonly kind: "help" }
-    | { readonly kind: "import"; readonly out: string; readonly interfacePath: string }
+    | { readonly kind: "import"; readonly out: string; readonly interfacePath: string; readonly tsNames: readonly string[] }
     | { readonly kind: "export"; readonly project: string; readonly out: string; readonly interfacePath: string; readonly sources: readonly string[]; readonly include: readonly string[]; readonly exclude: readonly string[] };
 
 export const HELP = `Usage: intercall-ts <import|export> [options]
@@ -11,7 +11,8 @@ Commands:
 
 Import options:
   --out DIR              Output directory
-  --interface FILE       InterCall interface file
+  --ts-name SELECTOR=NAME  Override a generated TypeScript name (repeatable)
+  INTERFACE FILE         InterCall interface file
 
 Export options:
   --project FILE         TypeScript project file
@@ -28,16 +29,19 @@ export function parseCliArguments(argv: readonly string[]): CliCommand {
     const values = new Map<string, string>();
     const include: string[] = [];
     const exclude: string[] = [];
+    const tsNames: string[] = [];
     const positional: string[] = [];
     for (let index = 1; index < argv.length; index += 1) {
         const argument = argv[index]!;
         if (!argument.startsWith("--")) { positional.push(argument); continue; }
         const name = argument.slice(2);
         if (name === "help") return { kind: "help" };
-        if (name === "include" || name === "exclude") {
+        if (name === "include" || name === "exclude" || name === "ts-name") {
             const value = argv[++index];
             if (value === undefined || value.startsWith("--")) throw new Error(`option --${name} requires a value`);
-            (name === "include" ? include : exclude).push(value);
+            if (name === "include") include.push(value);
+            else if (name === "exclude") exclude.push(value);
+            else tsNames.push(value);
             continue;
         }
         if (name !== "out" && name !== "interface" && name !== "project") throw new Error(`unknown option --${name}`);
@@ -49,9 +53,13 @@ export function parseCliArguments(argv: readonly string[]): CliCommand {
     const out = required(values, "out");
     if (command === "import") {
         if (values.has("project") || include.length > 0 || exclude.length > 0 || positional.length !== 1 || values.has("interface")) throw new Error("invalid import arguments");
-        return { kind: "import", out, interfacePath: positional[0]! };
+        return { kind: "import", out, interfacePath: positional[0]!, tsNames };
     }
-    return { kind: "export", project: required(values, "project"), out, interfacePath: required(values, "interface"), sources: positional, include, exclude };
+    if (tsNames.length > 0) throw new Error("--ts-name is valid only for import");
+    const project = required(values, "project");
+    const interfacePath = required(values, "interface");
+    if (positional.length === 0) throw new Error("export requires at least one source operand");
+    return { kind: "export", project, out, interfacePath, sources: positional, include, exclude };
 }
 
 function required(values: ReadonlyMap<string, string>, name: string): string {
