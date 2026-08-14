@@ -1233,7 +1233,8 @@ fixture.
 8. **Done.** Encode successful returns and matched exception payloads before
    returning to the runtime. Map provider, matching, and encoding failures to
    `internal_exception` with an empty payload.
-9. Emit one metadata-aware `exportBinding` singleton with immutable dispatch.
+9. **Done.** Emit one metadata-aware `exportBinding` singleton with immutable
+   dispatch.
 10. Emit and validate the canonical interface and generated TypeScript entirely
     in memory.
 11. Add golden generated export fixtures and execute dispatch directly for
