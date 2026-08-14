@@ -1019,8 +1019,9 @@ without stack overflow.
     canonical/noncanonical NaNs, invalid strings, bytes versus list-uint8,
     nested records, named chains, zero-width records/lists, truncation, trailing
     data, excessive counts, and allocation boundaries.
-12. Add focused zero-width-list and nested-container tests immediately below and
-    above the node budget, proving rejection occurs before a large allocation.
+12. **Done.** Add focused zero-width-list and nested-container tests immediately
+    below and above the node budget, proving rejection occurs before a large
+    allocation.
 13. Add randomized Go/TypeScript round-trip vector exchange: Go writes fixture
     bytes decoded by TypeScript and TypeScript writes bytes decoded by Go.
 

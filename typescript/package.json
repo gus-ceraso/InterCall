@@ -49,7 +49,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.cli.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "npm run test:browser-imports && npm run test:codec && npm run test:syntax && npm run test:tool && node --test test/tool/browser-import-boundary.test.mjs test/fixtures/compiler/compiler-experiments.test.mjs",
     "test:browser-imports": "npm run build:browser && node --test test/tool/browser-import-boundary.test.mjs",
-    "test:codec": "npm run build:cli && node --test test/codec/program.test.mjs test/codec/encoder-buffer.test.mjs test/codec/primitive-codec.test.mjs test/codec/text-codec.test.mjs test/codec/bytes-codec.test.mjs test/codec/list-codec.test.mjs test/codec/record-codec.test.mjs test/codec/codec-vm.test.mjs test/codec/budget.test.mjs test/codec/compiler.test.mjs test/codec/go-fixture.test.mjs",
+    "test:codec": "npm run build:cli && node --test test/codec/program.test.mjs test/codec/encoder-buffer.test.mjs test/codec/primitive-codec.test.mjs test/codec/text-codec.test.mjs test/codec/bytes-codec.test.mjs test/codec/list-codec.test.mjs test/codec/record-codec.test.mjs test/codec/codec-vm.test.mjs test/codec/budget.test.mjs test/codec/compiler.test.mjs test/codec/go-fixture.test.mjs test/codec/nested-budget.test.mjs",
     "test:syntax": "npm run build:cli && node --test test/syntax/scanner.test.mjs test/syntax/parser.test.mjs test/syntax/validator.test.mjs test/syntax/docs.test.mjs test/syntax/format.test.mjs test/syntax/golden.test.mjs test/syntax/fuzz.test.mjs",
     "test:tool": "npm run build:cli && node --test test/tool/interface-id.test.mjs test/tool/name.test.mjs test/tool/mangle.test.mjs test/tool/selector.test.mjs test/tool/depth.test.mjs",
     "test:browser": "playwright test",
