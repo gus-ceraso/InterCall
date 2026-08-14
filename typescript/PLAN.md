@@ -947,9 +947,9 @@ and `npm pack --dry-run` pass.
    exactly as `go/SPEC.md`, including CRLF/bare-CR normalization, blank-line
    attachment, trailing comments, nested type occurrences, and one-use comment
    ownership.
-6. Implement the canonical formatter iteratively, including empty files,
-   zero-field records, documented nested type occurrences, indentation, final
-   newline rules, and discarded unattached comments.
+6. **Done.** Implement the canonical formatter iteratively, including empty
+   files, zero-field records, documented nested type occurrences, indentation,
+   final newline rules, and discarded unattached comments.
 7. Implement canonical interface SHA-256 in Node tool code and a browser-free
    `InterfaceID` byte representation.
 8. Port every relevant fixture from `go/internal/syntax/testdata`, preserving

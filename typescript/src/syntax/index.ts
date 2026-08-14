@@ -1,4 +1,5 @@
 export { attachDocumentation, normalizeDocumentation } from "./docs.js";
+export { formatInterface } from "./format.js";
 export type {
     Comment,
     Declaration,
