@@ -1163,8 +1163,8 @@ and browser entry points contain no Node imports.
 7. **Done.** Emit `createClient(connection)` returning a frozen object with one
    positional async method per procedure and a final optional `CallOptions`
    parameter.
-8. Ensure a missing return produces `Promise<void>` and every successful response
-   must have an exactly empty payload.
+8. **Done.** Ensure a missing return produces `Promise<void>` and every
+   successful response must have an exactly empty payload.
 9. Embed canonical semantic metadata and machine type rows.
 10. Format output with the generator's own deterministic emitter; do not depend
     on a user's formatter.

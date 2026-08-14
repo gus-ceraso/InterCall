@@ -13,4 +13,5 @@ test("emits a frozen positional client facade with optional call options", () =>
     assert.match(output, /ping: async \(options\?: CallOptions\): Promise<void>/);
     assert.match(output, /greet: async \(first: string, count: Uint32, options\?: CallOptions\): Promise<string>/);
     assert.match(output, /call\(connection, importBinding/);
+    assert.match(output, /ping: async \(options\?: CallOptions\): Promise<void>/);
 });
