@@ -95,9 +95,9 @@ function testMarkersAndDocs() {
     const errors = diagnostics(program);
     assert.deepEqual(errors, [], `compiler diagnostics: ${errors.join("; ")}`);
     const checker = program.getTypeChecker();
-    const runtime = source(program, "runtime.ts");
+    const runtime = source(program, "../../../src/index.ts");
     const provider = source(program, "provider.ts");
-    const marker = exportedSymbol(checker, runtime, "Int32");
+    const marker = aliasTarget(checker, exportedSymbol(checker, runtime, "Int32"));
     const aliases = localAliasDeclarations(provider);
 
     const twoAliases = aliases.get("TwoAliases");
@@ -106,7 +106,7 @@ function testMarkersAndDocs() {
 
     const emptyAlias = aliases.get("EmptyAlias");
     assert.ok(emptyAlias);
-    const emptyMarker = exportedSymbol(checker, runtime, "EmptyRecord");
+    const emptyMarker = aliasTarget(checker, exportedSymbol(checker, runtime, "EmptyRecord"));
     assert.equal(resolvesToMarker(checker, aliases, emptyAlias.type, emptyMarker), true);
 
     const procedure = findFirst(

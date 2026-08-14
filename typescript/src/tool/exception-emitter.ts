@@ -9,6 +9,7 @@ const fixed = new Map([
 
 export function emitImportExceptions(generation: ImportGenerationRecord): string {
     const names = new Map(generation.namedTypes.map((record) => [record.declaration.name.name, record.nativeName]));
+    const fields = new Map(generation.fields.map((record) => [record.field, record.nativeName]));
     const lines = ["import { PayloadException } from \"@cerasos/intercall\";", "", ""];
     for (const record of generation.exceptions) {
         const fixedName = fixed.get(record.declaration.name.name);
@@ -17,7 +18,7 @@ export function emitImportExceptions(generation: ImportGenerationRecord): string
         } else if (record.declaration.type === undefined) {
             lines.push(`export const ${record.nativeName} = new Error(${JSON.stringify(record.declaration.name.name)});`, "");
         } else {
-            const payloadType = emitTypeExpression(record.declaration.type, names);
+            const payloadType = emitTypeExpression(record.declaration.type, names, fields);
             lines.push(`export class ${record.nativeName} extends PayloadException<${payloadType}> {`, `    constructor(payload: ${payloadType}) {`, "        super(payload);", "    }", "}", "");
         }
     }

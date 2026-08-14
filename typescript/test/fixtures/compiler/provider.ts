@@ -1,9 +1,9 @@
-import { PayloadException } from "./runtime.js";
+import { PayloadException } from "../../../src/index.js";
 import type {
     EmptyRecord,
     HandlerContext,
     Int32,
-} from "./runtime.js";
+} from "../../../src/index.js";
 
 type OneAlias = Int32;
 type TwoAliases = OneAlias;

@@ -12,7 +12,7 @@ import type { CallOptions } from "../runtime/types.js";
 import { connectionRuntimeFor } from "../runtime/connection-runtime.js";
 export type { CodecProgram } from "../runtime/codec-program.js";
 export { makeCodecProgram } from "../runtime/codec-program.js";
-export { decodeProgram, decodeProgramsFromPayload, encodeProgram } from "../runtime/codec-vm.js";
+export { decodeProgram, decodeProgramsFromPayload, encodeProgram, encodeProgramsToPayload } from "../runtime/codec-vm.js";
 export {
     emptyExportBinding,
     emptyImportBinding,
@@ -30,10 +30,17 @@ export type Dispatch = (
 ) => Promise<DispatchResult>;
 
 export type RequestEncoder = () => Uint8Array;
+export interface RemoteResponseException {
+    readonly kind: "remote-exception";
+    readonly error: Error;
+}
+
+export type ResponseDecoderResult = void | RemoteResponseException;
+
 export type ResponseDecoder = (
     exceptionKey: bigint,
     payload: Uint8Array,
-) => void;
+) => ResponseDecoderResult;
 
 export function freezeDispatch(dispatch: Dispatch): Dispatch {
     return freezeFunction(dispatch, "dispatch");

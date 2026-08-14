@@ -6,6 +6,8 @@ export function orderDiscoveredExports(discovery: SourceDiscovery): SourceDiscov
         procedures: [...discovery.procedures].sort(compareWireNames),
         exceptions: [...discovery.exceptions].sort(compareWireNames),
         namedTypes: stableTypeOrder(discovery.namedTypes),
+        parameterWireNames: discovery.parameterWireNames,
+        fieldWireNames: discovery.fieldWireNames,
     };
 }
 

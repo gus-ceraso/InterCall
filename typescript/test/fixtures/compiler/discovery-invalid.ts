@@ -1,4 +1,4 @@
-import type { HandlerContext } from "./runtime.js";
+import type { HandlerContext } from "../../../src/index.js";
 
 /** @intercall procedure */
 export function badContext(context: string): number { return context.length; }

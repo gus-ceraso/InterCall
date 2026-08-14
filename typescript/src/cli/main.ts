@@ -9,6 +9,7 @@ import { discoverSourceExports, normalizeSourceOperands, validateDiscoveredExcep
 import { loadCompilerProject } from "../tool/compiler-project.js";
 import { formatGeneratedSource } from "../tool/generator-format.js";
 import { parseCliArguments, HELP } from "./args.js";
+import { formatDiagnostics } from "./diagnostics.js";
 import { assertReplaceableInterface, assertReplaceableLeaf, replaceOwnedLeaf, replaceOwnedPair, validateOutputDirectory } from "./ownership.js";
 
 async function main(): Promise<void> {
@@ -44,6 +45,13 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatCliError(error));
     process.exitCode = 1;
 });
+
+function formatCliError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    const match = /^(.*):(\d+):(\d+):\s*(.*)$/su.exec(message);
+    if (match === null) return message;
+    return formatDiagnostics([{ path: match[1]!, line: Number(match[2]), column: Number(match[3]), message: match[4]! }]);
+}

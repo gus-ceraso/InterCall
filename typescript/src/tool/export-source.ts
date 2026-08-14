@@ -1,4 +1,5 @@
-import { dirname, extname, relative } from "node:path";
+import { dirname, extname, relative, resolve } from "node:path";
+import ts from "typescript";
 import type { CompilerProject } from "./compiler-project.js";
 import { emitExportBinding, type ExportProviderBinding } from "./export-binding-emitter.js";
 import { emitExportCodecPrograms } from "./export-codec-emitter.js";
@@ -39,6 +40,8 @@ function providerBindings(project: CompilerProject, discovery: SourceDiscovery, 
         let specifier = relative(dirname(generatedFile), record.sourceFile.fileName).replaceAll("\\", "/");
         specifier = specifier.slice(0, -extension.length) + emittedExtension;
         if (!specifier.startsWith(".")) specifier = `./${specifier}`;
+        const resolvedModule = ts.resolveModuleName(specifier, generatedFile, project.options, ts.sys).resolvedModule;
+        if (resolvedModule === undefined || resolve(resolvedModule.resolvedFileName) !== resolve(record.sourceFile.fileName)) throw new Error(`cannot resolve generated provider import ${JSON.stringify(specifier)} to ${record.sourceFile.fileName}`);
         result.set(record.wireName, { localName: byFile.get(record.sourceFile.fileName)!, sourceName: record.sourceName, specifier });
     }
     return result;

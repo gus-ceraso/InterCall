@@ -14,6 +14,22 @@ import { decodeString, encodeString } from "./text-codec.js";
 
 export function encodeProgram(program: CodecProgram, value: unknown, budget = new CodecBudget()): Uint8Array {
     const buffer = new EncoderBuffer();
+    encodeProgramInto(program, value, buffer, budget);
+    return buffer.finish();
+}
+
+export function encodeProgramsToPayload(
+    programs: readonly CodecProgram[],
+    values: readonly unknown[],
+    budget = new CodecBudget(),
+): Uint8Array {
+    if (programs.length !== values.length) throw new RangeError("codec program/value count mismatch");
+    const buffer = new EncoderBuffer();
+    for (let index = 0; index < programs.length; index += 1) encodeProgramInto(programs[index]!, values[index], buffer, budget);
+    return buffer.finish();
+}
+
+function encodeProgramInto(program: CodecProgram, value: unknown, buffer: EncoderBuffer, budget: CodecBudget): void {
     const stack: Array<{ readonly index: number; readonly value: unknown }> = [{ index: program.root, value }];
     while (stack.length > 0) {
         const frame = stack.pop()!;
@@ -36,7 +52,6 @@ export function encodeProgram(program: CodecProgram, value: unknown, budget = ne
                 break;
         }
     }
-    return buffer.finish();
 }
 
 export function decodeProgram(program: CodecProgram, bytes: Uint8Array, budget = new CodecBudget()): unknown {

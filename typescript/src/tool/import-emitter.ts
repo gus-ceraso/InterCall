@@ -11,17 +11,18 @@ const primitiveTypes: Record<string, string> = {
 
 export function emitImportTypes(generation: ImportGenerationRecord): string {
     const names = new Map(generation.namedTypes.map((record) => [record.declaration.name.name, record.nativeName]));
+    const fields = new Map(generation.fields.map((record) => [record.field, record.nativeName]));
     const lines = [
         "import type { EmptyRecord, Float32, Float64, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64 } from \"@cerasos/intercall\";",
         "",
     ];
     for (const record of generation.namedTypes) {
-        lines.push(`export type ${record.nativeName} = ${emitTypeExpression(record.type, names)};`, "");
+        lines.push(`export type ${record.nativeName} = ${emitTypeExpression(record.type, names, fields)};`, "");
     }
     return lines.join("\n");
 }
 
-export function emitTypeExpression(root: TypeExpr, names: ReadonlyMap<string, string>): string {
+export function emitTypeExpression(root: TypeExpr, names: ReadonlyMap<string, string>, fields: ReadonlyMap<object, string> = new Map()): string {
     const output: string[] = [];
     type Action = { readonly kind: "text"; readonly value: string } | { readonly kind: "type"; readonly value: TypeExpr };
     const stack: Action[] = [{ kind: "type", value: root }];
@@ -55,7 +56,7 @@ export function emitTypeExpression(root: TypeExpr, names: ReadonlyMap<string, st
                     const field = type.fields[index]!;
                     stack.push({ kind: "text", value: ";\n" });
                     stack.push({ kind: "type", value: field.type });
-                    stack.push({ kind: "text", value: `    readonly ${field.name.name}: ` });
+                    stack.push({ kind: "text", value: `    readonly ${fields.get(field) ?? field.name.name}: ` });
                 }
                 break;
         }

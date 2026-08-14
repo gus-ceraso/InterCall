@@ -38,8 +38,8 @@ test("discovers directly exported tagged procedures, exceptions, and types", () 
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery.json"));
     const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/discovery.ts"]);
     const providerImports = resolveProviderImports(project, operands);
-    assert.equal(providerImports[0].emittedSpecifier, "./runtime.js");
-    assert.match(emitProviderImports(providerImports)[0].source, /^import \* as provider_0 from \"\.\/runtime\.js\";/);
+    assert.equal(providerImports[0].emittedSpecifier, "../../../src/index.js");
+    assert.match(emitProviderImports(providerImports)[0].source, /^import \* as provider_0 from \"\.\.\/\.\.\/\.\.\/src\/index\.js\";/);
     const discovered = discoverSourceExports(project, operands);
     validateDiscoveredProcedure(project, discovered.procedures[0]);
     for (const exception of discovered.exceptions) validateDiscoveredException(project, exception);

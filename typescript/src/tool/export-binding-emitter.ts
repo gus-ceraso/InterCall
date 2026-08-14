@@ -52,9 +52,10 @@ function emitProcedure(lines: string[], procedure: DiscoveredProcedure, provider
         lines.push("            if (payload.byteLength !== 0) return { exceptionKey: 0x3f5fc972f8477b07n, payload: new Uint8Array() };", "            try {");
         emitProviderCall(lines, provider, "", file, procedure.wireName, codecs);
     }
-    lines.push("            } catch (error) {");
+    lines.push("            } catch (error: any) {");
+    lines.push("                let matchCount = 0;", "                let matchedKey = 0n;", "                let matchedPayload: Uint8Array = new Uint8Array();", "                try {");
     for (const exception of discovery.exceptions) emitExceptionMatch(lines, exception, providers.get(exception.wireName) ?? provider, codecs, file);
-    lines.push("                return { exceptionKey: 0x1aaec22e85996f50n, payload: new Uint8Array() };", "            }", "        }");
+    lines.push("                    if (matchCount === 1) return { exceptionKey: matchedKey, payload: matchedPayload };", "                    return { exceptionKey: 0x1aaec22e85996f50n, payload: new Uint8Array() };", "                } catch {", "                    return { exceptionKey: 0x1aaec22e85996f50n, payload: new Uint8Array() };", "                }", "            }", "        }");
 }
 
 function emitProviderCall(lines: string[], provider: ExportProviderBinding, value: string, file: InterfaceFile, wireName: string, codecs: ReadonlyMap<TypeExpr, number>): void {
@@ -71,9 +72,9 @@ function emitExceptionMatch(lines: string[], exception: DiscoveredException, pro
     if (exception.payloadClass) {
         const declaration = file.declarations.find((candidate) => candidate.kind === "exception-decl" && candidate.name.name === exception.wireName);
         const payload = declaration?.kind === "exception-decl" ? declaration.type : undefined;
-        lines.push(`                if (error instanceof ${provider.localName}[${JSON.stringify(exception.sourceName)}]) return { exceptionKey: ${key}n, payload: ${payload === undefined ? "new Uint8Array()" : `encodeProgram(codec${codecs.get(payload)!}, error.payload)`} };`);
+        lines.push(`                    if (error instanceof ${provider.localName}[${JSON.stringify(exception.sourceName)}]) { matchCount += 1; matchedKey = ${key}n; matchedPayload = ${payload === undefined ? "new Uint8Array()" : `encodeProgram(codec${codecs.get(payload)!}, error.payload)`}; }`);
     }
-    else lines.push(`                if (error === ${provider.localName}[${JSON.stringify(exception.sourceName)}]) return { exceptionKey: ${key}n, payload: new Uint8Array() };`);
+    else lines.push(`                    if (error === ${provider.localName}[${JSON.stringify(exception.sourceName)}]) { matchCount += 1; matchedKey = ${key}n; }`);
 }
 
 function codecIndexMap(file: InterfaceFile): Map<TypeExpr, number> {

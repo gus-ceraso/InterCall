@@ -140,8 +140,11 @@ export class ConnectionRuntime {
             this.pendingResolvers.delete(frame.header.requestID);
             if (resolver === undefined) return;
             try {
-                resolver.decode(frame.header.key, frame.payload);
-                resolver.resolve();
+                const outcome = resolver.decode(frame.header.key, frame.payload);
+                if (outcome !== undefined && outcome !== null && typeof outcome === "object") {
+                    if (outcome.kind !== "remote-exception" || !(outcome.error instanceof Error)) throw new ProtocolError("intercall: invalid response decoder outcome");
+                    resolver.reject(outcome.error);
+                } else resolver.resolve();
             } catch (error) {
                 const cause = new ProtocolError("intercall: malformed matched response", { cause: error });
                 this.core.terminate(cause);
@@ -153,17 +156,18 @@ export class ConnectionRuntime {
         const context: HandlerContext = { connection: this.connection, signal: lease.signal };
         void invokeDispatch(bindingDispatch(this.exportBinding), context, frame.header.key, frame.payload).then(async (result) => {
             if (this.core.isTerminal) return;
-            const response = buildFrame("response", frame.header.requestID, result.exceptionKey, result.payload);
             let releaseFrame: (() => void) | undefined;
             let releaseSend: (() => void) | undefined;
             try {
-                releaseFrame = this.reserveFrameBytes(response.byteLength);
+                if (!(result.payload instanceof Uint8Array)) throw new TransportError("intercall: invalid response payload");
+                releaseFrame = this.reserveFrameBytes(FRAME_HEADER_SIZE + result.payload.byteLength);
                 releaseSend = await this.sendGate.acquire({
-                    frameLength: response.byteLength,
+                    frameLength: FRAME_HEADER_SIZE + result.payload.byteLength,
                     bufferedAmount: () => this.transportBufferedAmount(),
                     terminalCause: () => this.core.terminal,
                 });
-                if (this.core.isTerminal) return;
+                if (this.core.isTerminal || !this.isTransportOpen()) throw new TransportError("intercall: transport closed before response send");
+                const response = buildFrame("response", frame.header.requestID, result.exceptionKey, result.payload);
                 this.transport.send(response);
             } catch (error) {
                 const cause = error instanceof TransportError ? error : new TransportError("intercall: transport response send failed", { cause: error });

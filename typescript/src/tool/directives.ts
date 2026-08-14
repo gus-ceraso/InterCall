@@ -4,6 +4,7 @@ export type TypeScriptDirectiveKind = "procedure" | "exception" | "type" | "para
 
 export interface TypeScriptDirective {
     readonly kind: TypeScriptDirectiveKind;
+    readonly explicit: boolean;
     readonly arguments: string;
     readonly text: string;
     readonly start: number;
@@ -70,7 +71,7 @@ export function scanTypeScriptDirectives(sourceFile: ts.SourceFile): TypeScriptD
                     const start = lineStart + Math.max(0, line.search(/@/u));
                     const end = lineStart + line.length;
                     const position = sourceFile.getLineAndCharacterOfPosition(start);
-                    directives.push({ kind, arguments: match[2] ?? "", text: line.trim(), start, end, line: position.line + 1, character: position.character + 1 });
+                    directives.push({ kind, explicit: tag.startsWith("intercall"), arguments: match[2] ?? "", text: line.trim(), start, end, line: position.line + 1, character: position.character + 1 });
                 }
                 offset += line.length + 1;
             }

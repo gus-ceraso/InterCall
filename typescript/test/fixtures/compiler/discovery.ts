@@ -1,4 +1,4 @@
-import { PayloadException, type HandlerContext, type Int32 } from "./runtime.js";
+import { PayloadException, type HandlerContext, type Int32 } from "../../../src/index.js";
 
 /** @intercall procedure */
 export function add(_context: HandlerContext, value: Int32): Promise<Int32> { return Promise.resolve(value); }

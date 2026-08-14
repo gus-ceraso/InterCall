@@ -1,4 +1,4 @@
-import type { HandlerContext, Int32 } from "./runtime.js";
+import type { HandlerContext, Int32 } from "../../../src/index.js";
 
 /**
  * A TSX provider.

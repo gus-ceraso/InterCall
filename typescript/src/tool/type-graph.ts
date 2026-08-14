@@ -28,6 +28,7 @@ export function walkReachableType(project: CompilerProject, root: ts.Node, limit
             throw new Error(`unsupported TypeScript type ${checker.typeToString(type)}`);
         }
         if ((type.flags & (ts.TypeFlags.BooleanLike | ts.TypeFlags.NumberLike | ts.TypeFlags.StringLike | ts.TypeFlags.BigIntLike)) !== 0) continue;
+        if (type.symbol?.name === "Uint8Array" && checker.isArrayLikeType(type)) continue;
         const symbol = type.aliasSymbol ?? type.symbol;
         if (symbol !== undefined && isExpandable(symbol, type)) {
             if (work.active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);
