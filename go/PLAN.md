@@ -1736,9 +1736,11 @@ go test ./transport/unixsocket ./transport/websocket
 go test ./...
 ```
 
-### Task 21 — Reconcile the native transport specification
+### Task 21 — Reconcile the native transport specification — **Complete**
 
 **Commit:** `docs: reconcile Go transport negotiation`
+
+**Status:** Implemented and reviewed; normative README and Go specification now describe the native transport profile.
 
 **Files:**
 
@@ -1770,9 +1772,11 @@ go test ./...
 git diff --check
 ```
 
-### Task 22 — Add the end-user Unix, WebSocket, and cloudflared guide
+### Task 22 — Add the end-user Unix, WebSocket, and cloudflared guide — **Complete**
 
 **Commit:** `docs: add native transport usage guide`
+
+**Status:** Implemented and reviewed; GO.md documents raw, negotiated, low-level, and high-level transport usage.
 
 **Files:**
 
