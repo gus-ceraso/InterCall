@@ -17,6 +17,12 @@ test("applies selectors and validates helper, local, fixed, and depth scopes", (
     assert.throws(() => buildValidatedImportGeneration(file, base, ["procedure:get/param:value/field:first=second", "procedure:get/param:value/field:second=second"]), /collision/);
 });
 
+test("reserves generated client locals in procedure scopes", () => {
+    const file = parseInterface("locals.intercall", new TextEncoder().encode("procedure test { options string; result string; };"));
+    validateInterface(file);
+    assert.throws(() => buildValidatedImportGeneration(file, buildImportGeneration(file)), /collision/);
+});
+
 test("rejects payloads on fixed exceptions", () => {
     const file = parseInterface("fixed.intercall", new TextEncoder().encode("exception internal_exception record { value uint8; };"));
     validateInterface(file);

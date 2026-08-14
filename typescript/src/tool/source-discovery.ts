@@ -89,6 +89,17 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
             }
         }
     }
+    const knownGeneratedTypes = new Set(namedTypes.map((type) => `${type.sourceFile.fileName}\u0000${type.sourceName}`));
+    for (const sourceFile of project.program.getSourceFiles().filter((file) => hasGeneratedTypeScriptMarker(file.getFullText())).sort((left, right) => left.fileName.localeCompare(right.fileName))) {
+        for (const [nativeName, row] of metadataRowsFor(sourceFile, metadataCache)) {
+            const declaration = sourceFile.statements.find((statement) => (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) && statement.name?.text === nativeName);
+            if (declaration === undefined || (!ts.isTypeAliasDeclaration(declaration) && !ts.isInterfaceDeclaration(declaration))) throw new Error(`generated metadata has no TypeScript declaration for ${nativeName}`);
+            const key = `${sourceFile.fileName}\u0000${nativeName}`;
+            if (knownGeneratedTypes.has(key)) continue;
+            knownGeneratedTypes.add(key);
+            namedTypes.push({ sourceName: nativeName, wireName: row.wireName, sourceFile, declaration, documentation: row.documentation, metadataDeclaration: row.declaration });
+        }
+    }
     const known = [...procedures, ...exceptions, ...namedTypes];
     validateWireNames(known);
     const include = validateFilters(filters.include, procedures);
@@ -194,24 +205,43 @@ function directExportDeclarations(sourceFile: ts.SourceFile, checker: ts.TypeChe
                 for (const element of statement.exportClause.elements) {
                     const symbol = checker.getSymbolAtLocation(element.name);
                     const target = symbol === undefined ? undefined : exportTarget(checker, symbol);
-                    if (target !== undefined) result.push(target);
+                    if (target !== undefined) {
+                        rejectReexportedProvider(target);
+                        result.push(target);
+                    }
                 }
             } else if (statement.exportClause === undefined && statement.moduleSpecifier !== undefined) {
                 const moduleSymbol = checker.getSymbolAtLocation(statement.moduleSpecifier);
                 for (const symbol of moduleSymbol === undefined ? [] : checker.getExportsOfModule(moduleSymbol)) {
                     const target = exportTarget(checker, symbol);
-                    if (target !== undefined) result.push(target);
+                    if (target !== undefined) {
+                        rejectReexportedProvider(target);
+                        result.push(target);
+                    }
                 }
             }
             continue;
         }
         const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
         if (!modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+        if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
+            if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+                const directive = directiveFor(statement, scanTypeScriptDirectives(sourceFile));
+                if (directive !== undefined) throw new Error(`default export ${declarationName(statement) ?? "<anonymous>"} is unsupported`);
+            }
+            continue;
+        }
         if (ts.isVariableStatement(statement)) result.push(statement);
         else if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) result.push(statement);
 
     }
     return result;
+}
+
+function rejectReexportedProvider(target: ts.Node): void {
+    if (!ts.isFunctionDeclaration(target) && !ts.isVariableStatement(target) && !ts.isClassDeclaration(target)) return;
+    const directives = scanTypeScriptDirectives(target.getSourceFile());
+    if (directiveFor(target, directives) !== undefined) throw new Error(`re-exported provider ${declarationName(target) ?? "<anonymous>"} is unsupported`);
 }
 
 function exportTarget(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Node | undefined {

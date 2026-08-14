@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type { CompilerProject } from "./compiler-project.js";
+import { hasGeneratedTypeScriptMarker } from "./metadata-reader.js";
 
 export const MAX_SOURCE_TYPE_DEPTH = 4_096;
 
@@ -28,8 +29,15 @@ export function walkReachableType(project: CompilerProject, root: ts.Node, limit
             throw new Error(`unsupported TypeScript type ${checker.typeToString(type)}`);
         }
         if ((type.flags & (ts.TypeFlags.BooleanLike | ts.TypeFlags.NumberLike | ts.TypeFlags.StringLike | ts.TypeFlags.BigIntLike)) !== 0) continue;
-        if (type.symbol?.name === "Uint8Array" && checker.isArrayLikeType(type)) continue;
+        if (type.symbol?.name === "Uint8Array") continue;
+        if (isArrayType(checker, type)) {
+            const element = checker.getTypeArguments(type as ts.TypeReference)[0];
+            if (element !== undefined) stack.push({ type: element, depth: work.depth + 1, active: work.active });
+            continue;
+        }
         const symbol = type.aliasSymbol ?? type.symbol;
+        if (symbol?.declarations?.some((declaration) => (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) && hasGeneratedTypeScriptMarker(declaration.getSourceFile().getFullText()))) continue;
+        if (symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration))) throw new Error(`unsupported class type ${checker.typeToString(type)}`);
         if (symbol !== undefined && isExpandable(symbol, type)) {
             if (work.active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);
             const active = new Set(work.active);
@@ -40,11 +48,6 @@ export function walkReachableType(project: CompilerProject, root: ts.Node, limit
                 if (ts.isTypeAliasDeclaration(declaration)) stack.push({ type: checker.getTypeAtLocation(declaration.type), depth: work.depth + 1, active });
                 else if (ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)) pushProperties(checker, type, stack, properties, work.depth + 1, active);
             }
-            continue;
-        }
-        if (isArrayType(checker, type)) {
-            const element = checker.getTypeArguments(type as ts.TypeReference)[0];
-            if (element !== undefined) stack.push({ type: element, depth: work.depth + 1, active: work.active });
             continue;
         }
         if (type.getProperties().length > 0) pushProperties(checker, type, stack, properties, work.depth + 1, work.active);
@@ -62,7 +65,8 @@ function pushProperties(checker: ts.TypeChecker, type: ts.Type, stack: Work[], p
 }
 
 function isArrayType(checker: ts.TypeChecker, type: ts.Type): boolean {
-    return checker.isArrayType(type) || checker.isTupleType(type);
+    if (checker.isArrayType(type) || checker.isTupleType(type)) return true;
+    return type.symbol?.name === "ReadonlyArray" && checker.isArrayLikeType(type);
 }
 
 function isExpandable(symbol: ts.Symbol, type: ts.Type): boolean {

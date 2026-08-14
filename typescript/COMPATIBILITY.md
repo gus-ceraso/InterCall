@@ -6,9 +6,13 @@ planned durable tests. A row names a contract, not an implementation detail.
 The README remains authoritative when a future implementation choice conflicts
 with this table.
 
-Test paths below are the intended paths. A row is complete only when the named
-test exists and passes against the checked-out Go implementation where the row
-concerns wire compatibility.
+This is a gap-oriented roadmap, not a claim that every named path already
+exists. Current checked-in coverage is organized by the package scripts:
+`test/syntax/*.test.mjs`, `test/codec/*.test.mjs`, `test/runtime/*.test.mjs`,
+`test/tool/*.test.mjs`, `test/browser/runtime.spec.ts`,
+`test/integration/*.test.mjs`, and the Go tests under `../go`. A row is complete
+only when its durable test exists and passes against the checked-out Go
+implementation where the row concerns wire compatibility.
 
 ## 1. Interface language and semantic processing
 

@@ -45,6 +45,21 @@ test("enforces generated call ordering and releases frame bytes after outcome ad
     assert.deepEqual(driver.log.at(-1), "release-frame");
 });
 
+test("does not allocate or send when cancellation wins after gate admission", async () => {
+    const driver = new Driver();
+    let release;
+    driver.waitForSend = () => new Promise((resolve) => { release = resolve; });
+    const controller = new AbortController();
+    const call = runOrderedCall(driver, controller.signal);
+    await Promise.resolve();
+    release();
+    controller.abort(new Error("gate cancellation"));
+    await assert.rejects(call, /gate cancellation/);
+    assert.equal(driver.log.includes("allocate"), false);
+    assert.equal(driver.log.includes("send"), false);
+    assert.equal(driver.state.active, 0);
+});
+
 test("does not encode on pre-aborted calls and cancels after send with the exact reason", async () => {
     const pre = new AbortController();
     pre.abort("before");

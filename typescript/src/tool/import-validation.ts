@@ -70,6 +70,8 @@ function validateLocalScopes(
     for (const declaration of file.declarations) {
         if (declaration.kind !== "procedure-decl") continue;
         const scope = new PublicNameScope();
+        scope.claim("options");
+        scope.claim("result");
         for (const parameter of declaration.params) scope.claim(parameterNames.get(parameter)!);
     }
 }

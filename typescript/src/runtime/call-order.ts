@@ -37,6 +37,7 @@ export async function runOrderedCall<Result>(
         if (!driver.ready()) throw driver.terminalCause?.() ?? new Error("intercall: connection closed during encoding");
         releaseFrame = driver.reserveFrameBytes(payload.byteLength);
         await driver.waitForSend(signal, payload.byteLength);
+        throwIfAborted(signal);
         if (!driver.ready()) throw driver.terminalCause?.() ?? new Error("intercall: connection closed before send");
         requestID = driver.allocateID(slot);
         pending = driver.registerPending(requestID, slot);

@@ -1299,29 +1299,30 @@ forged or stale metadata case before output mutation.
 2. **Done.** Cover every primitive, named chains, lists, inline/named records,
    bytes, zero-width values, all exception payload forms, and no-return
    procedures.
-3. **Done.** Generate and check in both Go and TypeScript bindings with explicit
-   regeneration commands. Ordinary tests verify rather than rewrite them.
-4. Build a Go test server using `transport/websocket.NewHandler` with generated
-   export and import bindings. Serve the Playwright test page from the same
-   origin.
-5. Test TypeScript-to-Go calls, Go-to-TypeScript calls, nested/reentrant calls,
-   simultaneous bidirectional calls, concurrent calls, and out-of-order
-   responses.
-6. Test all application exceptions in both directions and the three fixed
-   exceptions.
-7. Test interface-ID success and both mismatch directions.
-8. Test local browser cancellation followed by an ignored late Go response and
-   continued connection use.
-9. Add malformed-peer modes for over-ceiling frames, over-budget zero-width
-   lists, saturated send/receive queues, excess concurrent handlers, truncated
-   logical frames followed by close, unknown matched exception keys,
+3. **Pending.** Generate and check in both Go and TypeScript bindings with
+   explicit regeneration commands. Ordinary tests verify rather than rewrite
+   them.
+4. **Partial.** `go/internal/integration/cmd/e2e-server/main.go` provides a
+   real negotiated Go WebSocket peer for the browser smoke test. The complete
+   `NewHandler`/same-origin test server remains to be added.
+5. **Partial.** The browser smoke test covers one call in each direction;
+   nested, simultaneous, concurrent, and out-of-order cases remain.
+6. **Pending.** Test all application exceptions in both directions and the
+   three fixed exceptions.
+7. **Pending.** Test interface-ID success and both mismatch directions.
+8. **Pending.** Test local browser cancellation followed by an ignored late Go
+   response and continued connection use.
+9. **Pending.** Add malformed-peer modes for over-ceiling frames, over-budget
+   zero-width lists, saturated send/receive queues, excess concurrent handlers,
+   truncated logical frames followed by close, unknown matched exception keys,
    noncanonical NaNs, trailing payloads, duplicate active IDs, unmatched opaque
    responses, text WebSocket messages, and multiple/split frames across
    messages.
-10. Compare canonical interface IDs, procedure keys, exception keys, frame
-    headers, and codec vectors directly between Go and TypeScript.
-11. Run the full matrix in Chromium, Firefox, and WebKit. Keep a smaller Chromium
-    smoke subset for fast local iteration.
+10. **Pending.** Compare canonical interface IDs, procedure keys, exception
+    keys, frame headers, and codec vectors directly between Go and TypeScript.
+11. **Partial.** Playwright runs the current Chromium, Firefox, and WebKit
+    browser smoke tests; the full interoperability matrix and fast Chromium
+    subset remain.
 
 **Gate:** a real browser and the checked-out Go implementation interoperate in
 both directions for every supported value and failure class.

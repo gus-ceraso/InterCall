@@ -25,8 +25,20 @@ export function validateDiscoveredProcedure(project: CompilerProject, procedure:
 }
 
 export function validateDiscoveredException(project: CompilerProject, exception: DiscoveredException): void {
-    if (!exception.payloadClass) return;
     const declaration = exception.declaration;
+    if (!exception.payloadClass) {
+        if (!ts.isVariableStatement(declaration) || (declaration.declarationList.flags & ts.NodeFlags.Const) === 0 || declaration.declarationList.declarations.length !== 1) {
+            throw new Error(`exception ${exception.sourceName} must be one exported const Error value`);
+        }
+        const variable = declaration.declarationList.declarations[0]!;
+        const checker = project.program.getTypeChecker();
+        const errorSymbol = checker.resolveName("Error", declaration, ts.SymbolFlags.Value, false);
+        const errorType = errorSymbol === undefined ? undefined : checker.getDeclaredTypeOfSymbol(errorSymbol);
+        if (errorType === undefined || !checker.isTypeAssignableTo(checker.getTypeAtLocation(variable.name), errorType)) {
+            throw new Error(`exception ${exception.sourceName} must be assignable to Error`);
+        }
+        return;
+    }
     if (!ts.isClassDeclaration(declaration)) throw new Error("payload exception must be a class");
     const heritage = declaration.heritageClauses?.flatMap((clause) => clause.types) ?? [];
     const checker = project.program.getTypeChecker();

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { attachDocumentation, formatInterface, parseInterface, validateInterface } from "../syntax/index.js";
 import { buildValidatedImportSource } from "../tool/import-source.js";
 import { buildValidatedExportSource } from "../tool/export-source.js";
@@ -34,8 +34,16 @@ async function main(): Promise<void> {
     const project = loadCompilerProject(command.project);
     const operands = normalizeSourceOperands(project, command.sources);
     const discovery = discoverSourceExports(project, operands, { include: command.include, exclude: command.exclude });
-    for (const procedure of discovery.procedures) validateDiscoveredProcedure(project, procedure);
-    for (const exception of discovery.exceptions) validateDiscoveredException(project, exception);
+    const sourceDiagnostics = [];
+    for (const procedure of discovery.procedures) {
+        try { validateDiscoveredProcedure(project, procedure); }
+        catch (error) { sourceDiagnostics.push(sourceDiagnostic(project, procedure.declaration, error)); }
+    }
+    for (const exception of discovery.exceptions) {
+        try { validateDiscoveredException(project, exception); }
+        catch (error) { sourceDiagnostics.push(sourceDiagnostic(project, exception.declaration, error)); }
+    }
+    if (sourceDiagnostics.length > 0) throw new Error(formatDiagnostics(sourceDiagnostics));
     const generated = buildValidatedExportSource(project, discovery, { generatedFile: bindingPath });
     const interfaceBytes = new TextEncoder().encode(formatInterface(generated.source));
     const bindingBytes = Buffer.from(formatGeneratedSource(generated.generatedSource));
@@ -49,9 +57,22 @@ main().catch((error: unknown) => {
     process.exitCode = 1;
 });
 
+function sourceDiagnostic(project: ReturnType<typeof loadCompilerProject>, node: import("typescript").Node, error: unknown): { readonly path: string; readonly line: number; readonly column: number; readonly message: string } {
+    const sourceFile = node.getSourceFile();
+    const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    return {
+        path: relative(resolve(project.projectPath, ".."), sourceFile.fileName).replaceAll("\\", "/"),
+        line: position.line + 1,
+        column: position.character + 1,
+        message: error instanceof Error ? error.message.replaceAll("\n", " ") : String(error).replaceAll("\n", " "),
+    };
+}
+
 function formatCliError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
-    const match = /^(.*):(\d+):(\d+):\s*(.*)$/su.exec(message);
-    if (match === null) return message;
-    return formatDiagnostics([{ path: match[1]!, line: Number(match[2]), column: Number(match[3]), message: match[4]! }]);
+    const diagnostics = message.split("\n").map((line) => /^(.*):(\d+):(\d+):\s*(.*)$/u.exec(line)).filter((match): match is RegExpExecArray => match !== null);
+    if (diagnostics.length === message.split("\n").length && diagnostics.length > 0) {
+        return formatDiagnostics(diagnostics.map((match) => ({ path: match[1]!, line: Number(match[2]), column: Number(match[3]), message: match[4]! })));
+    }
+    return message;
 }

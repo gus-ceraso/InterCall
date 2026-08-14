@@ -32,6 +32,7 @@ test("rejects invalid procedure context and result signatures", () => {
     const discovered = discoverSourceExports(project, operands);
     assert.throws(() => validateDiscoveredProcedure(project, discovered.procedures[0]), /HandlerContext/);
     assert.throws(() => validateDiscoveredProcedure(project, discovered.procedures[1]), /Promise/);
+    assert.throws(() => validateDiscoveredException(project, discovered.exceptions[0]), /assignable to Error/);
 });
 
 test("discovers directly exported tagged procedures, exceptions, and types", () => {

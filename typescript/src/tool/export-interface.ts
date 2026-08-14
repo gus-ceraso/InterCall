@@ -4,6 +4,7 @@ import type { CompilerProject } from "./compiler-project.js";
 import type { DiscoveredException, DiscoveredProcedure, DiscoveredType, SourceDiscovery } from "./source-discovery.js";
 import { orderDiscoveredExports } from "./source-order.js";
 import { sourceDocumentation, sourceParameterDocumentation, sourceReturnDocumentation } from "./directives.js";
+import { hasGeneratedTypeScriptMarker } from "./metadata-reader.js";
 import { isExactRuntimeMarker } from "./source-validation.js";
 import { typeScriptToWire } from "./name.js";
 import { walkReachableType } from "./type-graph.js";
@@ -70,6 +71,14 @@ function exceptionPayloadType(exception: DiscoveredException, checker: ts.TypeCh
     return undefined;
 }
 
+function arrayElementNode(node: ts.Node | undefined): ts.TypeNode | undefined {
+    if (node === undefined) return undefined;
+    if (ts.isArrayTypeNode(node)) return node.elementType;
+    if (ts.isTypeReferenceNode(node)) return node.typeArguments?.[0];
+    if (ts.isTypeOperatorNode(node)) return arrayElementNode(node.type);
+    return undefined;
+}
+
 function stripDocumentation(value: string): string {
     return value.replace(/\/\*[\\s\\S]*?\*\//gu, "").replace(/[ \t]+$/gmu, "").replace(/\n{2,}/gu, "\n").trim();
 }
@@ -83,7 +92,7 @@ function docInline(value: string | undefined): string {
     return value === undefined || value === "" ? "" : `/* ${value.replaceAll("*/", "* /")} */ `;
 }
 
-function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile: ts.SourceFile, type: ts.Type, active: Set<string>, wireNames: ReadonlyMap<string, string>, node?: ts.Node, fieldWireNames: ReadonlyMap<ts.Node, string> = new Map()): string {
+function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile: ts.SourceFile, type: ts.Type, active: Set<string>, wireNames: ReadonlyMap<string, string>, node?: ts.Node, fieldWireNames: ReadonlyMap<ts.Node, string> = new Map(), expandedGenerated = new Set<ts.Symbol>()): string {
     for (const [name, primitive] of Object.entries(primitiveNames)) if (isExactRuntimeMarker(project, sourceFile, type, name, node)) return primitive;
     if (isExactRuntimeMarker(project, sourceFile, type, "EmptyRecord", node)) return "record {}";
     if (node !== undefined && ts.isTypeReferenceNode(node)) {
@@ -97,25 +106,33 @@ function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile:
     if (symbol?.declarations?.some((declaration) => ts.isTypeAliasDeclaration(declaration))) {
         const declaration = symbol.declarations.find(ts.isTypeAliasDeclaration);
         if (declaration !== undefined) {
-            if (active.has(symbol.name)) throw new Error(`recursive TypeScript type ${symbol.name}`);
-            const next = new Set(active);
-            next.add(symbol.name);
-            return typeText(project, checker, sourceFile, checker.getTypeAtLocation(declaration.type), next, wireNames, declaration.type, fieldWireNames);
+            const generated = hasGeneratedTypeScriptMarker(declaration.getSourceFile().getFullText());
+            if (!(generated && expandedGenerated.has(symbol))) {
+                if (active.has(symbol.name)) throw new Error(`recursive TypeScript type ${symbol.name}`);
+                const next = new Set(active);
+                next.add(symbol.name);
+                const expanded = new Set(expandedGenerated);
+                if (generated) expanded.add(symbol);
+                return typeText(project, checker, sourceFile, checker.getTypeAtLocation(declaration.type), next, wireNames, declaration.type, fieldWireNames, expanded);
+            }
         }
     }
     const globalBytes = checker.resolveName("Uint8Array", node, ts.SymbolFlags.Type, false);
+    if (type.symbol?.name === "Uint8Array" && expandedGenerated.size > 0) return "bytes";
     if (type.symbol !== undefined && type.symbol === globalBytes && checker.isArrayLikeType(type)) return "bytes";
+    if (symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration))) throw new Error(`unsupported class type ${checker.typeToString(type)}`);
     if (checker.isTupleType(type)) throw new Error(`unsupported tuple type ${checker.typeToString(type)}`);
-    if (checker.isArrayType(type)) {
+    if (checker.isArrayType(type) || (type.symbol?.name === "ReadonlyArray" && checker.isArrayLikeType(type))) {
         const element = checker.getTypeArguments(type as ts.TypeReference)[0];
         if (element === undefined) throw new Error("array type has no element type");
-        const elementNode = node !== undefined && ts.isTypeReferenceNode(node) ? node.typeArguments?.[0] : undefined;
-        return `list ${typeText(project, checker, sourceFile, element, active, wireNames, elementNode, fieldWireNames)}`;
+        const elementNode = arrayElementNode(node);
+        return `list ${typeText(project, checker, sourceFile, element, active, wireNames, elementNode, fieldWireNames, expandedGenerated)}`;
     }
+    if ((type.flags & ts.TypeFlags.StringLike) !== 0 && expandedGenerated.size > 0) return "string";
     if ((type.flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike)) !== 0) throw new Error(`unsupported unmarked primitive ${checker.typeToString(type)}`);
     if (type.getProperties().length > 0) {
         if (type.getProperties().some((property) => (property.flags & ts.SymbolFlags.Optional) !== 0)) throw new Error(`optional properties are unsupported in ${checker.typeToString(type)}`);
-        if (symbol !== undefined) {
+        if (symbol !== undefined && !expandedGenerated.has(symbol)) {
             if (active.has(symbol.name)) throw new Error(`recursive TypeScript type ${symbol.name}`);
             active.add(symbol.name);
         }
@@ -124,7 +141,7 @@ function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile:
             if (propertyNode !== undefined && (ts.isPropertySignature(propertyNode) || ts.isPropertyDeclaration(propertyNode)) && !ts.isIdentifier(propertyNode.name)) throw new Error(`unsupported computed TypeScript field ${property.name}`);
             const propertyType = checker.getTypeOfSymbolAtLocation(property, propertyNode ?? property.declarations?.[0]!);
             const propertyTypeNode = propertyNode !== undefined && (ts.isPropertySignature(propertyNode) || ts.isPropertyDeclaration(propertyNode)) ? propertyNode.type : undefined;
-            return `${docInline(propertyNode === undefined ? undefined : sourceDocumentation(propertyNode))}${propertyNode === undefined ? typeScriptToWire(property.name, "camel") : fieldWireNames.get(propertyNode) ?? typeScriptToWire(property.name, "camel")} ${typeText(project, checker, sourceFile, propertyType, active, wireNames, propertyTypeNode, fieldWireNames)};`;
+            return `${docInline(propertyNode === undefined ? undefined : sourceDocumentation(propertyNode))}${propertyNode === undefined ? typeScriptToWire(property.name, "camel") : fieldWireNames.get(propertyNode) ?? typeScriptToWire(property.name, "camel")} ${typeText(project, checker, sourceFile, propertyType, active, wireNames, propertyTypeNode, fieldWireNames, expandedGenerated)};`;
         }).join(" ");
         return `record {${fields}}`;
     }

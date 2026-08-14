@@ -17,6 +17,7 @@ export interface RuntimeTransport {
     readonly bufferedAmount: number | (() => number);
     readonly isOpen: boolean | (() => boolean);
     send(frame: Uint8Array): void;
+    stopReceiving?(): void;
     close(): void;
 }
 
@@ -38,6 +39,7 @@ export class ConnectionRuntime {
         this.core = new ConnectionCore(() => {
             this.receiver.clear();
             this.pendingResolvers.clear();
+            transport.stopReceiving?.();
             transport.close();
         });
         this.outgoing = new OutgoingRequestState(this.core);
@@ -123,7 +125,9 @@ export class ConnectionRuntime {
                     sendLease = undefined;
                 }
             },
-            cancel: (id, reason) => this.outgoing.cancel(id, reason),
+            cancel: (id, reason) => {
+                if (this.outgoing.cancel(id, reason)) this.pendingResolvers.delete(id);
+            },
             fail: (cause) => this.core.terminate(cause),
         };
         let sendLease: (() => void) | undefined;

@@ -29,3 +29,16 @@ test("constructs a raw connection at the first frame", async () => {
     await call;
     assert.equal(socket.binaryType, "arraybuffer");
 });
+
+test("local close stops message ownership and resolves without a close event", async () => {
+    const socket = new Socket();
+    const binding = createImportBinding();
+    const connection = attachRawSocket(socket, {
+        importBinding: binding,
+        exportBinding: createExportBinding(async () => ({ exceptionKey: 0n, payload: new Uint8Array() })),
+    }, 1024);
+    connection.close();
+    assert.equal((await connection.closed).code, "connection_closed");
+    socket.emit("message", new ArrayBuffer(24));
+    assert.equal(socket.listeners.get("message")?.length, 0);
+});

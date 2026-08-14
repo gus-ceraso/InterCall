@@ -30,22 +30,28 @@ export function attachRawSocket(
     messageLimit: number,
     existingQueue?: WebSocketMessageQueue,
 ): Connection {
+    const queue = existingQueue ?? new WebSocketMessageQueue(messageLimit);
+    let runtime: ConnectionRuntime | undefined;
+    let events: { cleanup: () => void } | undefined;
     const transport: RuntimeTransport = {
         bufferedAmount: () => socket.bufferedAmount,
         isOpen: () => socket.readyState === WEB_SOCKET_OPEN,
         send: (frame) => socket.send(frame),
+        stopReceiving: () => {
+            events?.cleanup();
+            queue.clear();
+            runtime?.core.markReceiveStopped();
+        },
         close: () => { try { socket.close(); } catch { /* terminal cause is already selected */ } },
     };
-    const runtime = new ConnectionRuntime(transport, bindings.importBinding, bindings.exportBinding);
-    const queue = existingQueue ?? new WebSocketMessageQueue(messageLimit);
-    let events: { cleanup: () => void };
-    events = bindWebSocketEvents(socket, queue, (chunk) => runtime.receiveChunk(chunk), (cause) => {
-        events.cleanup();
+    runtime = new ConnectionRuntime(transport, bindings.importBinding, bindings.exportBinding);
+    events = bindWebSocketEvents(socket, queue, (chunk) => runtime!.receiveChunk(chunk), (cause) => {
+        events?.cleanup();
         queue.clear();
-        runtime.transportClosed(cause);
+        runtime!.transportClosed(cause);
     });
     void runtime.closed.then(() => {
-        events.cleanup();
+        events?.cleanup();
         queue.clear();
     });
     return runtime.connection;
