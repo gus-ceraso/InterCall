@@ -862,7 +862,7 @@ source, tests, documentation, and regenerated fixtures together.
    hello-world flow, build requirements, JSDoc directives, exception examples,
    generation commands, same-origin deployment guidance, and connection
    lifecycle.
-3. Record browser constraints that prevent literal Go API behavior:
+3. **Done.** Record browser constraints that prevent literal Go API behavior:
    `WebSocket.send` has no completion callback, browser sockets cannot be
    force-closed synchronously, messages arrive already allocated, and custom
    upgrade headers cannot be supplied.

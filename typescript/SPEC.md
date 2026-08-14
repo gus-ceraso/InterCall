@@ -553,6 +553,33 @@ WebSockets cannot set arbitrary HTTP headers. Authentication uses deployment
 mechanisms such as same-origin cookies, query tokens, or surrounding server
 middleware, with WSS recommended for confidentiality.
 
+### 6.6 Browser API constraints
+
+The implementation must account for these browser API facts rather than model
+itself as a literal Go `io.ReadWriter`:
+
+- `WebSocket.send()` reports local queue admission and has no completion
+  callback for network delivery;
+- `WebSocket.bufferedAmount` is observational and does not provide receive or
+  send backpressure by itself;
+- standard browser WebSockets may buffer incoming messages in the user agent
+  before JavaScript receives them, so application-level queue limits cannot
+  bound all native memory;
+- a browser WebSocket cannot be force-closed synchronously in the Go sense;
+  `close()` requests closure and returns without waiting for the close event;
+- message event data is already allocated by the browser and may contain one
+  complete frame, several frames, or a fragment of a frame;
+- binary data arrives as `ArrayBuffer` after setting `binaryType`, while text
+  data must be rejected;
+- browser code cannot set arbitrary HTTP upgrade headers, so authentication
+  belongs to same-origin credentials, URL-level deployment policy, or server
+  middleware;
+- browser event callbacks run on the JavaScript event loop, so synchronous
+  send-gate admission is the local ordering point for frame writes.
+
+These facts are observable binding differences. They do not change frame bytes,
+value encodings, request IDs, or interface negotiation.
+
 ## 7. Codec execution
 
 Generated codecs are immutable flat programs executed by iterative encoder and
