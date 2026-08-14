@@ -1152,9 +1152,9 @@ and browser entry points contain no Node imports.
    resolved named declarations.
 2. **Done.** Apply TypeScript projection depth, naming, scopes, overrides,
    fixed-exception shape checks, and helper collision checks.
-3. Emit numeric and `EmptyRecord` marker imports and generated named type
-   aliases/interfaces, preserving `bytes` versus `list uint8`, named references,
-   property-level readonly records, and exact empty-record types.
+3. **Done.** Emit numeric and `EmptyRecord` marker imports and generated named
+   type aliases/interfaces, preserving `bytes` versus `list uint8`, named
+   references, property-level readonly records, and exact empty-record types.
 4. Emit application exception singletons/classes and fixed-exception mappings.
 5. Emit immutable flat codec programs for every request, return, and exception
    payload.

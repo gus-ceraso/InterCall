@@ -8,6 +8,7 @@ export { MAX_PROJECTION_DEPTH, validateProjectionDepth } from "./depth.js";
 export { compileCodecProgram, compileCodecPrograms } from "./codec.js";
 export { buildImportGeneration } from "./import.js";
 export { buildValidatedImportGeneration } from "./import-validation.js";
+export { emitImportTypes } from "./import-emitter.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
