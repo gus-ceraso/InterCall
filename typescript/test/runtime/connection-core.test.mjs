@@ -44,6 +44,16 @@ test("aborts active handlers and delays closed until receive shutdown", async ()
     lease.finish();
 });
 
+test("prevents late handler responses after terminal selection", () => {
+    const core = new ConnectionCore();
+    let sends = 0;
+    assert.equal(core.sendIfActive(() => { sends += 1; }), true);
+    core.terminate(new Error("closed"));
+    assert.equal(core.sendIfActive(() => { sends += 1; }), false);
+    assert.equal(sends, 1);
+    core.markReceiveStopped();
+});
+
 test("explicit close uses the stable closed error", () => {
     const core = new ConnectionCore();
     core.close();

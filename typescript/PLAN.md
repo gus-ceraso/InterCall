@@ -1084,8 +1084,8 @@ cannot be forged through ordinary structural objects.
    exceptions.
 9. **Done.** Catch every synchronous throw and rejected Promise crossing
    generated dispatch. Never let a provider failure escape the receive task.
-10. Ensure a terminal connection prevents a completed late handler from sending
-    a response.
+10. **Done.** Ensure a terminal connection prevents a completed late handler
+    from sending a response.
 11. Implement `close()` and `closed`, including normalization of arbitrary
     connection abort reasons to `Error` and handler-independent teardown.
 12. Write deterministic fake-transport tests for:

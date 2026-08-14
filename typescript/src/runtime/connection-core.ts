@@ -107,6 +107,12 @@ export class ConnectionCore {
         };
     }
 
+    sendIfActive(send: () => void): boolean {
+        if (this.terminalCause !== undefined) return false;
+        send();
+        return true;
+    }
+
     markReceiveStopped(): void {
         this.receiveStopped = true;
         this.maybeResolveClosed();
