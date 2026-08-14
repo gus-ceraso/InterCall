@@ -10,4 +10,9 @@ test("discovers directly exported tagged procedures, exceptions, and types", () 
     assert.deepEqual(discovered.procedures.map((item) => [item.sourceName, item.wireName]), [["add", "add"]]);
     assert.deepEqual(discovered.exceptions.map((item) => [item.sourceName, item.wireName, item.payloadClass]), [["Denied", "denied", false], ["Failed", "failed", true]]);
     assert.deepEqual(discovered.namedTypes.map((item) => [item.sourceName, item.wireName]), [["Point", "point"]]);
+    const filtered = discoverSourceExports(project, operands, { include: ["add"] });
+    assert.deepEqual(filtered.procedures.map((item) => item.sourceName), ["add"]);
+    assert.deepEqual(discoverSourceExports(project, operands, { exclude: ["add"] }).procedures, []);
+    assert.throws(() => discoverSourceExports(project, operands, { include: ["missing"] }), /unknown/);
+    assert.throws(() => discoverSourceExports(project, operands, { include: ["add", "add"] }), /duplicate/);
 });

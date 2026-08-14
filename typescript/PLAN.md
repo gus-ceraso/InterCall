@@ -1189,8 +1189,8 @@ compile strictly, and call a fake Go-compatible peer successfully.
    positions from source AST ranges.
 4. **Done.** Discover directly exported eligible procedures, no-payload
    sentinels, payload classes, and tagged named types.
-5. Implement include/exclude filters and deterministic diagnostics for malformed,
-   duplicate, unknown, ineligible, or non-explicit selectors.
+5. **Done.** Implement include/exclude filters and deterministic diagnostics
+   for malformed, duplicate, unknown, ineligible, or non-explicit selectors.
 6. Validate exact `HandlerContext`, `Promise`, marker aliases, `Uint8Array`,
    arrays, records, aliases, named types, and `PayloadException<T>` by compiler
    symbol identity.

@@ -28,7 +28,12 @@ export interface SourceDiscovery {
     readonly namedTypes: readonly DiscoveredType[];
 }
 
-export function discoverSourceExports(project: CompilerProject, operands: readonly SourceOperand[]): SourceDiscovery {
+export interface DiscoveryFilterOptions {
+    readonly include?: readonly string[];
+    readonly exclude?: readonly string[];
+}
+
+export function discoverSourceExports(project: CompilerProject, operands: readonly SourceOperand[], filters: DiscoveryFilterOptions = {}): SourceDiscovery {
     const checker = project.program.getTypeChecker();
     const procedures: DiscoveredProcedure[] = [];
     const exceptions: DiscoveredException[] = [];
@@ -51,7 +56,24 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
             }
         }
     }
-    return { procedures, exceptions, namedTypes };
+    const known = [...procedures, ...exceptions, ...namedTypes];
+    const include = validateFilters(filters.include, known);
+    const exclude = new Set(validateFilters(filters.exclude, known));
+    const selected = <T extends { readonly sourceName: string; readonly wireName: string }>(records: readonly T[]): T[] => records.filter((record) => (include.length === 0 || include.includes(record.sourceName) || include.includes(record.wireName)) && !exclude.has(record.sourceName) && !exclude.has(record.wireName));
+    return { procedures: selected(procedures), exceptions: selected(exceptions), namedTypes: selected(namedTypes) };
+}
+
+function validateFilters(filters: readonly string[] | undefined, known: readonly { readonly sourceName: string; readonly wireName: string }[]): string[] {
+    if (filters === undefined) return [];
+    const seen = new Set<string>();
+    const names = new Set(known.flatMap((record) => [record.sourceName, record.wireName]));
+    for (const filter of filters) {
+        if (typeof filter !== "string" || filter.trim() === "") throw new Error("source selector must be a non-empty string");
+        if (seen.has(filter)) throw new Error(`duplicate source selector ${JSON.stringify(filter)}`);
+        if (!names.has(filter)) throw new Error(`unknown or non-explicit source selector ${JSON.stringify(filter)}`);
+        seen.add(filter);
+    }
+    return [...seen];
 }
 
 function directExportDeclarations(sourceFile: ts.SourceFile): ts.Node[] {
