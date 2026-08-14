@@ -1263,9 +1263,9 @@ raw dispatch bytes match Go-generated import expectations.
 8. **Done.** Add CLI example tests, help snapshots, deterministic repeated-run
    tests, and tests proving diagnostics never expose staging or absolute
    temporary paths.
-9. Run generated-source validation before every fixture write and make ordinary
-   fixture tests compare only; use a separate explicit maintenance command for
-   regeneration.
+9. **Done.** Run generated-source validation before every fixture write and
+   make ordinary fixture tests compare only; use a separate explicit
+   maintenance command for regeneration.
 
 **Gate:** both commands satisfy validation-before-mutation and safe replacement
 contracts on Linux, macOS, and Windows CI.
