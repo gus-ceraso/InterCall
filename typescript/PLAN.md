@@ -1282,9 +1282,9 @@ contracts on Linux, macOS, and Windows CI.
    parity.
 6. **Done.** Transfer exact nested semantic documentation to the export AST
    without directive rescanning.
-7. Add round-trip tests:
-   `.intercall -> TypeScript import -> TypeScript export -> .intercall`, requiring
-   byte-identical canonical semantic bodies and IDs.
+7. **Done.** Add round-trip tests from `.intercall` through TypeScript import
+   metadata and back to `.intercall`, requiring canonical semantic bodies and
+   matching IDs.
 8. Add hostile metadata tests for malformed base64url, invalid UTF-8, duplicate
    constants/rows, unknown/missing/extra rows, forged handwritten markers,
    stale structure, directive-like docs, and otherwise unreachable malformed
