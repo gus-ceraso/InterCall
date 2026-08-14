@@ -1663,9 +1663,11 @@ go test -race ./transport/websocket
 go test ./...
 ```
 
-### Task 19 — Harden WebSocket lifecycle and echo rejection
+### Task 19 — Harden WebSocket lifecycle and echo rejection — **Complete**
 
 **Commit:** `websocket: cover transport and negotiation races`
+
+**Status:** Implemented and verified with asymmetric/passive echo rejection, repeated shutdown, and race-detector tests in the current working tree.
 
 **Files:**
 
