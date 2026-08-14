@@ -174,7 +174,10 @@ occurrences. A root occurrence is a type declaration underlying type, exception
 payload, procedure parameter, or procedure return. Each list-element,
 record-field, named-reference-to-underlying, defined-type-to-underlying, or
 alias-expansion edge adds one. Preflight is iterative and rejects the first
-occurrence beyond the limit before recursive mapping or emission.
+occurrence beyond the limit before recursive mapping or emission. The pinned
+TypeScript 5.9.3 compiler experiment compiles a 4,096-edge alias chain; the
+4,096 boundary is therefore retained as the TypeScript profile limit rather
+than lowered to a compiler-specific value.
 
 ### 4.2 Procedure providers
 

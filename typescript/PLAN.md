@@ -877,11 +877,10 @@ source, tests, documentation, and regenerated fixtures together.
 
    The fixtures pin TypeScript 5.9.3 and pass under the transformed and
    preserved JSX configurations.
-5. Adopt the Go profile's exact strict projection depth of 4,096 occurrences if
-   the pinned TypeScript compiler compiles the flattened generated form. If the
-   experiment disproves this, stop and amend `SPEC.md` with the highest tested
-   deterministic bound before implementing generation; do not silently lower
-   it in code.
+5. **Done.** Adopt the Go profile's exact strict projection depth of 4,096
+   occurrences. The pinned TypeScript 5.9.3 compiler compiles the tested
+   4,096-edge alias chain, so the profile limit is retained rather than lowered
+   to a compiler-specific value.
 6. Add a compatibility table mapping every normative README wire rule and every
    inherited Go-profile rule to its intended TypeScript implementation and test
    file.
