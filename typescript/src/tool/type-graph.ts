@@ -13,6 +13,7 @@ interface Work {
     readonly type: ts.Type;
     readonly depth: number;
     readonly active: ReadonlySet<ts.Symbol>;
+    readonly expandedAlias?: ts.Symbol;
 }
 
 export function walkReachableType(project: CompilerProject, root: ts.Node, limit = MAX_SOURCE_TYPE_DEPTH): TypeGraphResult {
@@ -38,14 +39,14 @@ export function walkReachableType(project: CompilerProject, root: ts.Node, limit
         const symbol = type.aliasSymbol ?? type.symbol;
         if (symbol?.declarations?.some((declaration) => (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration)) && hasGeneratedTypeScriptMarker(declaration.getSourceFile().getFullText()))) continue;
         if (symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration))) throw new Error(`unsupported class type ${checker.typeToString(type)}`);
-        if (symbol !== undefined && isExpandable(symbol, type)) {
+        if (symbol !== undefined && symbol !== work.expandedAlias && isExpandable(symbol, type)) {
             if (work.active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);
             const active = new Set(work.active);
             active.add(symbol);
             const declarations = symbol.declarations ?? [];
             for (let i = declarations.length - 1; i >= 0; i -= 1) {
                 const declaration = declarations[i]!;
-                if (ts.isTypeAliasDeclaration(declaration)) stack.push({ type: checker.getTypeAtLocation(declaration.type), depth: work.depth + 1, active });
+                if (ts.isTypeAliasDeclaration(declaration)) stack.push({ type: checker.getTypeAtLocation(declaration.type), depth: work.depth + 1, active, expandedAlias: symbol });
                 else if (ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration)) pushProperties(checker, type, stack, properties, work.depth + 1, active);
             }
             continue;

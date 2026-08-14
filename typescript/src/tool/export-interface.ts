@@ -22,9 +22,13 @@ export interface ExportInterfaceResult {
 }
 
 export function buildExportInterface(project: CompilerProject, discovery: SourceDiscovery): ExportInterfaceResult {
-    const ordered = orderDiscoveredExports(discovery);
     const checker = project.program.getTypeChecker();
-    const wireNames = new Map([...ordered.namedTypes, ...ordered.exceptions, ...ordered.procedures].map((record) => [record.sourceName, record.wireName]));
+    const ordered = orderDiscoveredExports(discovery, checker);
+    const wireNames = new Map<ts.Symbol, string>();
+    for (const type of ordered.namedTypes) {
+        const symbol = checker.getSymbolAtLocation(type.declaration.name);
+        if (symbol !== undefined) wireNames.set(symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol, type.wireName);
+    }
     const lines: string[] = fixedExceptions.map((name) => `exception ${name};`);
     for (const type of ordered.namedTypes) {
         const node = ts.isTypeAliasDeclaration(type.declaration) ? type.declaration.type : type.declaration;
@@ -49,7 +53,7 @@ export function buildExportInterface(project: CompilerProject, discovery: Source
     return { source, canonicalText };
 }
 
-function procedureText(project: CompilerProject, checker: ts.TypeChecker, procedure: DiscoveredProcedure, wireNames: ReadonlyMap<string, string>, parameterWireNames: ReadonlyMap<ts.ParameterDeclaration, string>, fieldWireNames: ReadonlyMap<ts.Node, string>): string {
+function procedureText(project: CompilerProject, checker: ts.TypeChecker, procedure: DiscoveredProcedure, wireNames: ReadonlyMap<ts.Symbol, string>, parameterWireNames: ReadonlyMap<ts.ParameterDeclaration, string>, fieldWireNames: ReadonlyMap<ts.Node, string>): string {
     const params = procedure.declaration.parameters.slice(1).map((parameter) => `${docInline(sourceParameterDocumentation(procedure.declaration, parameter.name.getText()) ?? sourceDocumentation(parameter))}${parameterWireNames.get(parameter) ?? typeScriptToWire(parameter.name.getText(), "camel")} ${typeText(project, checker, procedure.sourceFile, checker.getTypeAtLocation(parameter.type!), new Set(), wireNames, parameter.type!, fieldWireNames)};`).join(" ");
     const signature = checker.getSignatureFromDeclaration(procedure.declaration);
     const result = signature === undefined ? undefined : checker.getReturnTypeOfSignature(signature);
@@ -92,28 +96,26 @@ function docInline(value: string | undefined): string {
     return value === undefined || value === "" ? "" : `/* ${value.replaceAll("*/", "* /")} */ `;
 }
 
-function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile: ts.SourceFile, type: ts.Type, active: Set<string>, wireNames: ReadonlyMap<string, string>, node?: ts.Node, fieldWireNames: ReadonlyMap<ts.Node, string> = new Map(), expandedGenerated = new Set<ts.Symbol>()): string {
+function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile: ts.SourceFile, type: ts.Type, active: Set<ts.Symbol>, wireNames: ReadonlyMap<ts.Symbol, string>, node?: ts.Node, fieldWireNames: ReadonlyMap<ts.Node, string> = new Map(), expandedGenerated = new Set<ts.Symbol>(), expandedAlias?: ts.Symbol): string {
     for (const [name, primitive] of Object.entries(primitiveNames)) if (isExactRuntimeMarker(project, sourceFile, type, name, node)) return primitive;
     if (isExactRuntimeMarker(project, sourceFile, type, "EmptyRecord", node)) return "record {}";
     if (node !== undefined && ts.isTypeReferenceNode(node)) {
-        const typeName = node.typeName.getText();
-        if (wireNames.has(typeName)) return wireNames.get(typeName)!;
         const nodeSymbol = checker.getSymbolAtLocation(node.typeName);
-        const aliasDeclaration = nodeSymbol?.declarations?.find(ts.isTypeAliasDeclaration);
-        if (aliasDeclaration !== undefined) return typeText(project, checker, sourceFile, checker.getTypeAtLocation(aliasDeclaration.type), active, wireNames, aliasDeclaration.type, fieldWireNames);
+        const resolvedNodeSymbol = nodeSymbol === undefined ? undefined : nodeSymbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(nodeSymbol) : nodeSymbol;
+        if (resolvedNodeSymbol !== undefined && wireNames.has(resolvedNodeSymbol)) return wireNames.get(resolvedNodeSymbol)!;
     }
     const symbol = type.aliasSymbol ?? type.symbol;
     if (symbol?.declarations?.some((declaration) => ts.isTypeAliasDeclaration(declaration))) {
         const declaration = symbol.declarations.find(ts.isTypeAliasDeclaration);
         if (declaration !== undefined) {
             const generated = hasGeneratedTypeScriptMarker(declaration.getSourceFile().getFullText());
-            if (!(generated && expandedGenerated.has(symbol))) {
-                if (active.has(symbol.name)) throw new Error(`recursive TypeScript type ${symbol.name}`);
+            if (symbol !== expandedAlias && !(generated && expandedGenerated.has(symbol))) {
+                if (active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);
                 const next = new Set(active);
-                next.add(symbol.name);
+                next.add(symbol);
                 const expanded = new Set(expandedGenerated);
                 if (generated) expanded.add(symbol);
-                return typeText(project, checker, sourceFile, checker.getTypeAtLocation(declaration.type), next, wireNames, declaration.type, fieldWireNames, expanded);
+                return typeText(project, checker, sourceFile, checker.getTypeAtLocation(declaration.type), next, wireNames, declaration.type, fieldWireNames, expanded, symbol);
             }
         }
     }
@@ -132,9 +134,9 @@ function typeText(project: CompilerProject, checker: ts.TypeChecker, sourceFile:
     if ((type.flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.BooleanLike)) !== 0) throw new Error(`unsupported unmarked primitive ${checker.typeToString(type)}`);
     if (type.getProperties().length > 0) {
         if (type.getProperties().some((property) => (property.flags & ts.SymbolFlags.Optional) !== 0)) throw new Error(`optional properties are unsupported in ${checker.typeToString(type)}`);
-        if (symbol !== undefined && !expandedGenerated.has(symbol)) {
-            if (active.has(symbol.name)) throw new Error(`recursive TypeScript type ${symbol.name}`);
-            active.add(symbol.name);
+        if (symbol !== undefined && symbol !== expandedAlias && !expandedGenerated.has(symbol)) {
+            if (active.has(symbol)) throw new Error(`recursive TypeScript type ${symbol.name}`);
+            active.add(symbol);
         }
         const fields = type.getProperties().map((property) => {
             const propertyNode = property.valueDeclaration;

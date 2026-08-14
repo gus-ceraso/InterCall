@@ -30,7 +30,7 @@ export async function validateOutputDirectory(path: string): Promise<void> {
     }
 }
 
-export async function assertReplaceableLeaf(path: string, kind: ArtifactKind, _expectedBody: Uint8Array): Promise<void> {
+export async function assertReplaceableLeaf(path: string, kind: ArtifactKind, _expectedBody: Uint8Array, expectedStamp = artifactStamp(_expectedBody)): Promise<void> {
     let current;
     try { current = await lstat(path); } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
@@ -41,12 +41,13 @@ export async function assertReplaceableLeaf(path: string, kind: ArtifactKind, _e
     if (lines[0] !== generatedHeader(kind, "").split("\n")[0]) throw new Error(`target is not owned by intercall-ts: ${path}`);
     const match = /^\/\/ intercall-ts binding: (import|export) sha256:([0-9a-f]{64})$/u.exec(lines[1] ?? "");
     if (match === null || match[1] !== kind) throw new Error(`target has an invalid ownership marker: ${path}`);
-    if (artifactStamp(lines.slice(2).join("\n")) !== match[2]) throw new Error(`target ownership stamp does not match: ${path}`);
+    const body = lines.slice(2).join("\n");
+    if (match[2] !== expectedStamp && match[2] !== artifactStamp(body)) throw new Error(`target ownership stamp does not match: ${path}`);
 }
 
-export async function replaceOwnedLeaf(path: string, kind: ArtifactKind, body: Uint8Array): Promise<void> {
-    await assertReplaceableLeaf(path, kind, body);
-    await replaceBytes(path, Buffer.concat([Buffer.from(generatedHeader(kind, artifactStamp(body))), Buffer.from(body)]));
+export async function replaceOwnedLeaf(path: string, kind: ArtifactKind, body: Uint8Array, stamp = artifactStamp(body)): Promise<void> {
+    await assertReplaceableLeaf(path, kind, body, stamp);
+    await replaceBytes(path, Buffer.concat([Buffer.from(generatedHeader(kind, stamp)), Buffer.from(body)]));
 }
 
 export async function assertReplaceableInterface(path: string): Promise<void> {
@@ -71,13 +72,12 @@ export async function assertReplaceableInterface(path: string): Promise<void> {
 }
 
 export async function replaceOwnedPair(interfacePath: string, interfaceBody: Uint8Array, bindingPath: string, kind: ArtifactKind, bindingBody: Uint8Array): Promise<void> {
+    const stamp = artifactStamp(interfaceBody);
     await assertReplaceableInterface(interfacePath);
-    await assertReplaceableLeaf(bindingPath, kind, bindingBody);
-    const interfaceOutput = Buffer.concat([Buffer.from(generatedInterfaceHeader(artifactStamp(interfaceBody))), Buffer.from(interfaceBody)]);
-    const bindingOutput = Buffer.concat([Buffer.from(generatedHeader(kind, artifactStamp(bindingBody))), Buffer.from(bindingBody)]);
-    const oldInterface = await readIfPresent(interfacePath);
-    const oldBinding = await readIfPresent(bindingPath);
-    if (oldInterface?.equals(interfaceOutput) === true && oldBinding?.equals(bindingOutput) === true) return;
+    await assertReplaceableLeaf(bindingPath, kind, bindingBody, stamp);
+    const interfaceOutput = Buffer.concat([Buffer.from(generatedInterfaceHeader(stamp)), Buffer.from(interfaceBody)]);
+    const bindingOutput = Buffer.concat([Buffer.from(generatedHeader(kind, stamp)), Buffer.from(bindingBody)]);
+    if (await hasBytes(interfacePath, interfaceOutput) && await hasBytes(bindingPath, bindingOutput)) return;
     await mkdir(dirname(interfacePath), { recursive: true });
     await mkdir(dirname(bindingPath), { recursive: true });
     const interfaceStage = join(dirname(interfacePath), `.${basename(interfacePath)}.intercall-stage-${process.pid}-interface`);
@@ -87,22 +87,20 @@ export async function replaceOwnedPair(interfacePath: string, interfaceBody: Uin
         await writeFile(bindingStage, bindingOutput, { flag: "wx" });
         await rename(interfaceStage, interfacePath);
         await rename(bindingStage, bindingPath);
-    } catch (error) {
-        if (oldInterface === undefined) await rm(interfacePath, { force: true });
-        else await writeFile(interfacePath, oldInterface);
-        if (oldBinding === undefined) await rm(bindingPath, { force: true });
-        else await writeFile(bindingPath, oldBinding);
-        throw error;
     } finally {
         await rm(interfaceStage, { force: true });
         await rm(bindingStage, { force: true });
     }
 }
 
-async function readIfPresent(path: string): Promise<Buffer | undefined> {
-    try { return await readFile(path); }
-    catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+
+async function hasBytes(path: string, expected: Buffer): Promise<boolean> {
+    try {
+        const current = await lstat(path);
+        if (!current.isFile() || current.isSymbolicLink()) return false;
+        return (await readFile(path)).equals(expected);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
         throw error;
     }
 }

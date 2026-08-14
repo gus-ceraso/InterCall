@@ -35,6 +35,34 @@ test("rejects invalid procedure context and result signatures", () => {
     assert.throws(() => validateDiscoveredException(project, discovered.exceptions[0]), /assignable to Error/);
 });
 
+test("rejects misplaced and ineligible providers", () => {
+    const misplaced = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery-invalid-providers.json"));
+    assert.throws(() => discoverSourceExports(misplaced, normalizeSourceOperands(misplaced, ["test/fixtures/compiler/discovery-invalid-providers.ts"])), /misplaced/);
+    const signatures = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery-invalid-signatures.json"));
+    const discovered = discoverSourceExports(signatures, normalizeSourceOperands(signatures, ["test/fixtures/compiler/discovery-invalid-signatures.ts"]));
+    assert.throws(() => validateDiscoveredProcedure(signatures, discovered.procedures[0]), /implementation body/);
+    assert.throws(() => validateDiscoveredProcedure(signatures, discovered.procedures[1]), /generic/);
+});
+
+test("flattens nonrecursive record and list aliases", () => {
+    const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-alias.json"));
+    const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/alias.ts"]);
+    const discovered = discoverSourceExports(project, operands);
+    validateDiscoveredProcedure(project, discovered.procedures[0]);
+    assert.match(buildExportInterface(project, discovered).canonicalText, /procedure use \{bag record \{x int32;\}; bags list record \{x int32;\};\};/);
+});
+
+test("keeps same-named types from separate modules distinct", () => {
+    const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-same.json"));
+    const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/same-a.ts", "test/fixtures/compiler/same-b.ts"]);
+    const discovered = discoverSourceExports(project, operands);
+    for (const procedure of discovered.procedures) validateDiscoveredProcedure(project, procedure);
+    const generated = buildExportInterface(project, discovered);
+    assert.match(generated.canonicalText, /procedure first \{value one;\};/);
+    assert.match(generated.canonicalText, /procedure second \{value two;\};/);
+    assert.match(generated.canonicalText, /procedure MixedCase \{value _private;\};/);
+});
+
 test("discovers directly exported tagged procedures, exceptions, and types", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery.json"));
     const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/discovery.ts"]);

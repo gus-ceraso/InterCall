@@ -1,7 +1,7 @@
 import ts from "typescript";
 import type { CompilerProject, SourceOperand } from "./compiler-project.js";
 import { scanTypeScriptDirectives, sourceDocumentation, type TypeScriptDirective } from "./directives.js";
-import { isCanonicalWireName, typeScriptToWire } from "./name.js";
+import { isValidWireName, typeScriptToWire } from "./name.js";
 import { decodeGeneratedInterface, hasGeneratedTypeScriptMarker, readGeneratedMetadata, validateMetadataRows } from "./metadata-reader.js";
 
 export interface DiscoveredProcedure {
@@ -47,11 +47,14 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
     const parameterWireNames = new Map<ts.ParameterDeclaration, string>();
     const fieldWireNames = new Map<ts.Node, string>();
     const memberDirectiveFiles = new Set<string>();
+    const directiveFiles = new Map<string, readonly TypeScriptDirective[]>();
+    const consumedProviderDirectives = new Set<string>();
     const metadataCache = new Map<string, ReadonlyMap<string, { readonly wireName: string; readonly documentation: string; readonly declaration: import("../syntax/index.js").TypeDecl }>>();
     for (const operand of operands) {
         const sourceFile = project.program.getSourceFile(operand.fileName);
         if (sourceFile === undefined) throw new Error(`source file is not in the program: ${operand.fileName}`);
         const directives = scanTypeScriptDirectives(sourceFile);
+        directiveFiles.set(sourceFile.fileName, directives);
         if (!memberDirectiveFiles.has(sourceFile.fileName)) {
             collectMemberWireNames(sourceFile, directives, parameterWireNames, fieldWireNames);
             memberDirectiveFiles.add(sourceFile.fileName);
@@ -60,11 +63,13 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
             const declarationFile = declaration.getSourceFile();
             const metadataRows = metadataRowsFor(declarationFile, metadataCache);
             const declarationDirectives = declarationFile === sourceFile ? directives : scanTypeScriptDirectives(declarationFile);
+            directiveFiles.set(declarationFile.fileName, declarationDirectives);
             if (declarationFile !== sourceFile && !memberDirectiveFiles.has(declarationFile.fileName)) {
                 collectMemberWireNames(declarationFile, declarationDirectives, parameterWireNames, fieldWireNames);
                 memberDirectiveFiles.add(declarationFile.fileName);
             }
             const directive = directiveFor(declaration, declarationDirectives);
+            if (directive !== undefined && (directive.kind === "procedure" || directive.kind === "exception" || directive.kind === "type")) consumedProviderDirectives.add(directiveKey(declarationFile, directive));
             if (directive === undefined) {
                 const sourceName = declarationName(declaration);
                 const row = sourceName === undefined ? undefined : metadataRows.get(sourceName);
@@ -87,6 +92,11 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
                 const documentation = sourceDocumentation(declaration);
                 namedTypes.push(documentation === undefined ? { sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile: declarationFile, declaration } : { sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile: declarationFile, declaration, documentation });
             }
+        }
+    }
+    for (const [fileName, directives] of directiveFiles) {
+        for (const directive of directives) {
+            if ((directive.kind === "procedure" || directive.kind === "exception" || directive.kind === "type") && !consumedProviderDirectives.has(directiveKey(fileName, directive))) throw new Error(`misplaced InterCall ${directive.kind} at ${fileName}:${directive.line}:${directive.character}`);
         }
     }
     const knownGeneratedTypes = new Set(namedTypes.map((type) => `${type.sourceFile.fileName}\u0000${type.sourceName}`));
@@ -130,7 +140,7 @@ function collectMemberWireNames(
                 if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error(`malformed @intercall param at ${sourceFile.fileName}:${directive.line}:${directive.character}`);
                 const parameter = node.parameters.find((candidate) => candidate.name.getText() === parts[0]);
                 if (parameter === undefined) throw new Error(`@intercall param names unknown parameter ${JSON.stringify(parts[0])}`);
-                if (!isCanonicalWireName(parts[1])) throw new Error(`invalid wire name ${JSON.stringify(parts[1])} at ${directive.line}:${directive.character}`);
+                if (!isValidWireName(parts[1])) throw new Error(`invalid wire name ${JSON.stringify(parts[1])} at ${directive.line}:${directive.character}`);
                 if (parameterNames.has(parameter)) throw new Error(`duplicate @intercall param for ${parts[0]}`);
                 parameterNames.set(parameter, parts[1]);
             }
@@ -139,7 +149,7 @@ function collectMemberWireNames(
             const directive = directiveFor(node, "field");
             if (directive !== undefined) {
                 const wireName = directive.arguments.trim();
-                if (!isCanonicalWireName(wireName)) throw new Error(`invalid wire name ${JSON.stringify(wireName)} at ${directive.line}:${directive.character}`);
+                if (!isValidWireName(wireName)) throw new Error(`invalid wire name ${JSON.stringify(wireName)} at ${directive.line}:${directive.character}`);
                 fieldNames.set(node, wireName);
             }
         }
@@ -261,9 +271,13 @@ function directiveFor(node: ts.Node, directives: readonly TypeScriptDirective[])
     return matches[0];
 }
 
+function directiveKey(sourceFile: ts.SourceFile | string, directive: TypeScriptDirective): string {
+    return `${typeof sourceFile === "string" ? sourceFile : sourceFile.fileName}:${directive.start}`;
+}
+
 function resolveWireName(sourceName: string, directive: TypeScriptDirective, nameCase: "camel" | "pascal"): string {
     const value = directive.arguments.trim();
     const wireName = value === "" ? typeScriptToWire(sourceName, nameCase) : value;
-    if (!isCanonicalWireName(wireName)) throw new Error(`invalid wire name ${JSON.stringify(wireName)} at ${directive.line}:${directive.character}`);
+    if (!isValidWireName(wireName)) throw new Error(`invalid wire name ${JSON.stringify(wireName)} at ${directive.line}:${directive.character}`);
     return wireName;
 }

@@ -7,6 +7,7 @@ declare module "@cerasos/intercall" {
   export type Uint8 = number; export type Uint16 = number; export type Uint32 = number; export type Uint64 = bigint;
   export type Float32 = number; export type Float64 = number;
   export class PayloadException<T> extends Error { readonly payload: T; protected constructor(payload: T); }
+  export class RemoteException extends Error { readonly key: bigint; constructor(name: string, key: bigint); }
   export const ProcedureNotFound: Error; export const InvalidArguments: Error; export const InternalException: Error;
   export interface Connection { readonly closed: Promise<Error>; close(): void; }
   export interface CallOptions { readonly signal?: AbortSignal; }

@@ -8,7 +8,7 @@ import type {
     TypeDecl,
     TypeExpr,
 } from "../syntax/index.js";
-import { wireToTypeScript } from "./name.js";
+import { isCanonicalWireName, isValidTypeScriptIdentifier, wireToTypeScript } from "./name.js";
 
 export interface ImportDeclarationRecord {
     readonly declaration: Declaration;
@@ -33,7 +33,7 @@ export function buildImportGeneration(file: InterfaceFile): ImportGenerationReco
     const declarations = file.declarations.map((declaration) => ({ declaration, nativeName: declarationNativeName(declaration) }));
     const namedTypes = file.declarations
         .filter((declaration): declaration is TypeDecl => declaration.kind === "type-decl")
-        .map((declaration) => ({ declaration, nativeName: wireToTypeScript(declaration.name.name, "pascal"), type: declaration.type }));
+        .map((declaration) => ({ declaration, nativeName: defaultNativeName(declaration.name.name, "pascal"), type: declaration.type }));
     const fields: ImportFieldRecord[] = [];
     const visited = new Set<TypeExpr>();
     const work: TypeExpr[] = file.declarations.flatMap(declarationTypes);
@@ -50,7 +50,7 @@ export function buildImportGeneration(file: InterfaceFile): ImportGenerationReco
                 break;
             case "record":
                 for (const field of type.fields) {
-                    fields.push({ field, nativeName: wireToTypeScript(field.name.name, "camel") });
+                    fields.push({ field, nativeName: defaultNativeName(field.name.name, "camel") });
                     work.push(field.type);
                 }
                 break;
@@ -61,23 +61,29 @@ export function buildImportGeneration(file: InterfaceFile): ImportGenerationReco
         .filter((declaration): declaration is ProcDecl => declaration.kind === "procedure-decl")
         .map((declaration) => {
             const procedureParameters = declaration.params.map((parameter) => {
-                const record = { procedure: declaration, parameter, nativeName: wireToTypeScript(parameter.name.name, "camel") };
+                const record = { procedure: declaration, parameter, nativeName: defaultNativeName(parameter.name.name, "camel") };
                 parameters.push(record);
                 return record;
             });
-            return { declaration, nativeName: wireToTypeScript(declaration.name.name, "camel"), parameters: procedureParameters };
+            return { declaration, nativeName: defaultNativeName(declaration.name.name, "camel"), parameters: procedureParameters };
         });
     const exceptions = file.declarations
         .filter((declaration): declaration is ExceptionDecl => declaration.kind === "exception-decl")
-        .map((declaration) => ({ declaration, nativeName: wireToTypeScript(declaration.name.name, "pascal") }));
+        .map((declaration) => ({ declaration, nativeName: defaultNativeName(declaration.name.name, "pascal") }));
     return { source: file, declarations, namedTypes, fields, parameters, procedures, exceptions };
+}
+
+function defaultNativeName(wireName: string, nameCase: "camel" | "pascal"): string {
+    if (isCanonicalWireName(wireName)) return wireToTypeScript(wireName, nameCase);
+    if (isValidTypeScriptIdentifier(wireName)) return wireName;
+    return `_${wireName}`;
 }
 
 function declarationNativeName(declaration: Declaration): string {
     switch (declaration.kind) {
-        case "type-decl": return wireToTypeScript(declaration.name.name, "pascal");
-        case "exception-decl": return wireToTypeScript(declaration.name.name, "pascal");
-        case "procedure-decl": return wireToTypeScript(declaration.name.name, "camel");
+        case "type-decl": return defaultNativeName(declaration.name.name, "pascal");
+        case "exception-decl": return defaultNativeName(declaration.name.name, "pascal");
+        case "procedure-decl": return defaultNativeName(declaration.name.name, "camel");
     }
 }
 

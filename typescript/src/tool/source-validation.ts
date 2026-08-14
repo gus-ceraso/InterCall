@@ -8,6 +8,9 @@ const markerNames = new Set(["Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16
 export function validateDiscoveredProcedure(project: CompilerProject, procedure: DiscoveredProcedure): void {
     const checker = project.program.getTypeChecker();
     const declaration = procedure.declaration;
+    if (declaration.body === undefined || declaration.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DeclareKeyword) === true) throw new Error(`procedure ${procedure.sourceName} must have an implementation body`);
+    if (declaration.typeParameters !== undefined && declaration.typeParameters.length > 0) throw new Error(`procedure ${procedure.sourceName} cannot be generic`);
+    if (declaration.getSourceFile().statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === declaration.name?.text).length > 1) throw new Error(`procedure ${procedure.sourceName} cannot be overloaded`);
     if (declaration.parameters.length === 0) throw new Error(`procedure ${procedure.sourceName} must receive HandlerContext first`);
     if (declaration.parameters.some((parameter) => parameter.questionToken !== undefined || parameter.dotDotDotToken !== undefined)) throw new Error(`procedure ${procedure.sourceName} cannot have optional or rest parameters`);
     if (declaration.parameters.slice(1).some((parameter) => !ts.isIdentifier(parameter.name))) throw new Error(`procedure ${procedure.sourceName} parameters must have simple names`);

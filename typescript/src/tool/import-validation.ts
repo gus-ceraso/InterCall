@@ -1,6 +1,7 @@
 import type { Declaration, InterfaceFile, TypeExpr } from "../syntax/index.js";
 import { validateProjectionDepth } from "./depth.js";
 import { PublicNameScope } from "./mangle.js";
+import { isCanonicalWireName } from "./name.js";
 import { parseOverrides, resolveOverride } from "./selector.js";
 import type { ImportGenerationRecord } from "./import.js";
 
@@ -17,13 +18,26 @@ export function buildValidatedImportGeneration(
     const declarationNames = new Map<Declaration, string>(generation.declarations.map((record) => [record.declaration, record.nativeName]));
     const fieldNames = new Map(generation.fields.map((record) => [record.field, record.nativeName]));
     const parameterNames = new Map(generation.parameters.map((record) => [record.parameter, record.nativeName]));
+    const declarationOverrides = new Set<Declaration>();
+    const fieldOverrides = new Set<object>();
+    const parameterOverrides = new Set<object>();
     for (const override of overrides) {
         const target = resolveOverride(file, override.text).target;
-        if (target.field !== undefined) fieldNames.set(target.field, override.name);
-        else if (target.parameter !== undefined) parameterNames.set(target.parameter, override.name);
-        else declarationNames.set(target.declaration, override.name);
+        if (target.field !== undefined) {
+            fieldNames.set(target.field, override.name);
+            fieldOverrides.add(target.field);
+        } else if (target.parameter !== undefined) {
+            parameterNames.set(target.parameter, override.name);
+            parameterOverrides.add(target.parameter);
+        } else {
+            declarationNames.set(target.declaration, override.name);
+            declarationOverrides.add(target.declaration);
+        }
     }
 
+    for (const declaration of file.declarations) if (!isCanonicalWireName(declaration.name.name) && !declarationOverrides.has(declaration)) throw new Error(`wire name ${JSON.stringify(declaration.name.name)} requires an explicit TypeScript-name override`);
+    for (const field of generation.fields) if (!isCanonicalWireName(field.field.name.name) && !fieldOverrides.has(field.field)) throw new Error(`wire name ${JSON.stringify(field.field.name.name)} requires an explicit TypeScript-name override`);
+    for (const parameter of generation.parameters) if (!isCanonicalWireName(parameter.parameter.name.name) && !parameterOverrides.has(parameter.parameter)) throw new Error(`wire name ${JSON.stringify(parameter.parameter.name.name)} requires an explicit TypeScript-name override`);
     const topLevel = new PublicNameScope();
     for (const helper of generatedHelpers) topLevel.claim(helper);
     for (const declaration of file.declarations) topLevel.claim(declarationNames.get(declaration)!);

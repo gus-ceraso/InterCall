@@ -10,7 +10,7 @@ test("emits application exception shapes and fixed mappings", () => {
     validateInterface(file);
     const generation = buildValidatedImportGeneration(file, buildImportGeneration(file));
     const output = emitImportExceptions(generation);
-    assert.match(output, /export const Denied = new Error\("denied"\);/);
+    assert.match(output, /export const Denied = Object\.freeze\(new RemoteException\("denied", \d+n\)\);/);
     assert.match(output, /export class Failed extends PayloadException/);
     assert.match(output, /readonly code: Int32/);
     assert.match(output, /ProcedureNotFound as ProcedureNotFound/);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { attachDocumentation, formatInterface, parseInterface, validateInterface } from "../syntax/index.js";
 import { buildValidatedImportSource } from "../tool/import-source.js";
@@ -10,7 +10,7 @@ import { loadCompilerProject } from "../tool/compiler-project.js";
 import { formatGeneratedSource } from "../tool/generator-format.js";
 import { parseCliArguments, HELP } from "./args.js";
 import { formatDiagnostics } from "./diagnostics.js";
-import { assertReplaceableInterface, assertReplaceableLeaf, replaceOwnedLeaf, replaceOwnedPair, validateOutputDirectory } from "./ownership.js";
+import { artifactStamp, assertReplaceableInterface, assertReplaceableLeaf, replaceOwnedLeaf, replaceOwnedPair, validateOutputDirectory } from "./ownership.js";
 
 async function main(): Promise<void> {
     const command = parseCliArguments(process.argv.slice(2));
@@ -20,12 +20,15 @@ async function main(): Promise<void> {
     }
     if (command.kind === "import") {
         await validateOutputDirectory(command.out);
+        const stat = await lstat(command.interfacePath);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`interface input is not a regular file: ${command.interfacePath}`);
         const bytes = await readFile(command.interfacePath);
         const file = parseInterface(command.interfacePath, new Uint8Array(bytes));
         validateInterface(file);
         attachDocumentation(file);
         const source = formatGeneratedSource(buildValidatedImportSource(file, command.tsNames));
-        await replaceOwnedLeaf(join(command.out, "binding_gen.ts"), "import", Buffer.from(source));
+        const interfaceBody = formatInterface(file);
+        await replaceOwnedLeaf(join(command.out, "binding_gen.ts"), "import", Buffer.from(source), artifactStamp(interfaceBody));
         return;
     }
     const bindingPath = join(command.out, "binding_gen.ts");
@@ -48,7 +51,7 @@ async function main(): Promise<void> {
     const interfaceBytes = new TextEncoder().encode(formatInterface(generated.source));
     const bindingBytes = Buffer.from(formatGeneratedSource(generated.generatedSource));
     await assertReplaceableInterface(command.interfacePath);
-    await assertReplaceableLeaf(bindingPath, "export", bindingBytes);
+    await assertReplaceableLeaf(bindingPath, "export", bindingBytes, artifactStamp(interfaceBytes));
     await replaceOwnedPair(command.interfacePath, interfaceBytes, bindingPath, "export", bindingBytes);
 }
 
