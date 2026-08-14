@@ -95,7 +95,7 @@ function declarationName(declaration: ts.Node): string | undefined {
 
 function directiveFor(node: ts.Node, directives: readonly TypeScriptDirective[]): TypeScriptDirective | undefined {
     return directives
-        .filter((directive) => directive.end <= node.getStart())
+        .filter((directive) => directive.start >= node.getFullStart() && directive.end <= node.getStart())
         .at(-1);
 }
 

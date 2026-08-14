@@ -11,3 +11,4 @@ export class Failed extends PayloadException<{ readonly code: number }> {}
 
 /** @intercall type point */
 export interface Point { readonly x: number; }
+export interface Recursive { readonly next: Recursive; }

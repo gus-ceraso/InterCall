@@ -23,6 +23,8 @@ export type { TypeScriptDirective, TypeScriptDirectiveKind } from "./directives.
 export { discoverSourceExports } from "./source-discovery.js";
 export type { DiscoveredException, DiscoveredProcedure, DiscoveredType, DiscoveryFilterOptions, SourceDiscovery } from "./source-discovery.js";
 export { validateDiscoveredException, validateDiscoveredProcedure } from "./source-validation.js";
+export { MAX_SOURCE_TYPE_DEPTH, walkReachableType } from "./type-graph.js";
+export type { TypeGraphResult } from "./type-graph.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,

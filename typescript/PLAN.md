@@ -1194,9 +1194,9 @@ compile strictly, and call a fake Go-compatible peer successfully.
 6. **Done.** Validate exact `HandlerContext`, `Promise`, marker aliases,
    `Uint8Array`, arrays, records, aliases, named types, and `PayloadException<T>`
    by compiler symbol identity.
-7. Walk reachable type graphs iteratively, preserving source property order,
-   flattening untagged aliases, retaining tagged types, rejecting cycles and
-   unsupported TypeScript constructs, and enforcing the strict depth boundary.
+7. **Done.** Walk reachable type graphs iteratively, preserving source property
+   order, flattening untagged aliases, retaining tagged types, rejecting cycles
+   and unsupported TypeScript constructs, and enforcing the strict depth boundary.
 8. Attach and normalize representable source documentation.
 9. Compute default wire names, apply directives, check all wire/native scopes,
    and reserve fixed runtime names.
