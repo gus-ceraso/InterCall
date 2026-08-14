@@ -1057,9 +1057,9 @@ cannot be forged through ordinary structural objects.
 1. **Done.** Build an internal ordered chunk transport abstraction used only
    between the connection core and browser WebSocket adapter; do not expose a
    general Node stream promise.
-2. Implement the two-state active/terminal lifecycle with one permanent first
-   cause, terminal publication, pending-call transfer, handler abort, and one
-   cleanup owner.
+2. **Done.** Implement the two-state active/terminal lifecycle with one
+   permanent first cause, terminal publication, pending-call transfer, handler
+   abort, and one cleanup owner.
 3. Implement the sole incremental frame receiver over arbitrary chunks, exact
    header/payload reads, fixed payload ceiling, and owned payload transfer.
 4. Implement outgoing monotonic IDs, pending ownership, the exact 1,024-call
