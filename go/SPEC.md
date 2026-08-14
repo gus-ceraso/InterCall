@@ -1072,19 +1072,52 @@ generated-content validation, and generated-Go type checking finish before
 output-directory creation; ownership checks then finish before target-file
 creation or replacement. Any validation error emits no generated file.
 
-## Deferred Features
+## Native Go transports
+
+The Go module provides optional native transports under
+`transport/unixsocket` and `transport/websocket`. These packages are not part
+of the root runtime and do not change frames, values, calls, or connection
+lifecycle semantics. Raw `NewConnection` remains metadata-free and starts at
+the first frame; the negotiated constructors perform only the two-record
+interface agreement described below.
+
+Generated bindings carry the SHA-256 digest of the canonical interface body as
+an `InterfaceID`. It is metadata and an early contract-mismatch detector, not a
+credential. In the client-first exchange, the client writes its import (the
+expected server-export) ID; the server compares it with its export ID and then
+writes its import (the expected client-export) ID; the client compares that
+with its export ID. No export ID, version, magic, acknowledgment, or interface
+document is sent. A mismatch wraps `ErrInterfaceMismatch`; missing metadata is
+local `ErrInvalidArgument`.
+
+Unix sockets use filesystem-backed `SOCK_STREAM` paths. `ListenStream` refuses
+any existing leaf, anchors relative paths once, defaults to mode `0600`, and
+removes only the socket identity it created. `Dial`, `AcceptConnection`, and
+`ListenAndServe` use negotiated bindings; low-level stream APIs leave
+authentication and negotiation to the application. `ListenAndServe` returns
+`unixsocket.ErrServerClosed` after context-driven shutdown.
+
+WebSockets use `github.com/coder/websocket` as a binary continuous byte
+stream. Message boundaries are not InterCall frame boundaries and text
+messages are rejected. The default message limit is 67,108,888 bytes (64 MiB
+plus the 24-byte frame header); compression is disabled and same-origin
+checking is enabled by default. `NewHandler` is intended to be wrapped by
+ordinary HTTP authentication middleware. The convenience server is plain HTTP
+for loopback deployments such as cloudflared and returns `http.ErrServerClosed`
+on orderly context shutdown; it does not terminate TLS.
 
 The proof of concept does not include:
 
 - TypeScript or any other non-Go binding;
-- WebSocket, WebTransport, or independent per-call stream adapters;
+- WebTransport or independent per-call stream adapters;
 - a mandatory handshake for raw `NewConnection`, or any claim that
   interface IDs authenticate or authorize a peer;
 - authentication, authorization, policy, or procedure whitelists;
 - configurable policy resource limits; the fixed 64 MiB frame-payload safety
   ceiling and the strict Go projection's 4,096-occurrence depth boundary are
   mandatory implementation bounds, not policy;
-- dialing, listening, TLS, encryption, or other transport setup;
+- TLS certificate loading or termination, reconnect, retry, pooling, or
+  session resumption;
 - transport-level or wire-level cancellation;
 - streaming values, parameters, or results; or
 - compatibility promises for Go toolchains older than the version in `go.mod`.

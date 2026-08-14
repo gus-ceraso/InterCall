@@ -605,21 +605,20 @@ payload types. Peer interfaces may associate the same key with different
 declarations or with incompatible contracts for the same name, causing peers to
 misinterpret payload bytes.
 
-Implementations should therefore verify that each peer uses the exact interface
-expected by the other. One simple approach is for each peer to send the
-SHA3-256 digest of the interface file it imported. The receiver computes the
-SHA3-256 digest of the interface file it exported and compares the two digests.
+Implementations should therefore verify that each peer uses the exact
+interface expected by the other. The identity input, digest algorithm,
+exchange format, timing, mismatch handling, and any version agreement are
+implementation-defined. Interface identities are not credentials or
+capabilities.
 
-The digest input is the exact file bytes and is not canonicalized. Comments,
-whitespace, formatting, and line endings therefore affect it. The SHA3-256
-digest of a zero-byte interface file is:
-
-```text
-a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a
-```
-
-The exchange format, timing, mismatch handling, and any version agreement are
-implementation-defined.
+The Go profile in `go/SPEC.md` uses the SHA-256 digest of the canonical
+interface body already used for generated-artifact ownership. Each endpoint
+sends only the ID of the interface it imports, meaning the interface it
+expects the other endpoint to export. The client sends first; the server
+compares and then sends its expected-client ID; the client compares. This
+profile does not add a version, magic value, acknowledgment, or interface
+file exchange. It is one Go transport convention, not a requirement on other
+InterCall implementations.
 
 ### Security
 
