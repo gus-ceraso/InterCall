@@ -1046,8 +1046,8 @@ same accept/reject classification.
    exact canonical body, fixed keys, and Go-identical interface ID.
 6. **Done.** Define and freeze the generated-code dispatch, request encoder,
    response decoder, and codec-program SPI.
-7. Add constructor validation, identity, copy/reference, zero-ID, singleton,
-   fixed-key, and synthetic-SPI parity tests.
+7. **Done.** Add constructor validation, identity, copy/reference, zero-ID,
+   singleton, fixed-key, and synthetic-SPI parity tests.
 
 **Gate:** binding metadata and empty interface values match Go byte for byte and
 cannot be forged through ordinary structural objects.
