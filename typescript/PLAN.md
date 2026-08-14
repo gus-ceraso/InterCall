@@ -958,8 +958,8 @@ and `npm pack --dry-run` pass.
    for byte.
 9. **Done.** Add byte-for-byte differential tests against canonical Go
    formatter output, key vectors from the README, and the empty-interface ID.
-10. Add deterministic mutation/fuzz tests using the checked-in Go fuzz corpus
-    and bounded seeded byte mutations.
+10. **Done.** Add deterministic mutation/fuzz tests using the checked-in Go
+    fuzz corpus and bounded seeded byte mutations.
 
 **Gate:** all Go syntax fixtures produce the same validity, canonical bytes,
 keys, semantic docs, and source positions, except diagnostic wording explicitly
