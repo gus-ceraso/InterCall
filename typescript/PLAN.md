@@ -935,9 +935,9 @@ and `npm pack --dry-run` pass.
 1. **Done.** Implement a byte-oriented UTF-8 scanner preserving exact byte
    spans, comments, CR/LF behavior, reserved words, identifier rules, and EOF
    positions.
-2. Implement the grammar parser. Use explicit stacks for unbounded list and
-   record nesting; malformed input must never overflow the JavaScript call
-   stack.
+2. **Done.** Implement the grammar parser. It uses explicit stacks for
+   unbounded list and record nesting; malformed input does not overflow the
+   JavaScript call stack.
 3. Implement protocol validation for global/local scopes, earlier type
    references, duplicate names, all declarations, FNV-0 key zero, and
    cross-kind key collisions.

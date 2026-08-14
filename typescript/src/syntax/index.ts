@@ -1,3 +1,20 @@
+export type {
+    Comment,
+    Declaration,
+    ExceptionDecl,
+    Field,
+    Ident,
+    InterfaceFile,
+    ListType,
+    NamedType,
+    Param,
+    PrimitiveType,
+    ProcDecl,
+    RecordType,
+    TypeDecl,
+    TypeExpr,
+} from "./ast.js";
+export { parseInterface } from "./parser.js";
 export { Scanner } from "./scanner.js";
 export {
     SourceFile,
