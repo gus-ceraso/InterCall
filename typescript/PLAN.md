@@ -866,7 +866,7 @@ source, tests, documentation, and regenerated fixtures together.
    `WebSocket.send` has no completion callback, browser sockets cannot be
    force-closed synchronously, messages arrive already allocated, and custom
    upgrade headers cannot be supplied.
-4. Write small compiler experiments under test fixtures for:
+4. **Done.** Write small compiler experiments under test fixtures for:
    - exact marker-symbol recognition through alias chains;
    - JSDoc tag ranges and physical positions;
    - generated `.js`/`.jsx` relative specifiers resolving to `.ts` and `.tsx`
@@ -874,6 +874,9 @@ source, tests, documentation, and regenerated fixtures together.
    - source projection of readonly arrays, type literals, interfaces,
      `EmptyRecord`, and `PayloadException<T>`;
    - generated alias/type chains at exactly 4,096 resolved occurrences.
+
+   The fixtures pin TypeScript 5.9.3 and pass under the transformed and
+   preserved JSX configurations.
 5. Adopt the Go profile's exact strict projection depth of 4,096 occurrences if
    the pinned TypeScript compiler compiles the flattened generated form. If the
    experiment disproves this, stop and amend `SPEC.md` with the highest tested
