@@ -34,6 +34,8 @@ export { emitProviderImports } from "./export-emitter.js";
 export type { EmittedProviderImport } from "./export-emitter.js";
 export { emitExportCodecPrograms } from "./export-codec-emitter.js";
 export { emitProcedureSwitch } from "./procedure-emitter.js";
+export { decodeExportArguments } from "./export-dispatch.js";
+export type { ExportDecodeFailure, ExportDecodeSuccess } from "./export-dispatch.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,

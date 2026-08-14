@@ -1224,8 +1224,8 @@ fixture.
    for return and exception values.
 4. **Done.** Emit a static procedure-key switch. Unknown keys return
    `procedure_not_found` after full framing.
-5. Decode all arguments and require exact exhaustion before invoking a provider;
-   malformed input returns `invalid_arguments`.
+5. **Done.** Decode all arguments and require exact exhaustion before invoking
+   a provider; malformed input returns `invalid_arguments`.
 6. Construct one `HandlerContext`, invoke each provider with positional values,
    and await its exact Promise result.
 7. Match no-payload exceptions by identity and payload exceptions by
