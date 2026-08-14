@@ -1082,8 +1082,8 @@ cannot be forged through ordinary structural objects.
 8. **Done.** Map unknown procedures, malformed/trailing arguments,
    provider/matcher failures, and response-encoding failures to the three fixed
    exceptions.
-9. Catch every synchronous throw and rejected Promise crossing generated
-   dispatch. Never let a provider failure escape the receive task.
+9. **Done.** Catch every synchronous throw and rejected Promise crossing
+   generated dispatch. Never let a provider failure escape the receive task.
 10. Ensure a terminal connection prevents a completed late handler from sending
     a response.
 11. Implement `close()` and `closed`, including normalization of arbitrary

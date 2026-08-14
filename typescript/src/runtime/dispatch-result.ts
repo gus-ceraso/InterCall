@@ -1,4 +1,5 @@
-import type { DispatchResult } from "../generated-spi/index.js";
+import type { Dispatch, DispatchResult } from "../generated-spi/index.js";
+import type { HandlerContext } from "./types.js";
 import {
     InternalException,
     InvalidArguments,
@@ -12,6 +13,23 @@ export function fixedDispatchResult(failure: FixedDispatchFailure): DispatchResu
         ? ProcedureNotFound
         : failure === "invalid_arguments" ? InvalidArguments : InternalException;
     return { exceptionKey: exception.key, payload: new Uint8Array() };
+}
+
+export async function invokeDispatch(
+    dispatch: Dispatch,
+    context: HandlerContext,
+    procedureKey: bigint,
+    payload: Uint8Array,
+): Promise<DispatchResult> {
+    try {
+        const value = await dispatch(context, procedureKey, payload);
+        if (!isDispatchResult(value)) return fixedDispatchResult("internal_exception");
+        return { exceptionKey: value.exceptionKey, payload: value.payload.slice() };
+    } catch (error) {
+        if (error === ProcedureNotFound) return fixedDispatchResult("procedure_not_found");
+        if (error === InvalidArguments) return fixedDispatchResult("invalid_arguments");
+        return fixedDispatchResult("internal_exception");
+    }
 }
 
 export function isDispatchResult(value: unknown): value is DispatchResult {
