@@ -997,8 +997,8 @@ without stack overflow.
 3. **Done.** Implement numeric primitive encoders and decoders with `DataView`,
    explicit raw NaN bit checks, and exact numeric validation. String and bytes
    use the dedicated codecs implemented in the following tasks.
-4. Implement UTF-16 scalar validation, UTF-8 byte-length encoding, and fatal
-   UTF-8 decoding.
+4. **Done.** Implement UTF-16 scalar validation, UTF-8 byte-length encoding,
+   and fatal UTF-8 decoding.
 5. Implement bytes with defensive copies and list values with JavaScript arrays.
 6. Implement closed ordered records and exact payload exhaustion.
 7. Implement iterative list/record execution stacks, checked lengths and counts,
