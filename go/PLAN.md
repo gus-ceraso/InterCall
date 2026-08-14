@@ -1403,9 +1403,11 @@ go test -race ./transport/websocket
 go test ./...
 ```
 
-### Task 13 — Add low-level WebSocket dial and accept
+### Task 13 — Add low-level WebSocket dial and accept — **Complete**
 
 **Commit:** `websocket: expose configurable stream dial and accept`
+
+**Status:** Implemented and verified with configurable WebSocket dial/accept and race-detector tests in the current working tree.
 
 **Files:**
 
