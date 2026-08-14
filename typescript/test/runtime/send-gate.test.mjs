@@ -60,5 +60,5 @@ test("rejects terminal waits and oversized frames", async () => {
     await Promise.resolve();
     scheduler.fire();
     await assert.rejects(waiting, (error) => error === cause);
-    assert.throws(() => gate.enqueue({ frameLength: MAX_NATIVE_QUEUED_BYTES + 1, bufferedAmount: () => 0, terminalCause: () => undefined, send: () => {} }), /capacity/);
+    await assert.rejects(gate.enqueue({ frameLength: MAX_NATIVE_QUEUED_BYTES + 1, bufferedAmount: () => 0, terminalCause: () => undefined, send: () => {} }), /capacity/);
 });

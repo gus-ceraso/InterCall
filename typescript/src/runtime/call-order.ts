@@ -7,7 +7,8 @@ export interface OrderedCallDriver<Result> {
     reserveCall(): OutgoingCallSlot;
     encode(): Uint8Array;
     reserveFrameBytes(length: number): () => void;
-    waitForSend(signal: AbortSignal | undefined): Promise<void>;
+    waitForSend(signal: AbortSignal | undefined, frameLength?: number): Promise<void>;
+    releaseSend(): void;
     allocateID(slot: OutgoingCallSlot): bigint;
     registerPending(id: bigint, slot: OutgoingCallSlot): Promise<Result>;
     send(id: bigint, payload: Uint8Array): void;
@@ -34,7 +35,7 @@ export async function runOrderedCall<Result>(
         if (!(payload instanceof Uint8Array)) throw new InvalidArgumentError("request encoder did not return Uint8Array");
         if (!driver.ready()) throw new Error("intercall: connection closed during encoding");
         releaseFrame = driver.reserveFrameBytes(payload.byteLength);
-        await driver.waitForSend(signal);
+        await driver.waitForSend(signal, payload.byteLength);
         if (!driver.ready()) throw new Error("intercall: connection closed before send");
         requestID = driver.allocateID(slot);
         pending = driver.registerPending(requestID, slot);
@@ -48,6 +49,7 @@ export async function runOrderedCall<Result>(
         }
         throw error;
     } finally {
+        driver.releaseSend();
         releaseFrame?.();
     }
 }

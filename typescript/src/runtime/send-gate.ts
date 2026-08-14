@@ -9,11 +9,14 @@ export interface SendGateScheduler {
     clearTimeout(handle: unknown): void;
 }
 
-export interface SendGateRequest {
+export interface SendGateRequestBase {
     readonly frameLength: number;
     readonly bufferedAmount: () => number;
     readonly signal?: AbortSignal;
     readonly terminalCause: () => Error | undefined;
+}
+
+export interface SendGateRequest extends SendGateRequestBase {
     readonly send: () => void;
 }
 
@@ -28,22 +31,33 @@ export class SendGate {
     constructor(private readonly scheduler: SendGateScheduler = defaultScheduler) {}
 
     enqueue(request: SendGateRequest): Promise<void> {
+        return this.acquire(request).then((release) => {
+            try { request.send(); }
+            finally { release(); }
+        });
+    }
+
+    async acquire(request: SendGateRequestBase): Promise<() => void> {
         validateFrameLength(request.frameLength);
         const previous = this.tail;
         let release!: () => void;
         this.tail = new Promise<void>((resolve) => { release = resolve; });
-        return (async () => {
+        try {
             await previous;
-            try {
-                await this.waitForCapacity(request);
-                request.send();
-            } finally {
+            await this.waitForCapacity(request);
+            let released = false;
+            return () => {
+                if (released) return;
+                released = true;
                 release();
-            }
-        })();
+            };
+        } catch (error) {
+            release();
+            throw error;
+        }
     }
 
-    private async waitForCapacity(request: SendGateRequest): Promise<void> {
+    private async waitForCapacity(request: SendGateRequestBase): Promise<void> {
         while (true) {
             const terminal = request.terminalCause();
             if (terminal !== undefined) throw terminal;

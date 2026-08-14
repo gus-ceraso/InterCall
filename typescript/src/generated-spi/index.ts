@@ -8,6 +8,8 @@ import {
     makeImportBinding,
 } from "../runtime/binding.js";
 import type { CodecProgram } from "../runtime/codec-program.js";
+import type { CallOptions } from "../runtime/types.js";
+import { connectionRuntimeFor } from "../runtime/connection-runtime.js";
 export type { CodecProgram } from "../runtime/codec-program.js";
 export {
     emptyExportBinding,
@@ -56,13 +58,14 @@ function freezeFunction<T extends Function>(value: T, label: string): T {
 }
 
 export function call(
-    _connection: Connection,
-    _binding: ImportBinding,
-    _procedureKey: bigint,
-    _encode: RequestEncoder,
-    _decode: ResponseDecoder,
+    connection: Connection,
+    binding: ImportBinding,
+    procedureKey: bigint,
+    encode: RequestEncoder,
+    decode: ResponseDecoder,
+    options?: CallOptions,
 ): Promise<void> {
-    return Promise.reject(new Error("InterCall runtime is not implemented"));
+    return connectionRuntimeFor(connection).call(binding, procedureKey, encode, decode, options);
 }
 
 export function createExportBinding(dispatch: Dispatch): ExportBinding {

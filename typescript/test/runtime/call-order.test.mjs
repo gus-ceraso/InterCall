@@ -20,6 +20,7 @@ class Driver {
     encode() { this.log.push("encode"); return Uint8Array.of(1, 2); }
     reserveFrameBytes(length) { this.log.push(`frame:${length}`); return () => this.log.push("release-frame"); }
     waitForSend() { this.log.push("wait"); return Promise.resolve(); }
+    releaseSend() { this.log.push("release-send"); }
     allocateID(slot) { this.log.push("allocate"); return slot.allocateID(); }
     registerPending(id, slot) {
         this.log.push("register");

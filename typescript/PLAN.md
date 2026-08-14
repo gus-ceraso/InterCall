@@ -1089,7 +1089,7 @@ cannot be forged through ordinary structural objects.
 11. **Done.** Implement `close()` and `closed`, including normalization of
     arbitrary connection abort reasons to `Error` and handler-independent
     teardown.
-12. Write deterministic fake-transport tests for:
+12. **Done.** Write deterministic fake-transport tests for:
     - concurrent and out-of-order calls;
     - simultaneous calls in both directions;
     - nested calls from a handler;

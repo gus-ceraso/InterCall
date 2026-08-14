@@ -20,6 +20,25 @@ export interface Frame {
     readonly payload: Uint8Array;
 }
 
+export function buildFrame(
+    kind: FrameKind,
+    requestID: bigint,
+    key: bigint,
+    payload: Uint8Array,
+): Uint8Array {
+    if (requestID < 0n || requestID > REQUEST_ID_MASK) throw new ProtocolError("request ID is outside the 63-bit range");
+    if (!(payload instanceof Uint8Array) || payload.byteLength > MAX_FRAME_PAYLOAD) {
+        throw new ProtocolError("frame payload exceeds the accepted ceiling");
+    }
+    const frame = new Uint8Array(FRAME_HEADER_SIZE + payload.byteLength);
+    const view = new DataView(frame.buffer);
+    view.setBigUint64(0, kind === "response" ? requestID | RESPONSE_BIT : requestID, true);
+    view.setBigUint64(8, key, true);
+    view.setBigUint64(16, BigInt(payload.byteLength), true);
+    frame.set(payload, FRAME_HEADER_SIZE);
+    return frame;
+}
+
 export function parseFrameHeader(bytes: Uint8Array): FrameHeader {
     if (bytes.byteLength !== FRAME_HEADER_SIZE) throw new ProtocolError("intercall: frame header must be exactly 24 bytes");
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
