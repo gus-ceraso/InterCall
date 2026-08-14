@@ -994,8 +994,9 @@ without stack overflow.
    list, record, named-reference, root, and zero-value operations.
 2. **Done.** Implement a checked growable encoder buffer that never exposes
    reused storage.
-3. Implement all primitive encoders and decoders with `DataView`, explicit raw
-   NaN bit checks, and exact numeric validation.
+3. **Done.** Implement numeric primitive encoders and decoders with `DataView`,
+   explicit raw NaN bit checks, and exact numeric validation. String and bytes
+   use the dedicated codecs implemented in the following tasks.
 4. Implement UTF-16 scalar validation, UTF-8 byte-length encoding, and fatal
    UTF-8 decoding.
 5. Implement bytes with defensive copies and list values with JavaScript arrays.
