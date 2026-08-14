@@ -40,7 +40,12 @@ export function attachRawSocket(
     let events: { cleanup: () => void };
     events = bindWebSocketEvents(socket, queue, (chunk) => runtime.receiveChunk(chunk), (cause) => {
         events.cleanup();
+        queue.clear();
         runtime.transportClosed(cause);
+    });
+    void runtime.closed.then(() => {
+        events.cleanup();
+        queue.clear();
     });
     return runtime.connection;
 }

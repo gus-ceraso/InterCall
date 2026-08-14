@@ -1133,8 +1133,8 @@ no promise is left unresolved after terminal teardown.
    exact 32-byte records, a separate fresh ten-second default timer,
    `AbortSignal`, residual queue handoff, mismatch diagnostics, and complete
    failure cleanup.
-7. Ensure event listeners are removed or made inert on teardown and no retained
-   queue keeps payloads alive after close.
+7. **Done.** Ensure event listeners are removed or made inert on teardown and
+   no retained queue keeps payloads alive after close.
 8. Add a fake WebSocket implementation for deterministic unit tests of open and
    negotiation timeouts, send throws, non-open sends, `bufferedAmount` drain and
    saturation, message ordering, aggregate queue overflow, text rejection,

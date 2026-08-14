@@ -57,6 +57,7 @@ export class ConnectionRuntime {
             while ((frame = this.receiver.next()) !== undefined) this.receiveFrame(frame);
         } catch (error) {
             this.core.terminate(error instanceof ProtocolError ? error : new ProtocolError("intercall: malformed frame", { cause: error }));
+            this.core.markReceiveStopped();
         }
     }
 
