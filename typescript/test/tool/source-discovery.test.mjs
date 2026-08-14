@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, invokeExportProvider, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, invokeExportProvider, loadCompilerProject, matchExportException, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+
+test("matches no-payload identity and payload exception classes", () => {
+    const sentinel = new Error("sentinel");
+    assert.equal(matchExportException(sentinel, [{ name: "sentinel", noPayload: sentinel }]).spec.name, "sentinel");
+    class Failed extends Error { constructor(payload) { super("failed"); this.payload = payload; } }
+    const failed = new Failed({ code: 3 });
+    assert.deepEqual(matchExportException(failed, [{ name: "failed", payloadClass: Failed }]).payload, { code: 3 });
+    assert.throws(() => matchExportException(failed, [{ name: "a", payloadClass: Failed }, { name: "b", payloadClass: Failed }]), /ambiguous/);
+});
 
 test("invokes providers with one immutable context and positional values", async () => {
     const controller = new AbortController();

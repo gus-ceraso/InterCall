@@ -1228,7 +1228,7 @@ fixture.
    a provider; malformed input returns `invalid_arguments`.
 6. **Done.** Construct one `HandlerContext`, invoke each provider with
    positional values, and await its exact Promise result.
-7. Match no-payload exceptions by identity and payload exceptions by
+7. **Done.** Match no-payload exceptions by identity and payload exceptions by
    `instanceof`, requiring exactly one match.
 8. Encode successful returns and matched exception payloads before returning to
    the runtime. Map provider, matching, and encoding failures to

@@ -38,6 +38,8 @@ export { decodeExportArguments } from "./export-dispatch.js";
 export type { ExportDecodeFailure, ExportDecodeSuccess } from "./export-dispatch.js";
 export { invokeExportProvider } from "./provider-dispatch.js";
 export type { ExportHandlerContext, ExportProvider } from "./provider-dispatch.js";
+export { matchExportException } from "./exception-dispatch.js";
+export type { ExportExceptionSpec, MatchedExportException } from "./exception-dispatch.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
