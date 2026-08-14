@@ -1127,7 +1127,8 @@ no promise is left unresolved after terminal teardown.
    exact aggregate unread-byte limits before retaining message data.
 4. **Done.** Translate error/close events into one transport cause without
    allowing a later browser event to replace an earlier local/protocol cause.
-5. Implement raw connection construction beginning at the first frame.
+5. **Done.** Implement raw connection construction beginning at the first
+   frame.
 6. After a successful open, implement client-role negotiation with exact
    32-byte records, a separate fresh ten-second default timer, `AbortSignal`,
    residual queue handoff, mismatch diagnostics, and complete failure cleanup.

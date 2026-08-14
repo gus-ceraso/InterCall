@@ -1,0 +1,46 @@
+import { ConnectionRuntime, type RuntimeTransport } from "../runtime/connection-runtime.js";
+import { WebSocketMessageQueue } from "./message-queue.js";
+import { bindWebSocketEvents } from "./events.js";
+import type { ConnectionBindings, WebSocketConnectionOptions } from "./types.js";
+import type { WebSocketLike, WebSocketConstructor } from "./socket.js";
+import { WEB_SOCKET_OPEN, openWebSocket } from "./socket.js";
+import { normalizeWebSocketOptions } from "./options.js";
+import { resolveWebSocketURL } from "./url.js";
+import { assertExportBinding, assertImportBinding } from "../runtime/binding.js";
+import type { Connection } from "../runtime/types.js";
+
+export async function connectRawSocket(
+    url: string | URL,
+    bindings: ConnectionBindings,
+    options?: WebSocketConnectionOptions,
+    constructor?: WebSocketConstructor,
+): Promise<Connection> {
+    const normalized = normalizeWebSocketOptions(options);
+    assertImportBinding(bindings.importBinding);
+    assertExportBinding(bindings.exportBinding);
+    // Resolve before constructing so malformed URLs fail without opening a socket.
+    resolveWebSocketURL(url);
+    const socket = await openWebSocket(url, normalized, constructor);
+    return attachRawSocket(socket, bindings, normalized.messageLimit);
+}
+
+export function attachRawSocket(
+    socket: WebSocketLike,
+    bindings: ConnectionBindings,
+    messageLimit: number,
+): Connection {
+    const transport: RuntimeTransport = {
+        bufferedAmount: () => socket.bufferedAmount,
+        isOpen: () => socket.readyState === WEB_SOCKET_OPEN,
+        send: (frame) => socket.send(frame),
+        close: () => { try { socket.close(); } catch { /* terminal cause is already selected */ } },
+    };
+    const runtime = new ConnectionRuntime(transport, bindings.importBinding, bindings.exportBinding);
+    const queue = new WebSocketMessageQueue(messageLimit);
+    let events: { cleanup: () => void };
+    events = bindWebSocketEvents(socket, queue, (chunk) => runtime.receiveChunk(chunk), (cause) => {
+        events.cleanup();
+        runtime.transportClosed(cause);
+    });
+    return runtime.connection;
+}
