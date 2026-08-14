@@ -28,6 +28,8 @@ From `typescript/`:
 
 ```sh
 npm ci
+# On Debian/Ubuntu, install the Playwright browser binaries and OS packages.
+npx playwright install --with-deps chromium firefox webkit
 npm run build
 npm run typecheck
 npm test
@@ -40,6 +42,11 @@ npm pack --dry-run
 
 Run focused tests with `npm run build:cli` or `npm run build:browser` first,
 then use `node --test path/to/test.mjs`.
+
+`npm run test:browser` runs the Chromium, Firefox, and WebKit matrix. It also
+starts the checked-out Go WebSocket peer, so the Go toolchain and the sibling
+`../go` checkout are required. `npm run test:integration` runs the Node-level
+integration smoke tests separately.
 
 ## Implementation rules
 
