@@ -5,6 +5,17 @@ export {
 } from "./interface-id.js";
 export type { InterfaceID } from "./interface-id.js";
 export { manglePrivate, PublicNameScope } from "./mangle.js";
+export type {
+    CodecRootFact,
+    ExportExceptionFact,
+    ExportGeneration,
+    ExportProcedureFact,
+    ExportTypeFact,
+    ImportDeclarationFact,
+    ImportFieldFact,
+    ImportGeneration,
+    ImportParameterFact,
+} from "./model.js";
 export {
     parseOverride,
     parseOverrides,

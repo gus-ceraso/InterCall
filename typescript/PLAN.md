@@ -975,9 +975,10 @@ specified as TypeScript-specific.
    content-derived suffixes; public collisions remain diagnostics.
 4. **Done.** Implement `--ts-name` parsing and the complete
    root/element/field selector path grammar.
-5. Define small command-specific generation records. Keep syntax AST nodes as
-   the source of wire order, names, docs, and positions; add only projected
-   names, compiler objects, codec roots, and dispatch facts.
+5. **Done.** Define small command-specific generation records. Syntax AST
+   nodes remain the source of wire order, names, docs, and positions; the
+   records add only projected names, compiler-object slots, codec roots, and
+   dispatch/provider facts.
 6. Implement the iterative strict projection-depth preflight and exact boundary
    diagnostics before recursive compiler/emitter work.
 7. Add unit tests for every initialism, inverse projection, invalid identifier,
