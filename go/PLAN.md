@@ -1699,9 +1699,11 @@ go test -race -count=20 ./transport/websocket
 go test ./...
 ```
 
-### Task 20 — Add executable transport examples and package documentation
+### Task 20 — Add executable transport examples and package documentation — **Complete**
 
 **Commit:** `transport: document high and low level APIs`
+
+**Status:** Implemented and verified with compile-checked Unix/WebSocket transport examples and package documentation in the current working tree.
 
 **Files:**
 
