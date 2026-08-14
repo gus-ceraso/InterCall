@@ -1357,9 +1357,11 @@ rm -rf "$tmp"
 go test ./...
 ```
 
-### Task 12 — Add the WebSocket dependency and binary stream adapter
+### Task 12 — Add the WebSocket dependency and binary stream adapter — **Complete**
 
 **Commit:** `websocket: add binary byte-stream adapter`
+
+**Status:** Implemented and verified with focused WebSocket adapter and race-detector tests in the current working tree.
 
 **Files:**
 
