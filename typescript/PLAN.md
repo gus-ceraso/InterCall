@@ -1054,9 +1054,9 @@ cannot be forged through ordinary structural objects.
 
 ### Phase 6 — Implement the transport-independent connection state machine
 
-1. Build an internal ordered chunk transport abstraction used only between the
-   connection core and browser WebSocket adapter; do not expose a general Node
-   stream promise.
+1. **Done.** Build an internal ordered chunk transport abstraction used only
+   between the connection core and browser WebSocket adapter; do not expose a
+   general Node stream promise.
 2. Implement the two-state active/terminal lifecycle with one permanent first
    cause, terminal publication, pending-call transfer, handler abort, and one
    cleanup owner.
