@@ -1250,8 +1250,8 @@ raw dispatch bytes match Go-generated import expectations.
    text, repeatable flags, and exit status 0/1.
 2. **Done.** Implement logical diagnostics and deterministic multi-error
    sorting.
-3. Implement source/generated validation sequencing so no validation error
-   creates an output directory.
+3. **Done.** Implement source/generated validation sequencing so no
+   validation error creates an output directory.
 4. Implement ownership parsing, regular-leaf/symlink checks, output-directory
    collision rules, interrupted export detection, in-directory staging,
    byte-equality no-op, and rename replacement.
