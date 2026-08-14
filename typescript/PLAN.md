@@ -1122,9 +1122,9 @@ no promise is left unresolved after terminal teardown.
 2. **Done.** Validate timeout/message options, then open native WebSockets
    with optional subprotocols and set binary mode before data handling. Race
    opening against a fresh ten-second default timer and the caller's signal.
-3. Convert message events into the ordered chunk queue, reject strings and
-   unsupported binary values, and enforce both the per-message and exact
-   aggregate unread-byte limits before retaining message data.
+3. **Done.** Convert message events into the ordered chunk queue, reject
+   strings and unsupported binary values, and enforce both the per-message and
+   exact aggregate unread-byte limits before retaining message data.
 4. Translate error/close events into one transport cause without allowing a
    later browser event to replace an earlier local/protocol cause.
 5. Implement raw connection construction beginning at the first frame.
