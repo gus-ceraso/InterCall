@@ -1168,8 +1168,8 @@ and browser entry points contain no Node imports.
 9. **Done.** Embed canonical semantic metadata and machine type rows.
 10. **Done.** Format output with the generator's own deterministic emitter; do
     not depend on a user's formatter.
-11. Parse and type-check complete output against the synthetic SPI before
-    writing.
+11. **Done.** Parse and type-check complete output against the synthetic SPI
+    before writing.
 12. Add golden fixtures for empty and kitchen-sink interfaces, every exception
     shape, all naming overrides, deep types, helper collisions, docs/metadata,
     and generated-source determinism.

@@ -15,6 +15,7 @@ export { emitImportBinding } from "./binding-emitter.js";
 export { emitImportClient } from "./client-emitter.js";
 export { emitImportMetadata } from "./metadata-emitter.js";
 export { formatGeneratedSource } from "./generator-format.js";
+export { validateGeneratedSource } from "./generated-check.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
