@@ -1135,10 +1135,10 @@ no promise is left unresolved after terminal teardown.
    failure cleanup.
 7. **Done.** Ensure event listeners are removed or made inert on teardown and
    no retained queue keeps payloads alive after close.
-8. Add a fake WebSocket implementation for deterministic unit tests of open and
-   negotiation timeouts, send throws, non-open sends, `bufferedAmount` drain and
-   saturation, message ordering, aggregate queue overflow, text rejection,
-   close races, and negotiation residual bytes.
+8. **Done.** Add a fake WebSocket implementation for deterministic unit tests
+   of open and negotiation timeouts, send throws, non-open sends,
+   `bufferedAmount` drain and saturation, message ordering, aggregate queue
+   overflow, text rejection, close races, and negotiation residual bytes.
 9. Add Playwright tests in Chromium, Firefox, and WebKit for binary sends,
    chunk queues, abort behavior, relative URLs, and browser close behavior.
 

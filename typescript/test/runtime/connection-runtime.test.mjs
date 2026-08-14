@@ -102,6 +102,21 @@ test("supports nested calls from an incoming handler", async () => {
     assert.equal(keys.includes(12n), true);
 });
 
+test("maps non-open and send-throw paths to terminal transport failures", async () => {
+    const closedTransport = new FakeTransport();
+    closedTransport.isOpen = false;
+    const closedBinding = createImportBinding();
+    const closedRuntime = new ConnectionRuntime(closedTransport, closedBinding, createExportBinding(async () => ({ exceptionKey: 0n, payload: new Uint8Array() })));
+    await assert.rejects(call(closedRuntime.connection, closedBinding, 1n, () => new Uint8Array(), () => {}), /transport/);
+
+    const throwingTransport = new FakeTransport();
+    throwingTransport.send = () => { throw new Error("send failed"); };
+    const throwingBinding = createImportBinding();
+    const throwingRuntime = new ConnectionRuntime(throwingTransport, throwingBinding, createExportBinding(async () => ({ exceptionKey: 0n, payload: new Uint8Array() })));
+    await assert.rejects(call(throwingRuntime.connection, throwingBinding, 1n, () => new Uint8Array(), () => {}), /send failed/);
+    assert.equal(throwingRuntime.core.terminal.code, "transport");
+});
+
 test("terminates on malformed matched responses but keeps unmatched responses opaque", async () => {
     const transport = new FakeTransport();
     const binding = createImportBinding();

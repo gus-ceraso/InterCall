@@ -73,6 +73,7 @@ export class ConnectionRuntime {
                 if (binding !== this.importBinding) throw new BindingMismatchError();
                 if (typeof procedureKey !== "bigint" || procedureKey === 0n) throw new TypeError("invalid procedure key");
                 if (typeof encode !== "function" || typeof decode !== "function") throw new TypeError("invalid call codec");
+                if (!this.isTransportOpen()) throw new TransportError();
             },
             ready: () => this.isTransportOpen() && !this.core.isTerminal,
             reserveCall: () => this.outgoing.reserve(),
@@ -104,8 +105,16 @@ export class ConnectionRuntime {
                 this.pendingResolvers.set(id, { resolve, reject, decode });
             }),
             send: (id, payload) => {
-                try { this.transport.send(buildFrame("request", id, procedureKey, payload)); }
-                finally { sendLease?.(); sendLease = undefined; }
+                try {
+                    this.transport.send(buildFrame("request", id, procedureKey, payload));
+                } catch (error) {
+                    this.core.terminate(new TransportError("intercall: transport send failed", { cause: error }));
+                    this.core.markReceiveStopped();
+                    throw error;
+                } finally {
+                    sendLease?.();
+                    sendLease = undefined;
+                }
             },
             cancel: (id, reason) => this.outgoing.cancel(id, reason),
             fail: (cause) => this.core.terminate(cause),

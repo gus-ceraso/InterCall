@@ -39,6 +39,7 @@ export async function runOrderedCall<Result>(
         if (!driver.ready()) throw new Error("intercall: connection closed before send");
         requestID = driver.allocateID(slot);
         pending = driver.registerPending(requestID, slot);
+        void pending.catch(() => undefined);
         driver.send(requestID, payload);
         return await awaitOutcome(pending, signal, requestID, driver, () => { cancelled = true; });
     } catch (error) {
