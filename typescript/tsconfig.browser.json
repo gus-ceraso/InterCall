@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": true
+  },
+  "include": [
+    "src/index.ts",
+    "src/runtime/**/*.ts",
+    "src/browser/**/*.ts",
+    "src/generated-spi/**/*.ts"
+  ],
+  "exclude": [
+    "src/cli",
+    "src/syntax",
+    "src/tool"
+  ]
+}

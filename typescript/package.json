@@ -46,7 +46,7 @@
     "build": "npm run build:browser && npm run build:cli",
     "build:browser": "tsc -p tsconfig.browser.json",
     "build:cli": "tsc -p tsconfig.cli.json",
-    "typecheck": "tsc -b tsconfig.browser.json tsconfig.cli.json tsconfig.tests.json",
+    "typecheck": "tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.cli.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "node --test",
     "test:browser": "playwright test",
     "test:integration": "node --test test/integration",
