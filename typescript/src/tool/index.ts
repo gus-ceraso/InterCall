@@ -10,6 +10,7 @@ export { buildImportGeneration } from "./import.js";
 export { buildValidatedImportGeneration } from "./import-validation.js";
 export { emitImportTypes, emitTypeExpression } from "./import-emitter.js";
 export { emitImportExceptions } from "./exception-emitter.js";
+export { emitImportCodecPrograms } from "./codec-emitter.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,

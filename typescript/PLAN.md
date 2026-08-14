@@ -1157,8 +1157,8 @@ and browser entry points contain no Node imports.
    references, property-level readonly records, and exact empty-record types.
 4. **Done.** Emit application exception singletons/classes and fixed-exception
    mappings.
-5. Emit immutable flat codec programs for every request, return, and exception
-   payload.
+5. **Done.** Emit immutable flat codec programs for every request, return, and
+   exception payload.
 6. Emit one metadata-aware `importBinding` singleton.
 7. Emit `createClient(connection)` returning a frozen object with one positional
    async method per procedure and a final optional `CallOptions` parameter.

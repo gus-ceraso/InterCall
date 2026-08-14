@@ -11,6 +11,7 @@ import type { CodecProgram } from "../runtime/codec-program.js";
 import type { CallOptions } from "../runtime/types.js";
 import { connectionRuntimeFor } from "../runtime/connection-runtime.js";
 export type { CodecProgram } from "../runtime/codec-program.js";
+export { makeCodecProgram } from "../runtime/codec-program.js";
 export {
     emptyExportBinding,
     emptyImportBinding,
