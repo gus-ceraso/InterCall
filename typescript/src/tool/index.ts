@@ -28,6 +28,8 @@ export type { TypeGraphResult } from "./type-graph.js";
 export { resolveProviderImports } from "./provider-imports.js";
 export type { ProviderImport } from "./provider-imports.js";
 export { orderDiscoveredExports } from "./source-order.js";
+export { buildExportInterface } from "./export-interface.js";
+export type { ExportInterfaceResult } from "./export-interface.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,

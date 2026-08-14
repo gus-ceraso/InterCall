@@ -1216,8 +1216,8 @@ fixture.
 
 ### Phase 10 — Implement export generation and dispatch
 
-1. Convert discovery results into a canonical interface AST and insert fixed
-   exceptions.
+1. **Done.** Convert discovery results into a canonical interface AST and
+   insert fixed exceptions.
 2. Emit static provider imports using each module's validated deterministic
    `.js` or `.jsx` relative specifier.
 3. Emit decode programs for request arguments and encode programs for return and

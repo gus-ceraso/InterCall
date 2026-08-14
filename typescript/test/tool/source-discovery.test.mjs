@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { discoverSourceExports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { buildExportInterface, discoverSourceExports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
 test("rejects invalid procedure context and result signatures", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery-invalid.json"));
@@ -28,6 +28,9 @@ test("discovers directly exported tagged procedures, exceptions, and types", () 
     assert.deepEqual(discovered.namedTypes.map((item) => [item.sourceName, item.wireName]), [["Alias", "alias"], ["Point", "point"]]);
     const ordered = orderDiscoveredExports(discovered);
     assert.deepEqual(ordered.namedTypes.map((item) => item.sourceName), ["Point", "Alias"]);
+    const generated = buildExportInterface(project, discovered);
+    assert.match(generated.canonicalText, /^exception internal_exception;/);
+    assert.ok(generated.source.declarations.some((item) => item.kind === "procedure-decl" && item.name.name === "add"));
     const filtered = discoverSourceExports(project, operands, { include: ["add"] });
     assert.deepEqual(filtered.procedures.map((item) => item.sourceName), ["add"]);
     assert.deepEqual(discoverSourceExports(project, operands, { exclude: ["add"] }).procedures, []);
