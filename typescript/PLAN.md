@@ -992,8 +992,8 @@ without stack overflow.
 
 1. **Done.** Define a private immutable flat instruction format for primitive,
    list, record, named-reference, root, and zero-value operations.
-2. Implement a checked growable encoder buffer that never exposes reused
-   storage.
+2. **Done.** Implement a checked growable encoder buffer that never exposes
+   reused storage.
 3. Implement all primitive encoders and decoders with `DataView`, explicit raw
    NaN bit checks, and exact numeric validation.
 4. Implement UTF-16 scalar validation, UTF-8 byte-length encoding, and fatal
