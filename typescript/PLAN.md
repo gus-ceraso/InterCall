@@ -1117,8 +1117,8 @@ no promise is left unresolved after terminal teardown.
 
 ### Phase 7 — Implement browser WebSocket transport and negotiation
 
-1. Implement URL resolution and `ws:`/`wss:` conversion for relative HTTP(S)
-   locations while accepting explicit WebSocket URLs.
+1. **Done.** Implement URL resolution and `ws:`/`wss:` conversion for relative
+   HTTP(S) locations while accepting explicit WebSocket URLs.
 2. Validate timeout/message options, then open native WebSockets with optional
    subprotocols and set binary mode before data handling. Race opening against a
    fresh ten-second default timer and the caller's signal.
