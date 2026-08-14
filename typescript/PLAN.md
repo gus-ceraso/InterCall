@@ -856,8 +856,8 @@ source, tests, documentation, and regenerated fixtures together.
 
 ### Phase 0 — Freeze the TypeScript profile
 
-1. Create `typescript/SPEC.md` from Sections 2–9 of this plan, resolving any
-   implementation discoveries before runtime code depends on them.
+1. **Done.** Create `typescript/SPEC.md` from Sections 2–9 of this plan,
+   resolving the TypeScript/browser profile before runtime code depends on it.
 2. Create `typescript/TYPESCRIPT.md` with the bidirectional hello-world flow,
    build requirements, JSDoc directives, exception examples, generation
    commands, same-origin deployment guidance, and connection lifecycle.
