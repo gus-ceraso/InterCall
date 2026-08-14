@@ -1,0 +1,67 @@
+{
+  "name": "@cerasos/intercall",
+  "version": "0.1.0",
+  "description": "Bidirectional InterCall RPC for TypeScript browser clients",
+  "type": "module",
+  "license": "CC0-1.0",
+  "author": "Luiz Gustavo Ceraso Filho <gus@ceraso.dev>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gus-ceraso/InterCall.git",
+    "directory": "typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/gus-ceraso/InterCall/issues"
+  },
+  "homepage": "https://github.com/gus-ceraso/InterCall/tree/master/typescript",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "bin": {
+    "intercall-ts": "./dist/cli/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js"
+    },
+    "./generated": {
+      "types": "./dist/generated-spi/index.d.ts",
+      "import": "./dist/generated-spi/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "LICENSE.txt",
+    "README.md",
+    "SPEC.md",
+    "TYPESCRIPT.md"
+  ],
+  "scripts": {
+    "build": "npm run build:browser && npm run build:cli",
+    "build:browser": "tsc -p tsconfig.browser.json",
+    "build:cli": "tsc -p tsconfig.cli.json",
+    "typecheck": "tsc -b tsconfig.browser.json tsconfig.cli.json tsconfig.tests.json",
+    "test": "node --test",
+    "test:browser": "playwright test",
+    "test:integration": "node --test test/integration",
+    "check:fixtures": "node --test test/fixtures",
+    "pack:check": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "typescript": "5.9.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}

@@ -890,8 +890,9 @@ there are no unresolved wire, native mapping, exception, or public API choices.
 
 ### Phase 1 — Scaffold the package without browser side effects
 
-1. Add `package.json`, lockfile, build scripts, exports, executable mapping,
-   license metadata, repository metadata, and Node/browser engine declarations.
+1. **Done.** Add `package.json`, lockfile, build scripts, exports, executable
+   mapping, license metadata, repository metadata, and Node/browser engine
+   declarations.
 2. Add separate TypeScript configs for browser runtime, Node CLI, tests, and
    declaration emission. Enable strict checking, `noUncheckedIndexedAccess`,
    `exactOptionalPropertyTypes`, and deterministic casing checks.
