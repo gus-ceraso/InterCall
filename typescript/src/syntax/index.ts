@@ -1,3 +1,4 @@
+export { attachDocumentation, normalizeDocumentation } from "./docs.js";
 export type {
     Comment,
     Declaration,

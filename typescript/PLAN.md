@@ -943,9 +943,10 @@ and `npm pack --dry-run` pass.
    cross-kind key collisions.
 4. **Done.** Implement FNV-0 with `bigint` masked to 64 bits after
    multiplication.
-5. Implement semantic documentation grouping and normalization exactly as
-   `go/SPEC.md`, including CRLF/bare-CR normalization, blank-line attachment,
-   trailing comments, nested type occurrences, and one-use comment ownership.
+5. **Done.** Implement semantic documentation grouping and normalization
+   exactly as `go/SPEC.md`, including CRLF/bare-CR normalization, blank-line
+   attachment, trailing comments, nested type occurrences, and one-use comment
+   ownership.
 6. Implement the canonical formatter iteratively, including empty files,
    zero-field records, documented nested type occurrences, indentation, final
    newline rules, and discarded unattached comments.
