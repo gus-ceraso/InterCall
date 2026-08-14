@@ -1,0 +1,6 @@
+/* héllo 世界 — documentation. */
+type user record {
+    /* émoji 😀 and 漢字 lines
+    第二行 日本語. */
+    name string;
+};

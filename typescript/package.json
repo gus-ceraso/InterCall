@@ -53,7 +53,7 @@
     "test:tool": "npm run build:cli && node --test test/tool/interface-id.test.mjs",
     "test:browser": "playwright test",
     "test:integration": "node --test test/integration",
-    "check:fixtures": "node test/fixtures/compiler/compiler-experiments.test.mjs",
+    "check:fixtures": "node test/fixtures/compiler/compiler-experiments.test.mjs && node --test test/fixtures/syntax-integrity.test.mjs",
     "pack:check": "npm pack --dry-run"
   },
   "dependencies": {

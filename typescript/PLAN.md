@@ -952,8 +952,10 @@ and `npm pack --dry-run` pass.
    final newline rules, and discarded unattached comments.
 7. **Done.** Implement canonical interface SHA-256 in Node tool code and a
    browser-free `InterfaceID` byte representation.
-8. Port every relevant fixture from `go/internal/syntax/testdata`, preserving
-   raw bytes for BOM, invalid UTF-8, CRLF, and deep nesting cases.
+8. **Done.** Port every relevant fixture from `go/internal/syntax/testdata`,
+   preserving raw bytes for BOM, invalid UTF-8, CRLF, and deep nesting cases.
+   `test/fixtures/syntax-integrity.test.mjs` compares the complete corpus byte
+   for byte.
 9. Add byte-for-byte differential tests against canonical Go formatter output,
    key vectors from the README, and the empty-interface ID.
 10. Add deterministic mutation/fuzz tests using the checked-in Go fuzz corpus

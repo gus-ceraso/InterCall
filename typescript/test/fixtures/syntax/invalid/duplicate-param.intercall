@@ -1,0 +1,1 @@
+procedure p { x uint8; x string; };

@@ -1,0 +1,7 @@
+/* first */ type t uint8; /* trailing one */
+/* second */
+type u int16;
+type v /* after name */ int32; /* after type */
+/* third */ exception e; /* after semi */
+/* fourth */
+type w list uint8;

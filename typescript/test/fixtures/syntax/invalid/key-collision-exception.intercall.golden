@@ -1,0 +1,2 @@
+offset 151
+testdata/invalid/key-collision-exception.intercall:4:11: key collision: exception "ejmcku0cl4u50" collides with exception "can20qcvtehol"

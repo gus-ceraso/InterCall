@@ -1,0 +1,2 @@
+offset 26
+testdata/invalid/duplicate-procedure.intercall:2:11: duplicate procedure name "p" (first declared at line 1)

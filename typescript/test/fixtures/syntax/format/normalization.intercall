@@ -1,0 +1,11 @@
+/*    leading
+      spaces */
+type t uint8;
+/* one */
+/*   two
+   three */
+type u int16;
+/*    four
+
+     five    */
+type v int32;

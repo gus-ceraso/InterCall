@@ -1,0 +1,5 @@
+type user record {
+    name string;
+    sex uint8;
+};
+procedure ping {};

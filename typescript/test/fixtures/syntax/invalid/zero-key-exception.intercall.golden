@@ -1,0 +1,2 @@
+offset 68
+testdata/invalid/zero-key-exception.intercall:2:11: key of exception "vi_rZiaP6_h" is 0, which is invalid

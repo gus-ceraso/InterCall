@@ -1,0 +1,17 @@
+/* Every named type reference names only an earlier declaration, including
+   transitively and inside lists, records, parameters, returns, and
+   exception payloads. */
+type a uint8;
+type b a;
+type c b;
+type d list b;
+type e record {
+    f c;
+    g list d;
+};
+procedure p {
+    x e;
+} list c;
+exception ex record {
+    f d;
+};
