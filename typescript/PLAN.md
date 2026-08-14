@@ -1035,8 +1035,8 @@ same accept/reject classification.
 
 1. **Done.** Implement opaque binding state with frozen public handles and
    reference identity checks.
-2. Implement metadata-free and metadata-aware import/export constructors,
-   preserving presence separately from an all-zero ID.
+2. **Done.** Implement metadata-free and metadata-aware import/export
+   constructors, preserving presence separately from an all-zero ID.
 3. Implement fixed local error classes, including `InterCallAbortError` and
    `ResourceLimitError`, and process-wide fixed wire-exception singletons.
 4. Implement `PayloadException<T>`, generated remote payload exception support,
