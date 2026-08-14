@@ -1293,13 +1293,14 @@ forged or stale metadata case before output mutation.
 
 ### Phase 13 — Add Go/browser interoperability fixtures
 
-1. Create two canonical interfaces:
+1. **Done.** Create two canonical interfaces:
    - a Go-exported backend interface imported by TypeScript;
    - a TypeScript-exported browser interface imported by Go.
-2. Cover every primitive, named chains, lists, inline/named records, bytes,
-   zero-width values, all exception payload forms, and no-return procedures.
-3. Generate and check in both Go and TypeScript bindings with explicit
-   regeneration commands. Ordinary tests must verify rather than rewrite them.
+2. **Done.** Cover every primitive, named chains, lists, inline/named records,
+   bytes, zero-width values, all exception payload forms, and no-return
+   procedures.
+3. **Done.** Generate and check in both Go and TypeScript bindings with explicit
+   regeneration commands. Ordinary tests verify rather than rewrite them.
 4. Build a Go test server using `transport/websocket.NewHandler` with generated
    export and import bindings. Serve the Playwright test page from the same
    origin.
