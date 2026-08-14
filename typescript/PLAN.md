@@ -938,10 +938,11 @@ and `npm pack --dry-run` pass.
 2. **Done.** Implement the grammar parser. It uses explicit stacks for
    unbounded list and record nesting; malformed input does not overflow the
    JavaScript call stack.
-3. Implement protocol validation for global/local scopes, earlier type
-   references, duplicate names, all declarations, FNV-0 key zero, and
+3. **Done.** Implement protocol validation for global/local scopes, earlier
+   type references, duplicate names, all declarations, FNV-0 key zero, and
    cross-kind key collisions.
-4. Implement FNV-0 with `bigint` masked to 64 bits after multiplication.
+4. **Done.** Implement FNV-0 with `bigint` masked to 64 bits after
+   multiplication.
 5. Implement semantic documentation grouping and normalization exactly as
    `go/SPEC.md`, including CRLF/bare-CR normalization, blank-line attachment,
    trailing comments, nested type occurrences, and one-use comment ownership.

@@ -14,12 +14,15 @@ export type {
     TypeDecl,
     TypeExpr,
 } from "./ast.js";
+export { declarationKey } from "./key.js";
+export type { KeyDeclaration, KeyKind } from "./key.js";
 export { parseInterface } from "./parser.js";
 export { Scanner } from "./scanner.js";
 export {
     SourceFile,
     SyntaxDiagnostic,
 } from "./source.js";
+export { validateInterface } from "./validator.js";
 export {
     TokenKind,
     tokenDescription,
