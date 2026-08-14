@@ -3,7 +3,7 @@ import { mkdtemp, readFile, symlink, lstat, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { artifactStamp, replaceOwnedLeaf } from "../../dist/cli/ownership.js";
+import { artifactStamp, replaceOwnedLeaf, validateOutputDirectory } from "../../dist/cli/ownership.js";
 
 test("writes owned leaves, preserves unchanged bytes, and rejects symlinks", async () => {
     const root = await mkdtemp(join(tmpdir(), "intercall-owner-"));
@@ -18,5 +18,9 @@ test("writes owned leaves, preserves unchanged bytes, and rejects symlinks", asy
     await symlink(path, target);
     await assert.rejects(() => replaceOwnedLeaf(target, "import", body), /replaceable/);
     assert.equal((await lstat(path)).isFile(), true);
+    const collision = join(root, "collision");
+    await (await import("node:fs/promises")).mkdir(collision);
+    await (await import("node:fs/promises")).writeFile(join(collision, "handwritten.ts"), "const x = 1;");
+    await assert.rejects(() => validateOutputDirectory(collision), /unowned code/);
     await rm(root, { recursive: true, force: true });
 });

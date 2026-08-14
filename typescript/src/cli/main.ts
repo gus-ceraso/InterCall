@@ -9,7 +9,7 @@ import { discoverSourceExports, normalizeSourceOperands, validateDiscoveredExcep
 import { loadCompilerProject } from "../tool/compiler-project.js";
 import { formatGeneratedSource } from "../tool/generator-format.js";
 import { parseCliArguments, HELP } from "./args.js";
-import { replaceOwnedInterface, replaceOwnedLeaf } from "./ownership.js";
+import { replaceOwnedInterface, replaceOwnedLeaf, validateOutputDirectory } from "./ownership.js";
 
 async function main(): Promise<void> {
     const command = parseCliArguments(process.argv.slice(2));
@@ -18,6 +18,7 @@ async function main(): Promise<void> {
         return;
     }
     if (command.kind === "import") {
+        await validateOutputDirectory(command.out);
         const bytes = await readFile(command.interfacePath);
         const file = parseInterface(command.interfacePath, new Uint8Array(bytes));
         validateInterface(file);
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
         await replaceOwnedLeaf(join(command.out, "binding_gen.ts"), "import", Buffer.from(source));
         return;
     }
+    await validateOutputDirectory(command.out);
     const project = loadCompilerProject(command.project);
     const operands = normalizeSourceOperands(project, command.sources);
     const discovery = discoverSourceExports(project, operands, { include: command.include, exclude: command.exclude });

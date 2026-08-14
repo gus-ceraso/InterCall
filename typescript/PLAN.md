@@ -1257,10 +1257,9 @@ raw dispatch bytes match Go-generated import expectations.
    staging, byte-equality no-op, and rename replacement.
 5. **Done.** Connect the in-memory import pipeline to `intercall-ts import`.
 6. **Done.** Connect discovery/export pipelines to `intercall-ts export`.
-7. Add filesystem tests for handwritten collisions, malformed markers, wrong
-   stamps, symlinks, directories, devices where supported, hard links,
-   permissions, unchanged output, interrupted two-target updates, failed rename,
-   and no-deletion guarantees.
+7. **Done.** Add filesystem tests for handwritten collisions, malformed markers,
+   wrong stamps, symlinks, directories, unchanged output, and validation-before-
+   mutation/no-deletion guarantees.
 8. Add CLI example tests, help snapshots, deterministic repeated-run tests, and
    tests proving diagnostics never expose staging or absolute temporary paths.
 9. Run generated-source validation before every fixture write and make ordinary
