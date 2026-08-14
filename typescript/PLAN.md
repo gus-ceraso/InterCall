@@ -1040,8 +1040,8 @@ same accept/reject classification.
 3. **Done.** Implement fixed local error classes, including
    `InterCallAbortError` and `ResourceLimitError`, and process-wide fixed
    wire-exception singletons.
-4. Implement `PayloadException<T>`, generated remote payload exception support,
-   and exact payload ownership.
+4. **Done.** Implement `PayloadException<T>`, generated remote payload
+   exception support, and exact payload ownership.
 5. Implement the empty import/export singletons, fixed dispatch, exact canonical
    body, fixed keys, and Go-identical interface ID.
 6. Define and freeze the generated-code dispatch, request encoder, response
