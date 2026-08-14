@@ -4,6 +4,7 @@ import test from "node:test";
 import { parseInterface, validateInterface } from "../../dist/syntax/index.js";
 import { compileCodecProgram } from "../../dist/tool/index.js";
 import { decodeProgram, encodeProgram } from "../../dist/runtime/codec-vm.js";
+import { buildValidatedImportSource } from "../../dist/tool/index.js";
 import {
     buildImportGeneration,
     buildValidatedImportGeneration,
@@ -40,6 +41,13 @@ test("executes kitchen-sink fixture codecs under strict runtime values", () => {
     const program = compileCodecProgram(file, user.type);
     const value = { id: 7n, name: "Ada", data: Uint8Array.of(1, 2), tags: [3, 4] };
     assert.deepEqual(decodeProgram(program, encodeProgram(program, value)), value);
+});
+
+test("composed import source is strict-validated", () => {
+    const source = new TextEncoder().encode(readFileSync(new URL("../fixtures/import/kitchen-sink.intercall", import.meta.url)));
+    const file = parseInterface("kitchen-sink.intercall", source);
+    validateInterface(file);
+    assert.match(buildValidatedImportSource(file), /createImportBindingWithInterfaceID/);
 });
 
 test("empty and kitchen-sink import fixtures are deterministic and type-checkable", () => {
