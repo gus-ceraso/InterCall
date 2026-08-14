@@ -1060,8 +1060,9 @@ cannot be forged through ordinary structural objects.
 2. **Done.** Implement the two-state active/terminal lifecycle with one
    permanent first cause, terminal publication, pending-call transfer, handler
    abort, and one cleanup owner.
-3. Implement the sole incremental frame receiver over arbitrary chunks, exact
-   header/payload reads, fixed payload ceiling, and owned payload transfer.
+3. **Done.** Implement the sole incremental frame receiver over arbitrary
+   chunks, exact header/payload reads, fixed payload ceiling, and owned payload
+   transfer.
 4. Implement outgoing monotonic IDs, pending ownership, the exact 1,024-call
    admission limit, response claims, per-call abort claims, terminal claims, and
    unmatched opaque responses.
