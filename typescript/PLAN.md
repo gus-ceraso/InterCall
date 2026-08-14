@@ -920,8 +920,9 @@ there are no unresolved wire, native mapping, exception, or public API choices.
 4. **Done.** Add public numeric marker aliases, the exact `EmptyRecord` marker,
    placeholder interfaces, and export maps without importing Node code from
    browser entry points.
-5. Add a static import-boundary test that walks emitted browser modules and
-   rejects `node:*`, `typescript`, CLI, tool, or filesystem imports.
+5. **Done.** Add a static import-boundary test that walks emitted browser
+   modules and rejects `node:*`, all Node built-ins, CLI/tool dependencies, and
+   every external browser dependency.
 6. Add build, unit-test, browser-test, fixture-check, and package-dry-run npm
    scripts.
 
