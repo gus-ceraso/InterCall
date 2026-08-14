@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, invokeExportProvider, loadCompilerProject, matchExportException, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, encodeExportResult, invokeExportProvider, loadCompilerProject, matchExportException, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
 test("matches no-payload identity and payload exception classes", () => {
     const sentinel = new Error("sentinel");
@@ -10,6 +10,7 @@ test("matches no-payload identity and payload exception classes", () => {
     const failed = new Failed({ code: 3 });
     assert.deepEqual(matchExportException(failed, [{ name: "failed", payloadClass: Failed }]).payload, { code: 3 });
     assert.throws(() => matchExportException(failed, [{ name: "a", payloadClass: Failed }, { name: "b", payloadClass: Failed }]), /ambiguous/);
+    assert.deepEqual(encodeExportResult(undefined, undefined), { ok: true, payload: new Uint8Array() });
 });
 
 test("invokes providers with one immutable context and positional values", async () => {

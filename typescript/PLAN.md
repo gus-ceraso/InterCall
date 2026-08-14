@@ -1230,8 +1230,8 @@ fixture.
    positional values, and await its exact Promise result.
 7. **Done.** Match no-payload exceptions by identity and payload exceptions by
    `instanceof`, requiring exactly one match.
-8. Encode successful returns and matched exception payloads before returning to
-   the runtime. Map provider, matching, and encoding failures to
+8. **Done.** Encode successful returns and matched exception payloads before
+   returning to the runtime. Map provider, matching, and encoding failures to
    `internal_exception` with an empty payload.
 9. Emit one metadata-aware `exportBinding` singleton with immutable dispatch.
 10. Emit and validate the canonical interface and generated TypeScript entirely
