@@ -16,6 +16,8 @@ export { emitImportClient } from "./client-emitter.js";
 export { emitImportMetadata } from "./metadata-emitter.js";
 export { formatGeneratedSource } from "./generator-format.js";
 export { validateGeneratedSource } from "./generated-check.js";
+export { loadCompilerProject } from "./compiler-project.js";
+export type { CompilerProject } from "./compiler-project.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
