@@ -244,6 +244,19 @@ go test -count=20 .
 go test -race -count=10 .
 ```
 
+Run selected packages or tests during iteration rather than all race tests:
+for example, use `go test -race ./transport/unixsocket` for Unix lifecycle
+changes, or add `-run '^TestName$'` for one boundary. On the current
+reference environment, the complete race suite took about 18 minutes with
+`go test -race -timeout 30m ./...`; `internal/tool` alone took about 15
+minutes. The default ten-minute package timeout is therefore insufficient for
+the complete race suite. Reserve the full command for final or release
+acceptance and use the longer timeout explicitly:
+
+```sh
+go test -race -timeout 30m ./...
+```
+
 Before finishing a code change, run the applicable standard gates from this
 module root:
 
