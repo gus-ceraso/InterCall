@@ -1246,8 +1246,8 @@ raw dispatch bytes match Go-generated import expectations.
 
 ### Phase 11 — Implement artifact ownership and CLI commands
 
-1. Implement argument parsing without a CLI framework, exact help text, repeatable
-   flags, and exit status 0/1.
+1. **Done.** Implement argument parsing without a CLI framework, exact help
+   text, repeatable flags, and exit status 0/1.
 2. Implement logical diagnostics and deterministic multi-error sorting.
 3. Implement source/generated validation sequencing so no validation error
    creates an output directory.
