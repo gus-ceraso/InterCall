@@ -1493,9 +1493,11 @@ go test -race ./transport/websocket
 go test ./...
 ```
 
-### Task 15 — Add high-level negotiated WebSocket dialing
+### Task 15 — Add high-level negotiated WebSocket dialing — **Complete**
 
 **Commit:** `websocket: dial negotiated InterCall connections`
+
+**Status:** Implemented and verified with negotiated WebSocket connection and race-detector tests in the current working tree.
 
 **Files:**
 
