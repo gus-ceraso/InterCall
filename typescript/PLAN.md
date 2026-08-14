@@ -1200,10 +1200,10 @@ compile strictly, and call a fake Go-compatible peer successfully.
 8. **Done.** Attach and normalize representable source documentation.
 9. **Done.** Compute default wire names, apply directives, check all
    wire/native scopes, and reserve fixed runtime names.
-10. Determine deterministic runtime provider imports with the project's emitted
-    `.js` or `.jsx` extension, and reject unresolvable specifiers, inaccessible
-    modules, output/provider cycles, declaration-only providers, and ambiguous
-    module identities.
+10. **Done.** Determine deterministic runtime provider imports with the
+    project's emitted `.js` or `.jsx` extension, and reject unresolvable
+    specifiers, inaccessible modules, output/provider cycles, declaration-only
+    providers, and ambiguous module identities.
 11. Implement stable topological type ordering and sorted exception/procedure
     ordering.
 12. Add compiler fixture projects covering `.ts` and `.tsx` providers, JSX

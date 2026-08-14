@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { discoverSourceExports, loadCompilerProject, normalizeSourceOperands, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { discoverSourceExports, loadCompilerProject, normalizeSourceOperands, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
 test("discovers directly exported tagged procedures, exceptions, and types", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery.json"));
     const operands = normalizeSourceOperands(project, ["test/fixtures/compiler/discovery.ts"]);
+    const providerImports = resolveProviderImports(project, operands);
+    assert.equal(providerImports[0].emittedSpecifier, "./runtime.js");
     const discovered = discoverSourceExports(project, operands);
     validateDiscoveredProcedure(project, discovered.procedures[0]);
     for (const exception of discovered.exceptions) validateDiscoveredException(project, exception);
