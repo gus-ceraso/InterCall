@@ -18,3 +18,23 @@ export type {
     Uint64,
 } from "./types.js";
 export { PayloadException } from "./types.js";
+export {
+    BindingMismatchError,
+    ConnectionClosedError,
+    InterfaceMismatchError,
+    InterCallAbortError,
+    InterCallError,
+    InternalException,
+    InvalidArgumentError,
+    InvalidArguments,
+    ProcedureNotFound,
+    ProtocolError,
+    RemoteException,
+    RequestIDsExhaustedError,
+    ResourceLimitError,
+    TransportError,
+    internalException,
+    invalidArguments,
+    procedureNotFound,
+} from "./errors.js";
+export type { ErrorCode } from "./errors.js";

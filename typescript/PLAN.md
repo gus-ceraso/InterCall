@@ -1037,8 +1037,9 @@ same accept/reject classification.
    reference identity checks.
 2. **Done.** Implement metadata-free and metadata-aware import/export
    constructors, preserving presence separately from an all-zero ID.
-3. Implement fixed local error classes, including `InterCallAbortError` and
-   `ResourceLimitError`, and process-wide fixed wire-exception singletons.
+3. **Done.** Implement fixed local error classes, including
+   `InterCallAbortError` and `ResourceLimitError`, and process-wide fixed
+   wire-exception singletons.
 4. Implement `PayloadException<T>`, generated remote payload exception support,
    and exact payload ownership.
 5. Implement the empty import/export singletons, fixed dispatch, exact canonical
