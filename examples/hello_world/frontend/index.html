@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Bidirectional InterCall hello-world example">
+    <title>InterCall Hello World</title>
+    <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+    <main class="card">
+        <p class="eyebrow">InterCall · Go ↔ TypeScript</p>
+        <h1>Hello, world</h1>
+        <p class="intro">
+            Go asks this browser for its locale before it builds the greeting.
+        </p>
+
+        <form id="greeting-form">
+            <label for="name">Name</label>
+            <input id="name" name="name" value="World" autocomplete="name" required>
+
+            <label for="locale">Locale</label>
+            <select id="locale" name="locale">
+                <option value="">Browser default</option>
+                <option value="en">English</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="pt-BR">Português (Brasil)</option>
+            </select>
+
+            <button id="submit" type="submit" disabled>Say hello</button>
+        </form>
+
+        <p id="status" class="status" role="status">Connecting…</p>
+        <output id="greeting" class="greeting" aria-live="polite"></output>
+    </main>
+</body>
+</html>

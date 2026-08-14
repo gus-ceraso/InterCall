@@ -24,6 +24,13 @@ general distributed-system workflows. Transport streams, including QUIC
 streams, carry complete frames; they do not make procedure parameters or
 returns streaming.
 
+## Examples
+
+- [Bidirectional hello world](examples/hello_world/README.md) connects a
+  TypeScript browser client to a Go server over a WebSocket. The browser exports
+  its locale, and the server exports a localized `hello` procedure that calls
+  back into the browser before returning its greeting.
+
 ## Interface
 
 InterCall tries to define interfaces that can be represented faithfully across
