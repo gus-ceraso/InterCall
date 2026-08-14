@@ -1277,7 +1277,7 @@ contracts on Linux, macOS, and Windows CI.
 2. **Done.** Detect the exact generated marker when export reaches a generated
    type.
 3. **Done.** Validate the complete marked file before consuming one row.
-4. Decode, parse, validate, and recanonicalize metadata.
+4. **Done.** Decode, parse, validate, and recanonicalize metadata.
 5. Verify the machine-row bijection and TypeScript/wire structural parity.
 6. Transfer exact nested semantic documentation to the export AST without
    directive rescanning.
