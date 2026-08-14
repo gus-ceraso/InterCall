@@ -1455,9 +1455,11 @@ go test -race ./transport/websocket
 go test ./...
 ```
 
-### Task 14 — Prove WebSocket message boundaries are transparent
+### Task 14 — Prove WebSocket message boundaries are transparent — **Complete**
 
 **Commit:** `websocket: enforce InterCall stream semantics`
+
+**Status:** Implemented and verified with fragmented/combined binary-message, text-rejection, limit, and race-detector tests in the current working tree.
 
 **Files:**
 
