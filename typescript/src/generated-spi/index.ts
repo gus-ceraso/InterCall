@@ -3,6 +3,10 @@ import type {
     ExportBinding,
     ImportBinding,
 } from "../runtime/types.js";
+import {
+    makeExportBinding,
+    makeImportBinding,
+} from "../runtime/binding.js";
 
 export interface DispatchResult {
     readonly exceptionKey: bigint;
@@ -31,23 +35,23 @@ export function call(
     return Promise.reject(new Error("InterCall runtime is not implemented"));
 }
 
-export function createExportBinding(_dispatch: Dispatch): ExportBinding {
-    throw new Error("InterCall runtime is not implemented");
+export function createExportBinding(dispatch: Dispatch): ExportBinding {
+    return makeExportBinding(dispatch);
 }
 
 export function createExportBindingWithInterfaceID(
-    _dispatch: Dispatch,
-    _interfaceID: Uint8Array,
+    dispatch: Dispatch,
+    interfaceID: Uint8Array,
 ): ExportBinding {
-    throw new Error("InterCall runtime is not implemented");
+    return makeExportBinding(dispatch, interfaceID);
 }
 
 export function createImportBinding(): ImportBinding {
-    throw new Error("InterCall runtime is not implemented");
+    return makeImportBinding();
 }
 
 export function createImportBindingWithInterfaceID(
-    _interfaceID: Uint8Array,
+    interfaceID: Uint8Array,
 ): ImportBinding {
-    throw new Error("InterCall runtime is not implemented");
+    return makeImportBinding(interfaceID);
 }

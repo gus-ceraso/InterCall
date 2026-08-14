@@ -1033,8 +1033,8 @@ same accept/reject classification.
 
 ### Phase 5 — Implement bindings, errors, and empty interfaces
 
-1. Implement opaque binding state with frozen public handles and reference
-   identity checks.
+1. **Done.** Implement opaque binding state with frozen public handles and
+   reference identity checks.
 2. Implement metadata-free and metadata-aware import/export constructors,
    preserving presence separately from an all-zero ID.
 3. Implement fixed local error classes, including `InterCallAbortError` and
