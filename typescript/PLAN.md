@@ -1125,8 +1125,8 @@ no promise is left unresolved after terminal teardown.
 3. **Done.** Convert message events into the ordered chunk queue, reject
    strings and unsupported binary values, and enforce both the per-message and
    exact aggregate unread-byte limits before retaining message data.
-4. Translate error/close events into one transport cause without allowing a
-   later browser event to replace an earlier local/protocol cause.
+4. **Done.** Translate error/close events into one transport cause without
+   allowing a later browser event to replace an earlier local/protocol cause.
 5. Implement raw connection construction beginning at the first frame.
 6. After a successful open, implement client-role negotiation with exact
    32-byte records, a separate fresh ten-second default timer, `AbortSignal`,
