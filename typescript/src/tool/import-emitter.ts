@@ -16,12 +16,12 @@ export function emitImportTypes(generation: ImportGenerationRecord): string {
         "",
     ];
     for (const record of generation.namedTypes) {
-        lines.push(`export type ${record.nativeName} = ${emitType(record.type, names)};`, "");
+        lines.push(`export type ${record.nativeName} = ${emitTypeExpression(record.type, names)};`, "");
     }
     return lines.join("\n");
 }
 
-function emitType(root: TypeExpr, names: ReadonlyMap<string, string>): string {
+export function emitTypeExpression(root: TypeExpr, names: ReadonlyMap<string, string>): string {
     const output: string[] = [];
     type Action = { readonly kind: "text"; readonly value: string } | { readonly kind: "type"; readonly value: TypeExpr };
     const stack: Action[] = [{ kind: "type", value: root }];
