@@ -1173,8 +1173,8 @@ and browser entry points contain no Node imports.
 12. **Done.** Add golden fixtures for empty and kitchen-sink interfaces, every
     exception shape, all naming overrides, deep types, helper collisions,
     docs/metadata, and generated-source determinism.
-13. Compile generated fixtures under strict TypeScript settings and execute
-    their codecs against the runtime tests.
+13. **Done.** Compile generated fixtures under strict TypeScript settings and
+    execute their codecs against the runtime tests.
 
 **Gate:** checked-in generated import fixtures are byte-for-byte reproducible,
 compile strictly, and call a fake Go-compatible peer successfully.
