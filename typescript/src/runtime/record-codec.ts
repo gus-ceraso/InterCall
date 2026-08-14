@@ -15,6 +15,17 @@ export function encodeRecord(
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
         throw new PrimitiveCodecError("record value is not an object");
     }
+    const object = assertClosedRecord(value, fields);
+    for (const field of fields) field.encode(buffer, object[field.name]);
+}
+
+export function assertClosedRecord(
+    value: unknown,
+    fields: readonly Pick<RecordCodecField, "name">[],
+): Record<string, unknown> {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        throw new PrimitiveCodecError("record value is not an object");
+    }
     const object = value as Record<string, unknown>;
     const expected = new Set<string>();
     for (const field of fields) {
@@ -29,7 +40,7 @@ export function encodeRecord(
             throw new PrimitiveCodecError(`record has an unknown field ${String(key)}`);
         }
     }
-    for (const field of fields) field.encode(buffer, object[field.name]);
+    return object;
 }
 
 export function decodeRecord(

@@ -1002,9 +1002,9 @@ without stack overflow.
 5. **Done.** Implement bytes with defensive copies and list values with
    JavaScript arrays.
 6. **Done.** Implement closed ordered records and exact payload exhaustion.
-7. Implement iterative list/record execution stacks, checked lengths and counts,
-   zero-width analysis, frozen zero values, and no per-element codec execution
-   for zero-width lists.
+7. **Done.** Implement iterative list/record execution stacks, checked lengths
+   and counts, iterative zero-width analysis, frozen zero values, and no
+   per-element codec execution for zero-width lists.
 8. Implement the exact 1,048,576-node per-payload encode/decode budget, shared
    across all procedure parameter roots and named references, charging
    containers, list elements, and record objects before allocation or traversal.
