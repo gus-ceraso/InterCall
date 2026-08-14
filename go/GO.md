@@ -208,6 +208,110 @@ func main() {
 no binding. A generated caller on a context without a connection returns
 that sentinel without touching the wire.
 
+## Native transports
+
+Generated bindings now carry a canonical-body SHA-256 `InterfaceID`. Use raw
+`NewConnection` when an application has already established a stream and does
+not want interface negotiation. Use the negotiated constructors, or the
+high-level transport helpers below, when both directions have metadata. IDs
+detect an interface mismatch; they do not authenticate a peer. Legacy bindings
+from before metadata support remain valid with raw `NewConnection` but are
+rejected by negotiated helpers.
+
+`EmptyExportBinding` and `EmptyImportBinding` are matching singleton bindings
+for the no-procedure interface. They are useful for the unused reverse
+direction of a one-way connection.
+
+### Unix sockets
+
+The high-level Unix server defaults to a filesystem socket with mode `0600`:
+
+```go
+err := unixsocket.ListenAndServe(
+    ctx,
+    "/run/user/1000/hello.sock",
+    helloserver.ExportBinding(),
+    intercall.EmptyImportBinding(),
+)
+if errors.Is(err, unixsocket.ErrServerClosed) {
+    // The serving context was canceled after startup.
+}
+```
+
+A client uses its local export binding and the generated import binding:
+
+```go
+conn, err := unixsocket.Dial(
+    ctx,
+    "/run/user/1000/hello.sock",
+    intercall.EmptyExportBinding(),
+    helloclient.ImportBinding(),
+)
+if err != nil { log.Fatal(err) }
+ctx = intercall.WithConnection(ctx, conn)
+// Call generated helloclient procedures with ctx.
+```
+
+`ListenStream` and `AcceptStream` are the low-level API. They return
+`*net.UnixConn`, so an application may inspect peer credentials according to
+its own policy before calling `NewNegotiatedServerConnection`:
+
+```go
+listener, err := unixsocket.ListenStream(path, nil)
+if err != nil { log.Fatal(err) }
+stream, err := listener.AcceptStream()
+if err != nil { log.Fatal(err) }
+// Authenticate stream using application policy.
+conn, err := intercall.NewNegotiatedServerConnection(
+    ctx, stream, exportBinding, importBinding,
+)
+```
+
+Existing leaf paths are refused, relative paths are anchored at listener
+creation, and the listener removes only the socket it created. Closing a
+listener unblocks accept. `AcceptConnection` validates before accepting but a
+blocked accept is interrupted by closing the listener, not by context
+cancellation alone.
+
+### WebSockets and cloudflared
+
+The WebSocket convenience server is plain HTTP. A loopback deployment can let
+cloudflared terminate public TLS:
+
+```go
+err := websocket.ListenAndServe(
+    ctx,
+    "127.0.0.1:8080",
+    "/intercall",
+    helloserver.ExportBinding(),
+    intercall.EmptyImportBinding(),
+)
+```
+
+Configure cloudflared to forward the public route to
+`http://127.0.0.1:8080`; the Go process does not load certificates. The
+configured path is a literal decoded request path, not a ServeMux pattern.
+The convenience server returns `http.ErrServerClosed` for context-driven
+shutdown.
+
+For authentication, use the reusable handler behind ordinary HTTP middleware:
+
+```go
+h := websocket.NewHandler(
+    helloserver.ExportBinding(),
+    intercall.EmptyImportBinding(),
+)
+mux.Handle("/intercall", authMiddleware(h))
+server := &http.Server{Handler: mux}
+```
+
+`AcceptStream` is the low-level authenticated flow. Pass a context that
+retains authentication values and call `NewNegotiatedServerConnection` after
+the upgrade. WebSocket messages are only transport chunks: one InterCall
+frame may span messages and one message may contain several frames. Text
+messages are rejected, same-origin checking is enabled by default, compression
+is disabled by default, and the default message limit is `64 MiB + 24` bytes.
+
 ## Command reference
 
 ```text
@@ -282,15 +386,19 @@ lifecycle, the context binding functions, and fixed error sentinels:
 | `type RequestEncoder` | Import-side request encoder closure, invoked at most once per call. |
 | `type ResponseDecoder` | Import-side response decoder closure, invoked with the matched exception key and payload. |
 | `type ExportBinding` / `type ImportBinding` | Opaque immutable binding handles; the zero value is invalid. |
-| `NewExportBinding(Dispatch)` / `NewImportBinding()` | Construct the two binding handles; `NewExportBinding` rejects a nil dispatch with `ErrInvalidArgument`. |
-| `NewConnection(ctx, stream, export, imp)` | Validate and construct a connection, taking ownership of the stream and starting its receive loop. |
+| `type InterfaceID` | Comparable canonical interface metadata; it is not authentication. |
+| `NewExportBinding(Dispatch)` / `NewImportBinding()` | Construct metadata-free binding handles; the export constructor rejects a nil dispatch with `ErrInvalidArgument`. |
+| `NewExportBindingWithInterfaceID` / `NewImportBindingWithInterfaceID` | Construct bindings carrying negotiated interface metadata. |
+| `EmptyExportBinding()` / `EmptyImportBinding()` | Matching singleton bindings for the canonical no-procedure interface. |
+| `NewConnection(ctx, stream, export, imp)` | Validate and construct a raw connection, taking ownership of the stream and starting its receive loop. |
+| `NewNegotiatedClientConnection` / `NewNegotiatedServerConnection` | Exchange expected-peer interface IDs, then construct the same connection. |
 | `(*Connection).Call(ctx, imp, key, encode, decode)` | Place one outgoing request and wait for its single outcome (generated-code SPI). |
 | `(*Connection).Close()` / `(*Connection).Wait()` | `Close` returns promptly after terminal publication and never waits for a blocked writer, gate waiter, handler, or stream cleanup; `Wait` blocks until teardown and stream cleanup complete and returns the permanent terminal cause, which is never nil. |
 | `WithConnection(ctx, conn)` / `ConnectionFromContext(ctx)` | Bind a connection into a context under a private key and retrieve it; the nil cases follow the documented panic and sentinel contracts. |
 
 Error sentinels work with direct comparison and `errors.Is`:
 `ErrInvalidArgument`, `ErrNoConnection`, `ErrBindingMismatch`, `ErrClosed`,
-`ErrRequestIDsExhausted`, and `ErrProtocol`; plus the three fixed wire
+`ErrRequestIDsExhausted`, `ErrProtocol`, and `ErrInterfaceMismatch`; plus the three fixed wire
 exceptions `ErrProcedureNotFound`, `ErrInvalidArguments`, and
 `ErrInternalException`. The fixed exceptions' `Error` strings are their
 exact wire names. A per-call context cancellation returns that context's
@@ -300,10 +408,10 @@ the connection; a terminal event returns its exact cause.
 ## Out of scope
 
 The proof of concept implements every nondeferred feature of `SPEC.md`. It
-does not include TypeScript or other non-Go bindings, WebSocket or
-WebTransport adapters, dialing or listening, TLS, handshakes or runtime
-interface digests, authentication or authorization policy, configurable
-policy resource limits, transport-level cancellation, or streaming values.
-The fixed 64 MiB frame-payload ceiling is a mandatory implementation-safety
-bound, not such policy. The interface language, value encodings, and frame
-format are defined by `README.md`.
+does not include TypeScript or other non-Go bindings, WebTransport adapters,
+TLS certificate loading or termination, authentication or authorization
+policy, reconnect or pooling, configurable policy resource limits,
+transport-level cancellation, or streaming values. The fixed 64 MiB
+frame-payload ceiling is a mandatory implementation-safety bound, not such
+policy. The interface language, value encodings, and frame format are defined
+by `README.md`.
