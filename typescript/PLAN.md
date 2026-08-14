@@ -956,8 +956,8 @@ and `npm pack --dry-run` pass.
    preserving raw bytes for BOM, invalid UTF-8, CRLF, and deep nesting cases.
    `test/fixtures/syntax-integrity.test.mjs` compares the complete corpus byte
    for byte.
-9. Add byte-for-byte differential tests against canonical Go formatter output,
-   key vectors from the README, and the empty-interface ID.
+9. **Done.** Add byte-for-byte differential tests against canonical Go
+   formatter output, key vectors from the README, and the empty-interface ID.
 10. Add deterministic mutation/fuzz tests using the checked-in Go fuzz corpus
     and bounded seeded byte mutations.
 
