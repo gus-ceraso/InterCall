@@ -897,7 +897,7 @@ there are no unresolved wire, native mapping, exception, or public API choices.
    tests, and declaration emission. Enable strict checking,
    `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, and deterministic
    casing checks.
-3. Create this source layout:
+3. **Done.** Create this source layout:
 
    ```text
    src/
@@ -917,7 +917,7 @@ there are no unresolved wire, native mapping, exception, or public API choices.
        fixtures/
    ```
 
-4. Add public numeric marker aliases, the exact `EmptyRecord` marker,
+4. **Done.** Add public numeric marker aliases, the exact `EmptyRecord` marker,
    placeholder interfaces, and export maps without importing Node code from
    browser entry points.
 5. Add a static import-boundary test that walks emitted browser modules and
