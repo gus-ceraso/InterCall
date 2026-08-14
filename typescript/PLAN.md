@@ -1260,8 +1260,9 @@ raw dispatch bytes match Go-generated import expectations.
 7. **Done.** Add filesystem tests for handwritten collisions, malformed markers,
    wrong stamps, symlinks, directories, unchanged output, and validation-before-
    mutation/no-deletion guarantees.
-8. Add CLI example tests, help snapshots, deterministic repeated-run tests, and
-   tests proving diagnostics never expose staging or absolute temporary paths.
+8. **Done.** Add CLI example tests, help snapshots, deterministic repeated-run
+   tests, and tests proving diagnostics never expose staging or absolute
+   temporary paths.
 9. Run generated-source validation before every fixture write and make ordinary
    fixture tests compare only; use a separate explicit maintenance command for
    regeneration.
