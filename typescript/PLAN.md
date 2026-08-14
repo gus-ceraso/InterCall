@@ -1001,7 +1001,7 @@ without stack overflow.
    and fatal UTF-8 decoding.
 5. **Done.** Implement bytes with defensive copies and list values with
    JavaScript arrays.
-6. Implement closed ordered records and exact payload exhaustion.
+6. **Done.** Implement closed ordered records and exact payload exhaustion.
 7. Implement iterative list/record execution stacks, checked lengths and counts,
    zero-width analysis, frozen zero values, and no per-element codec execution
    for zero-width lists.
