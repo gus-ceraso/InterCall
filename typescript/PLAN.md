@@ -1198,8 +1198,8 @@ compile strictly, and call a fake Go-compatible peer successfully.
    order, flattening untagged aliases, retaining tagged types, rejecting cycles
    and unsupported TypeScript constructs, and enforcing the strict depth boundary.
 8. **Done.** Attach and normalize representable source documentation.
-9. Compute default wire names, apply directives, check all wire/native scopes,
-   and reserve fixed runtime names.
+9. **Done.** Compute default wire names, apply directives, check all
+   wire/native scopes, and reserve fixed runtime names.
 10. Determine deterministic runtime provider imports with the project's emitted
     `.js` or `.jsx` extension, and reject unresolvable specifiers, inaccessible
     modules, output/provider cycles, declaration-only providers, and ambiguous

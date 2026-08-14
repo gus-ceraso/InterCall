@@ -1,6 +1,7 @@
 import ts from "typescript";
 import type { CompilerProject, SourceOperand } from "./compiler-project.js";
 import { scanTypeScriptDirectives, type TypeScriptDirective } from "./directives.js";
+import { isCanonicalWireName, typeScriptToWire } from "./name.js";
 
 export interface DiscoveredProcedure {
     readonly sourceName: string;
@@ -48,19 +49,31 @@ export function discoverSourceExports(project: CompilerProject, operands: readon
             const sourceName = declarationName(declaration);
             if (sourceName === undefined) continue;
             if (directive.kind === "procedure" && ts.isFunctionDeclaration(declaration)) {
-                procedures.push({ sourceName, wireName: requiredArgument(directive), sourceFile, declaration, signature: checker.getTypeAtLocation(declaration) });
+                procedures.push({ sourceName, wireName: resolveWireName(sourceName, directive, "camel"), sourceFile, declaration, signature: checker.getTypeAtLocation(declaration) });
             } else if (directive.kind === "exception" && (ts.isVariableStatement(declaration) || ts.isClassDeclaration(declaration))) {
-                exceptions.push({ sourceName, wireName: requiredArgument(directive), sourceFile, declaration, payloadClass: ts.isClassDeclaration(declaration) });
+                exceptions.push({ sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile, declaration, payloadClass: ts.isClassDeclaration(declaration) });
             } else if (directive.kind === "type" && (ts.isTypeAliasDeclaration(declaration) || ts.isInterfaceDeclaration(declaration))) {
-                namedTypes.push({ sourceName, wireName: requiredArgument(directive), sourceFile, declaration });
+                namedTypes.push({ sourceName, wireName: resolveWireName(sourceName, directive, "pascal"), sourceFile, declaration });
             }
         }
     }
     const known = [...procedures, ...exceptions, ...namedTypes];
+    validateWireNames(known);
     const include = validateFilters(filters.include, known);
     const exclude = new Set(validateFilters(filters.exclude, known));
     const selected = <T extends { readonly sourceName: string; readonly wireName: string }>(records: readonly T[]): T[] => records.filter((record) => (include.length === 0 || include.includes(record.sourceName) || include.includes(record.wireName)) && !exclude.has(record.sourceName) && !exclude.has(record.wireName));
     return { procedures: selected(procedures), exceptions: selected(exceptions), namedTypes: selected(namedTypes) };
+}
+
+function validateWireNames(known: readonly { readonly sourceName: string; readonly wireName: string }[]): void {
+    const fixed = new Set(["call", "connection", "handler", "metadata", "payload"]);
+    const seen = new Map<string, string>();
+    for (const record of known) {
+        if (fixed.has(record.wireName)) throw new Error(`wire name ${JSON.stringify(record.wireName)} is reserved by the runtime`);
+        const previous = seen.get(record.wireName);
+        if (previous !== undefined) throw new Error(`duplicate wire name ${JSON.stringify(record.wireName)} for ${previous} and ${record.sourceName}`);
+        seen.set(record.wireName, record.sourceName);
+    }
 }
 
 function validateFilters(filters: readonly string[] | undefined, known: readonly { readonly sourceName: string; readonly wireName: string }[]): string[] {
@@ -99,8 +112,9 @@ function directiveFor(node: ts.Node, directives: readonly TypeScriptDirective[])
         .at(-1);
 }
 
-function requiredArgument(directive: TypeScriptDirective): string {
+function resolveWireName(sourceName: string, directive: TypeScriptDirective, nameCase: "camel" | "pascal"): string {
     const value = directive.arguments.trim();
-    if (value === "") throw new Error(`directive ${directive.kind} at ${directive.line}:${directive.character} requires a wire name`);
-    return value;
+    const wireName = value === "" ? typeScriptToWire(sourceName, nameCase) : value;
+    if (!isCanonicalWireName(wireName)) throw new Error(`invalid wire name ${JSON.stringify(wireName)} at ${directive.line}:${directive.character}`);
+    return wireName;
 }
