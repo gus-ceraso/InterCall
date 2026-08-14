@@ -5,6 +5,7 @@ export {
 } from "./interface-id.js";
 export type { InterfaceID } from "./interface-id.js";
 export { MAX_PROJECTION_DEPTH, validateProjectionDepth } from "./depth.js";
+export { compileCodecProgram, compileCodecPrograms } from "./codec.js";
 export { manglePrivate, PublicNameScope } from "./mangle.js";
 export type {
     CodecRootFact,

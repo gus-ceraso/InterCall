@@ -1012,7 +1012,8 @@ without stack overflow.
 9. **Done.** Enforce the node budget, JavaScript array limits, allocation
    checks, the outgoing payload ceiling, and deterministic codec/resource error
    classes.
-10. Generate codec programs in memory from syntax generation records.
+10. **Done.** Generate codec programs in memory from syntax generation
+    records.
 11. Port Go codec fixtures and add golden wire vectors for every primitive,
     signed boundaries, infinities, signed zero, canonical/noncanonical NaNs,
     invalid strings, bytes versus list-uint8, nested records, named chains,
