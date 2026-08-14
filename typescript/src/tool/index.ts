@@ -6,6 +6,16 @@ export {
 export type { InterfaceID } from "./interface-id.js";
 export { MAX_PROJECTION_DEPTH, validateProjectionDepth } from "./depth.js";
 export { compileCodecProgram, compileCodecPrograms } from "./codec.js";
+export { buildImportGeneration } from "./import.js";
+export type {
+    ImportDeclarationRecord,
+    ImportExceptionRecord,
+    ImportFieldRecord,
+    ImportGenerationRecord,
+    ImportNamedTypeRecord,
+    ImportParameterRecord,
+    ImportProcedureRecord,
+} from "./import.js";
 export { manglePrivate, PublicNameScope } from "./mangle.js";
 export type {
     CodecRootFact,

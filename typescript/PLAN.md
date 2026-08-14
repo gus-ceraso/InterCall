@@ -1148,8 +1148,8 @@ and browser entry points contain no Node imports.
 
 ### Phase 8 — Implement import generation in memory
 
-1. Build import generation records from validated syntax and resolved named
-   declarations.
+1. **Done.** Build import generation records from validated syntax and
+   resolved named declarations.
 2. Apply TypeScript projection depth, naming, scopes, overrides, fixed-exception
    shape checks, and helper collision checks.
 3. Emit numeric and `EmptyRecord` marker imports and generated named type
