@@ -20,6 +20,7 @@ type serverState struct {
 	stopping bool
 	setup    map[*closeOnceStream]struct{}
 	active   map[*intercall.Connection]struct{}
+	wg       sync.WaitGroup
 }
 
 func (s *serverState) addSetup(stream *closeOnceStream) bool {
@@ -29,6 +30,7 @@ func (s *serverState) addSetup(stream *closeOnceStream) bool {
 		return false
 	}
 	s.setup[stream] = struct{}{}
+	s.wg.Add(1)
 	return true
 }
 
@@ -105,7 +107,6 @@ func serve(ctx context.Context, listener *Listener, export intercall.ExportBindi
 		}
 	}()
 
-	var setupWG sync.WaitGroup
 	var primary error
 	for {
 		stream, err := listener.AcceptStream()
@@ -122,9 +123,8 @@ func serve(ctx context.Context, listener *Listener, export intercall.ExportBindi
 			_ = owner.Close()
 			continue
 		}
-		setupWG.Add(1)
 		go func() {
-			defer setupWG.Done()
+			defer state.wg.Done()
 			conn, err := intercall.NewNegotiatedServerConnection(serveCtx, owner, export, imp)
 			if err != nil {
 				state.remove(owner, nil)
@@ -152,7 +152,7 @@ func serve(ctx context.Context, listener *Listener, export intercall.ExportBindi
 	for _, conn := range active {
 		_ = conn.Close()
 	}
-	setupWG.Wait()
+	state.wg.Wait()
 	if primary == ErrServerClosed {
 		return ErrServerClosed
 	}
