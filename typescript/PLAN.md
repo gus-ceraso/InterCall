@@ -1222,7 +1222,7 @@ fixture.
    deterministic `.js` or `.jsx` relative specifier.
 3. **Done.** Emit decode programs for request arguments and encode programs
    for return and exception values.
-4. Emit a static procedure-key switch. Unknown keys return
+4. **Done.** Emit a static procedure-key switch. Unknown keys return
    `procedure_not_found` after full framing.
 5. Decode all arguments and require exact exhaustion before invoking a provider;
    malformed input returns `invalid_arguments`.

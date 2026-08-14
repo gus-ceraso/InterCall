@@ -33,6 +33,7 @@ export type { ExportInterfaceResult } from "./export-interface.js";
 export { emitProviderImports } from "./export-emitter.js";
 export type { EmittedProviderImport } from "./export-emitter.js";
 export { emitExportCodecPrograms } from "./export-codec-emitter.js";
+export { emitProcedureSwitch } from "./procedure-emitter.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
