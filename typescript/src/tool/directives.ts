@@ -14,6 +14,20 @@ export interface TypeScriptDirective {
 
 const directivePattern = /^\s*\*?\s*@(intercall\s+(?:procedure|exception|type|param|field)|param|returns)(?:\s+(.*?))?\s*$/u;
 
+export function sourceDocumentation(node: ts.Node): string | undefined {
+    const parts: string[] = [];
+    for (const comment of ts.getJSDocCommentsAndTags(node)) {
+        if (!ts.isJSDoc(comment)) continue;
+        const lines = comment.getText().replace(/^\/\*\*?|\*\/$/gu, "").split(/\r\n|\r|\n/u);
+        for (const line of lines) {
+            const value = line.replace(/^\s*\*?\s?/u, "").trim();
+            if (value === "" || value.startsWith("@")) continue;
+            parts.push(value);
+        }
+    }
+    return parts.length === 0 ? undefined : parts.join("\n");
+}
+
 export function scanTypeScriptDirectives(sourceFile: ts.SourceFile): TypeScriptDirective[] {
     const text = sourceFile.getFullText();
     const starts = new Set<number>();
