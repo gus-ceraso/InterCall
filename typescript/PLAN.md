@@ -1129,9 +1129,10 @@ no promise is left unresolved after terminal teardown.
    allowing a later browser event to replace an earlier local/protocol cause.
 5. **Done.** Implement raw connection construction beginning at the first
    frame.
-6. After a successful open, implement client-role negotiation with exact
-   32-byte records, a separate fresh ten-second default timer, `AbortSignal`,
-   residual queue handoff, mismatch diagnostics, and complete failure cleanup.
+6. **Done.** After a successful open, implement client-role negotiation with
+   exact 32-byte records, a separate fresh ten-second default timer,
+   `AbortSignal`, residual queue handoff, mismatch diagnostics, and complete
+   failure cleanup.
 7. Ensure event listeners are removed or made inert on teardown and no retained
    queue keeps payloads alive after close.
 8. Add a fake WebSocket implementation for deterministic unit tests of open and
