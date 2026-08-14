@@ -34,8 +34,13 @@ export function validateMetadataRows(file: InterfaceFile, rows: readonly { reado
 }
 
 export function decodeGeneratedInterface(metadata: GeneratedMetadata): InterfaceFile {
+    const encoded = metadata.bodyChunks.join("");
+    if (!/^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3})?$/u.test(encoded)) throw new Error("invalid metadata base64url");
     let bytes: Uint8Array;
-    try { bytes = new Uint8Array(Buffer.from(metadata.bodyChunks.join(""), "base64url")); } catch { throw new Error("invalid metadata base64url"); }
+    try {
+        bytes = new Uint8Array(Buffer.from(encoded, "base64url"));
+        if (Buffer.from(bytes).toString("base64url") !== encoded) throw new Error("noncanonical");
+    } catch { throw new Error("invalid metadata base64url"); }
     let text: string;
     try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new Error("invalid metadata UTF-8"); }
     const file = parseInterface("generated-metadata.intercall", bytes);
