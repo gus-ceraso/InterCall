@@ -967,8 +967,8 @@ specified as TypeScript-specific.
 
 ### Phase 3 — Implement naming, selectors, and the target-neutral generation records
 
-1. Port the fixed initialism table and checked ASCII lower-snake/Pascal/camel
-   conversion algorithms.
+1. **Done.** Port the fixed initialism table and checked ASCII
+   lower-snake/Pascal/camel conversion algorithms.
 2. Implement TypeScript keyword and identifier checks without accepting quoted
    or computed names as a silent escape.
 3. Implement collision-safe deterministic private mangling using content-derived
