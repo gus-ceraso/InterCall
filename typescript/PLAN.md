@@ -932,8 +932,8 @@ and `npm pack --dry-run` pass.
 
 ### Phase 2 — Port interface syntax and canonical semantics
 
-1. Implement a byte-oriented UTF-8 scanner preserving exact byte spans,
-   comments, CR/LF behavior, reserved words, identifier rules, and EOF
+1. **Done.** Implement a byte-oriented UTF-8 scanner preserving exact byte
+   spans, comments, CR/LF behavior, reserved words, identifier rules, and EOF
    positions.
 2. Implement the grammar parser. Use explicit stacks for unbounded list and
    record nesting; malformed input must never overflow the JavaScript call
