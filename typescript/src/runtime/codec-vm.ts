@@ -1,4 +1,5 @@
 import type { CodecInstruction, CodecProgram } from "./codec-program.js";
+import { CodecBudget } from "./codec-budget.js";
 import { EncoderBuffer } from "./encoder-buffer.js";
 import { encodeBytes, decodeBytes } from "./bytes-codec.js";
 import { MAX_LIST_ELEMENTS } from "./list-codec.js";
@@ -11,7 +12,7 @@ import {
 } from "./primitive-codec.js";
 import { decodeString, encodeString } from "./text-codec.js";
 
-export function encodeProgram(program: CodecProgram, value: unknown): Uint8Array {
+export function encodeProgram(program: CodecProgram, value: unknown, budget = new CodecBudget()): Uint8Array {
     const buffer = new EncoderBuffer();
     const stack: Array<{ readonly index: number; readonly value: unknown }> = [{ index: program.root, value }];
     while (stack.length > 0) {
@@ -28,17 +29,17 @@ export function encodeProgram(program: CodecProgram, value: unknown): Uint8Array
                 stack.push({ index: instruction.target, value: frame.value });
                 break;
             case "list":
-                encodeListFrame(program, instruction, frame.value, stack, buffer);
+                encodeListFrame(program, instruction, frame.value, stack, buffer, budget);
                 break;
             case "record":
-                encodeRecordFrame(instruction, frame.value, stack);
+                encodeRecordFrame(instruction, frame.value, stack, budget);
                 break;
         }
     }
     return buffer.finish();
 }
 
-export function decodeProgram(program: CodecProgram, bytes: Uint8Array): unknown {
+export function decodeProgram(program: CodecProgram, bytes: Uint8Array, budget = new CodecBudget()): unknown {
     const cursor = new DecoderCursor(bytes);
     let result: unknown;
     const stack: Array<{ readonly index: number; readonly assign: (value: unknown) => void }> = [
@@ -47,6 +48,7 @@ export function decodeProgram(program: CodecProgram, bytes: Uint8Array): unknown
     while (stack.length > 0) {
         const frame = stack.pop()!;
         if (program.zeroWidthInstructions[frame.index]) {
+            budget.charge(program.zeroWidthNodeCosts[frame.index]!);
             frame.assign(program.zeroValues[frame.index]);
             continue;
         }
@@ -62,15 +64,33 @@ export function decodeProgram(program: CodecProgram, bytes: Uint8Array): unknown
                 stack.push({ index: instruction.target, assign: frame.assign });
                 break;
             case "list":
-                decodeListFrame(program, instruction, cursor, frame.assign, stack);
+                decodeListFrame(program, instruction, cursor, frame.assign, stack, budget);
                 break;
             case "record":
-                decodeRecordFrame(instruction, cursor, frame.assign, stack);
+                decodeRecordFrame(instruction, cursor, frame.assign, stack, budget);
                 break;
         }
     }
     if (cursor.remaining !== 0) throw new PrimitiveCodecError("trailing bytes after payload");
     return result;
+}
+
+export function encodePrograms(
+    programs: readonly CodecProgram[],
+    values: readonly unknown[],
+): Uint8Array[] {
+    if (programs.length !== values.length) throw new RangeError("codec program/value count mismatch");
+    const budget = new CodecBudget();
+    return programs.map((program, index) => encodeProgram(program, values[index], budget));
+}
+
+export function decodePrograms(
+    programs: readonly CodecProgram[],
+    payloads: readonly Uint8Array[],
+): unknown[] {
+    if (programs.length !== payloads.length) throw new RangeError("codec program/payload count mismatch");
+    const budget = new CodecBudget();
+    return programs.map((program, index) => decodeProgram(program, payloads[index]!, budget));
 }
 
 function encodePrimitiveValue(buffer: EncoderBuffer, instruction: Extract<CodecInstruction, { readonly op: "primitive" }>, value: unknown): void {
@@ -91,11 +111,16 @@ function encodeListFrame(
     value: unknown,
     stack: Array<{ readonly index: number; readonly value: unknown }>,
     buffer: EncoderBuffer,
+    budget: CodecBudget,
 ): void {
     if (!Array.isArray(value)) throw new PrimitiveCodecError("list value is not a JavaScript array");
     if (value.length > MAX_LIST_ELEMENTS) throw new PrimitiveCodecError("list exceeds the element limit");
+    budget.charge(1 + value.length);
     encodePrimitive(buffer, "uint64", BigInt(value.length));
-    if (program.zeroWidthInstructions[instruction.element]) return;
+    if (program.zeroWidthInstructions[instruction.element]) {
+        budget.charge(value.length * program.zeroWidthNodeCosts[instruction.element]!);
+        return;
+    }
     for (let index = value.length - 1; index >= 0; index -= 1) {
         stack.push({ index: instruction.element, value: value[index] });
     }
@@ -105,7 +130,9 @@ function encodeRecordFrame(
     instruction: Extract<CodecInstruction, { readonly op: "record" }>,
     value: unknown,
     stack: Array<{ readonly index: number; readonly value: unknown }>,
+    budget: CodecBudget,
 ): void {
+    budget.charge(1);
     const object = assertClosedRecord(value, instruction.fields.map((field) => ({ name: field.name })));
     for (let index = instruction.fields.length - 1; index >= 0; index -= 1) {
         const field = instruction.fields[index]!;
@@ -119,15 +146,18 @@ function decodeListFrame(
     cursor: DecoderCursor,
     assign: (value: unknown) => void,
     stack: Array<{ readonly index: number; readonly assign: (value: unknown) => void }>,
+    budget: CodecBudget,
 ): void {
     const count = decodePrimitive(cursor, "uint64");
     if (typeof count !== "bigint" || count > BigInt(MAX_LIST_ELEMENTS)) {
         throw new PrimitiveCodecError("wire list count exceeds the element limit");
     }
     const length = Number(count);
+    budget.charge(1 + length);
     const result = new Array<unknown>(length);
     assign(result);
     if (program.zeroWidthInstructions[instruction.element]) {
+        budget.charge(length * program.zeroWidthNodeCosts[instruction.element]!);
         result.fill(program.zeroValues[instruction.element]);
         return;
     }
@@ -141,7 +171,9 @@ function decodeRecordFrame(
     cursor: DecoderCursor,
     assign: (value: unknown) => void,
     stack: Array<{ readonly index: number; readonly assign: (value: unknown) => void }>,
+    budget: CodecBudget,
 ): void {
+    budget.charge(1);
     const result: Record<string, unknown> = {};
     assign(result);
     for (let index = instruction.fields.length - 1; index >= 0; index -= 1) {

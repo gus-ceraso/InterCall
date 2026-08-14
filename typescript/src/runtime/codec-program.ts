@@ -43,6 +43,7 @@ export interface CodecProgram {
     readonly zeroWidth: boolean;
     readonly zeroWidthInstructions: readonly boolean[];
     readonly zeroValues: readonly (unknown | undefined)[];
+    readonly zeroWidthNodeCosts: readonly number[];
 }
 
 export function makeCodecProgram(
@@ -66,6 +67,7 @@ export function makeCodecProgram(
     });
     const frozen = Object.freeze(copied);
     const zeroWidthInstructions = instructionZeroWidths(frozen);
+    const zeroWidthNodeCosts = buildZeroWidthNodeCosts(frozen, zeroWidthInstructions);
     const zeroValues = buildZeroValues(frozen, zeroWidthInstructions);
     return Object.freeze({
         instructions: frozen,
@@ -73,6 +75,7 @@ export function makeCodecProgram(
         zeroWidth: zeroWidthInstructions[root]!,
         zeroWidthInstructions: Object.freeze(zeroWidthInstructions),
         zeroValues: Object.freeze(zeroValues),
+        zeroWidthNodeCosts: Object.freeze(zeroWidthNodeCosts),
     });
 }
 
@@ -80,6 +83,38 @@ function validateTarget(target: number, length: number): void {
     if (!Number.isInteger(target) || target < 0 || target >= length) {
         throw new RangeError(`codec instruction target ${target} is outside the instruction table`);
     }
+}
+
+function buildZeroWidthNodeCosts(
+    instructions: readonly CodecInstruction[],
+    zeroWidths: readonly boolean[],
+): number[] {
+    const costs: (number | undefined)[] = new Array(instructions.length);
+    for (let root = 0; root < instructions.length; root += 1) {
+        if (!zeroWidths[root] || costs[root] !== undefined) continue;
+        const stack: Array<{ readonly index: number; readonly expanded: boolean }> = [{ index: root, expanded: false }];
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            if (costs[current.index] !== undefined) continue;
+            const instruction = instructions[current.index]!;
+            if (!current.expanded) {
+                stack.push({ index: current.index, expanded: true });
+                if (instruction.op === "named") stack.push({ index: instruction.target, expanded: false });
+                else if (instruction.op === "record") {
+                    for (let index = instruction.fields.length - 1; index >= 0; index -= 1) {
+                        stack.push({ index: instruction.fields[index]!.value, expanded: false });
+                    }
+                }
+                continue;
+            }
+            if (instruction.op === "zero") costs[current.index] = 0;
+            else if (instruction.op === "named") costs[current.index] = costs[instruction.target]!;
+            else if (instruction.op === "record") {
+                costs[current.index] = 1 + instruction.fields.reduce((total, field) => total + costs[field.value]!, 0);
+            }
+        }
+    }
+    return costs.map((cost) => cost ?? 0);
 }
 
 function buildZeroValues(

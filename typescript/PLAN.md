@@ -1005,9 +1005,10 @@ without stack overflow.
 7. **Done.** Implement iterative list/record execution stacks, checked lengths
    and counts, iterative zero-width analysis, frozen zero values, and no
    per-element codec execution for zero-width lists.
-8. Implement the exact 1,048,576-node per-payload encode/decode budget, shared
-   across all procedure parameter roots and named references, charging
-   containers, list elements, and record objects before allocation or traversal.
+8. **Done.** Implement the exact 1,048,576-node per-payload encode/decode
+   budget, shared across all procedure parameter roots and named references,
+   charging containers, list elements, and record objects before allocation or
+   traversal.
 9. Enforce the node budget, JavaScript array limits, allocation checks, the
    outgoing payload ceiling, and deterministic codec/resource error classes.
 10. Generate codec programs in memory from syntax generation records.
