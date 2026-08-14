@@ -1079,8 +1079,9 @@ cannot be forged through ordinary structural objects.
    Promise handlers, per-handler `AbortSignal`, static dispatch invocation,
    response encoding, owned-frame accounting, and post-send ID/resource
    release.
-8. Map unknown procedures, malformed/trailing arguments, provider/matcher
-   failures, and response-encoding failures to the three fixed exceptions.
+8. **Done.** Map unknown procedures, malformed/trailing arguments,
+   provider/matcher failures, and response-encoding failures to the three fixed
+   exceptions.
 9. Catch every synchronous throw and rejected Promise crossing generated
    dispatch. Never let a provider failure escape the receive task.
 10. Ensure a terminal connection prevents a completed late handler from sending
