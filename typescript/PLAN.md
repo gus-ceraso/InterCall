@@ -1063,9 +1063,9 @@ cannot be forged through ordinary structural objects.
 3. **Done.** Implement the sole incremental frame receiver over arbitrary
    chunks, exact header/payload reads, fixed payload ceiling, and owned payload
    transfer.
-4. Implement outgoing monotonic IDs, pending ownership, the exact 1,024-call
-   admission limit, response claims, per-call abort claims, terminal claims, and
-   unmatched opaque responses.
+4. **Done.** Implement outgoing monotonic IDs, pending ownership, the exact
+   1,024-call admission limit, response claims, per-call abort claims, terminal
+   claims, and unmatched opaque responses.
 5. Implement generated call ordering: validation, ready check, outgoing-call
    slot reservation, one synchronous encode, post-encode check, owned-frame-byte
    reservation, frame construction, abortable gate/backpressure wait, final
