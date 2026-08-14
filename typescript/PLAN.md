@@ -999,7 +999,8 @@ without stack overflow.
    use the dedicated codecs implemented in the following tasks.
 4. **Done.** Implement UTF-16 scalar validation, UTF-8 byte-length encoding,
    and fatal UTF-8 decoding.
-5. Implement bytes with defensive copies and list values with JavaScript arrays.
+5. **Done.** Implement bytes with defensive copies and list values with
+   JavaScript arrays.
 6. Implement closed ordered records and exact payload exhaustion.
 7. Implement iterative list/record execution stacks, checked lengths and counts,
    zero-width analysis, frozen zero values, and no per-element codec execution
