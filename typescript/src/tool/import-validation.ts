@@ -1,0 +1,80 @@
+import type { Declaration, InterfaceFile, TypeExpr } from "../syntax/index.js";
+import { validateProjectionDepth } from "./depth.js";
+import { PublicNameScope } from "./mangle.js";
+import { parseOverrides, resolveOverride } from "./selector.js";
+import type { ImportGenerationRecord } from "./import.js";
+
+const fixedExceptions = new Set(["procedure_not_found", "invalid_arguments", "internal_exception"]);
+const generatedHelpers = ["EmptyRecord", "PayloadException", "Connection", "CallOptions", "createClient", "importBinding", "exportBinding"];
+
+export function buildValidatedImportGeneration(
+    file: InterfaceFile,
+    generation: ImportGenerationRecord,
+    overrideTexts: readonly string[] = [],
+): ImportGenerationRecord {
+    validateProjectionDepth(file);
+    const overrides = parseOverrides(overrideTexts);
+    const declarationNames = new Map<Declaration, string>(generation.declarations.map((record) => [record.declaration, record.nativeName]));
+    const fieldNames = new Map(generation.fields.map((record) => [record.field, record.nativeName]));
+    const parameterNames = new Map(generation.parameters.map((record) => [record.parameter, record.nativeName]));
+    for (const override of overrides) {
+        const target = resolveOverride(file, override.text).target;
+        if (target.field !== undefined) fieldNames.set(target.field, override.name);
+        else if (target.parameter !== undefined) parameterNames.set(target.parameter, override.name);
+        else declarationNames.set(target.declaration, override.name);
+    }
+
+    const topLevel = new PublicNameScope();
+    for (const helper of generatedHelpers) topLevel.claim(helper);
+    for (const declaration of file.declarations) topLevel.claim(declarationNames.get(declaration)!);
+    for (const declaration of file.declarations) {
+        if (declaration.kind === "exception-decl" && fixedExceptions.has(declaration.name.name) && declaration.type !== undefined) {
+            throw new Error(`fixed exception ${JSON.stringify(declaration.name.name)} must have no payload`);
+        }
+    }
+    validateLocalScopes(file, fieldNames, parameterNames);
+    return {
+        ...generation,
+        declarations: generation.declarations.map((record) => ({ ...record, nativeName: declarationNames.get(record.declaration)! })),
+        namedTypes: generation.namedTypes.map((record) => ({ ...record, nativeName: declarationNames.get(record.declaration)! })),
+        fields: generation.fields.map((record) => ({ ...record, nativeName: fieldNames.get(record.field)! })),
+        parameters: generation.parameters.map((record) => ({ ...record, nativeName: parameterNames.get(record.parameter)! })),
+        procedures: generation.procedures.map((record) => ({
+            ...record,
+            nativeName: declarationNames.get(record.declaration)!,
+            parameters: record.parameters.map((parameter) => ({ ...parameter, nativeName: parameterNames.get(parameter.parameter)! })),
+        })),
+        exceptions: generation.exceptions.map((record) => ({ ...record, nativeName: declarationNames.get(record.declaration)! })),
+    };
+}
+
+function validateLocalScopes(
+    file: InterfaceFile,
+    fieldNames: ReadonlyMap<object, string>,
+    parameterNames: ReadonlyMap<object, string>,
+): void {
+    const work: TypeExpr[] = file.declarations.flatMap((declaration) => declarationTypes(declaration));
+    const visited = new Set<TypeExpr>();
+    while (work.length > 0) {
+        const type = work.pop()!;
+        if (visited.has(type)) continue;
+        visited.add(type);
+        if (type.kind === "record") {
+            const scope = new PublicNameScope();
+            for (const field of type.fields) {
+                scope.claim(fieldNames.get(field)!);
+                work.push(field.type);
+            }
+        } else if (type.kind === "list") work.push(type.elem);
+    }
+    for (const declaration of file.declarations) {
+        if (declaration.kind !== "procedure-decl") continue;
+        const scope = new PublicNameScope();
+        for (const parameter of declaration.params) scope.claim(parameterNames.get(parameter)!);
+    }
+}
+
+function declarationTypes(declaration: Declaration): TypeExpr[] {
+    if (declaration.kind === "procedure-decl") return [...declaration.params.map((parameter) => parameter.type), ...(declaration.result === undefined ? [] : [declaration.result])];
+    return declaration.type === undefined ? [] : [declaration.type];
+}

@@ -1150,8 +1150,8 @@ and browser entry points contain no Node imports.
 
 1. **Done.** Build import generation records from validated syntax and
    resolved named declarations.
-2. Apply TypeScript projection depth, naming, scopes, overrides, fixed-exception
-   shape checks, and helper collision checks.
+2. **Done.** Apply TypeScript projection depth, naming, scopes, overrides,
+   fixed-exception shape checks, and helper collision checks.
 3. Emit numeric and `EmptyRecord` marker imports and generated named type
    aliases/interfaces, preserving `bytes` versus `list uint8`, named references,
    property-level readonly records, and exact empty-record types.
