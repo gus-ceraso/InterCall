@@ -54,6 +54,22 @@ test("prevents late handler responses after terminal selection", () => {
     core.markReceiveStopped();
 });
 
+test("normalizes arbitrary connection abort reasons to stable Errors", async () => {
+    for (const reason of [undefined, "text", 42]) {
+        const core = new ConnectionCore();
+        core.terminate(reason);
+        core.markReceiveStopped();
+        const cause = await core.closed;
+        assert.equal(cause.name, "AbortError");
+        assert.equal(cause.cause, reason);
+    }
+    const original = new Error("original");
+    const preserved = new ConnectionCore();
+    preserved.terminate(original);
+    preserved.markReceiveStopped();
+    assert.equal(await preserved.closed, original);
+});
+
 test("explicit close uses the stable closed error", () => {
     const core = new ConnectionCore();
     core.close();

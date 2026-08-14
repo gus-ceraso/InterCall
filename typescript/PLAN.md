@@ -1086,8 +1086,9 @@ cannot be forged through ordinary structural objects.
    generated dispatch. Never let a provider failure escape the receive task.
 10. **Done.** Ensure a terminal connection prevents a completed late handler
     from sending a response.
-11. Implement `close()` and `closed`, including normalization of arbitrary
-    connection abort reasons to `Error` and handler-independent teardown.
+11. **Done.** Implement `close()` and `closed`, including normalization of
+    arbitrary connection abort reasons to `Error` and handler-independent
+    teardown.
 12. Write deterministic fake-transport tests for:
     - concurrent and out-of-order calls;
     - simultaneous calls in both directions;
