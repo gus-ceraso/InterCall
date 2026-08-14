@@ -1183,8 +1183,8 @@ compile strictly, and call a fake Go-compatible peer successfully.
 
 1. **Done.** Load the exact pinned compiler API and one `Program` from
    `--project` without mutating project files or invoking emit.
-2. Normalize explicit `.ts` and `.tsx` source operands and deterministic
-   logical paths, preserving each source's project `jsx` behavior.
+2. **Done.** Normalize explicit `.ts` and `.tsx` source operands and
+   deterministic logical paths, preserving each source's project `jsx` behavior.
 3. Implement exact JSDoc directive scanning and physical source positions from
    source AST ranges.
 4. Discover directly exported eligible procedures, no-payload sentinels,
