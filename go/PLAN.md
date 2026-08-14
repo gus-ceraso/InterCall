@@ -1534,9 +1534,11 @@ go test -race ./transport/websocket
 go test ./...
 ```
 
-### Task 16 — Add the reusable InterCall WebSocket handler
+### Task 16 — Add the reusable InterCall WebSocket handler — **Complete**
 
 **Commit:** `websocket: serve connections through an HTTP handler`
+
+**Status:** Implemented and verified with handler negotiation, invalid-input, shutdown, and race-detector tests in the current working tree.
 
 **Files:**
 
