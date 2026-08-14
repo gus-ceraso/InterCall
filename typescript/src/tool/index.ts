@@ -13,6 +13,7 @@ export { emitImportExceptions } from "./exception-emitter.js";
 export { emitImportCodecPrograms } from "./codec-emitter.js";
 export { emitImportBinding } from "./binding-emitter.js";
 export { emitImportClient } from "./client-emitter.js";
+export { emitImportMetadata } from "./metadata-emitter.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
