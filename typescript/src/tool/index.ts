@@ -18,6 +18,8 @@ export { formatGeneratedSource } from "./generator-format.js";
 export { validateGeneratedSource } from "./generated-check.js";
 export { loadCompilerProject, normalizeSourceOperands } from "./compiler-project.js";
 export type { CompilerProject, SourceOperand } from "./compiler-project.js";
+export { scanTypeScriptDirectives } from "./directives.js";
+export type { TypeScriptDirective, TypeScriptDirectiveKind } from "./directives.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
