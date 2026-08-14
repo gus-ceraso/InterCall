@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { discoverSourceExports, loadCompilerProject, normalizeSourceOperands, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { discoverSourceExports, loadCompilerProject, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
 test("discovers directly exported tagged procedures, exceptions, and types", () => {
     const project = loadCompilerProject(resolve("test/fixtures/compiler/tsconfig-discovery.json"));
@@ -17,7 +17,9 @@ test("discovers directly exported tagged procedures, exceptions, and types", () 
     assert.throws(() => walkReachableType(project, recursive), /recursive/);
     assert.deepEqual(discovered.procedures.map((item) => [item.sourceName, item.wireName]), [["add", "add"]]);
     assert.deepEqual(discovered.exceptions.map((item) => [item.sourceName, item.wireName, item.payloadClass]), [["Denied", "denied", false], ["Failed", "failed", true]]);
-    assert.deepEqual(discovered.namedTypes.map((item) => [item.sourceName, item.wireName]), [["Point", "point"]]);
+    assert.deepEqual(discovered.namedTypes.map((item) => [item.sourceName, item.wireName]), [["Alias", "alias"], ["Point", "point"]]);
+    const ordered = orderDiscoveredExports(discovered);
+    assert.deepEqual(ordered.namedTypes.map((item) => item.sourceName), ["Point", "Alias"]);
     const filtered = discoverSourceExports(project, operands, { include: ["add"] });
     assert.deepEqual(filtered.procedures.map((item) => item.sourceName), ["add"]);
     assert.deepEqual(discoverSourceExports(project, operands, { exclude: ["add"] }).procedures, []);

@@ -10,5 +10,9 @@ export const Denied = new Error("denied");
 export class Failed extends PayloadException<{ readonly code: number }> {}
 
 /** @intercall type point */
+/** @intercall type alias */
+export type Alias = Point;
+
+/** @intercall type */
 export interface Point { readonly x: number; }
 export interface Recursive { readonly next: Recursive; }

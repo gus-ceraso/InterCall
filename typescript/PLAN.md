@@ -1204,8 +1204,8 @@ compile strictly, and call a fake Go-compatible peer successfully.
     project's emitted `.js` or `.jsx` extension, and reject unresolvable
     specifiers, inaccessible modules, output/provider cycles, declaration-only
     providers, and ambiguous module identities.
-11. Implement stable topological type ordering and sorted exception/procedure
-    ordering.
+11. **Done.** Implement stable topological type ordering and sorted
+    exception/procedure ordering.
 12. Add compiler fixture projects covering `.ts` and `.tsx` providers, JSX
     transform and preserve modes, project references, path aliases, aliases,
     rejections, directives, Unicode source names, generated sources, classes,
