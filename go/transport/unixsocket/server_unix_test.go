@@ -71,3 +71,36 @@ func TestListenAndServeValidation(t *testing.T) {
 		t.Fatalf("ListenAndServe(legacy) = %v", err)
 	}
 }
+
+func TestListenAndServeReportsCleanupError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are not meaningful for root")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "socket")
+	serverExport, serverImport, _, _ := testBindings(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- ListenAndServe(ctx, path, serverExport, serverImport)
+	}()
+	waitForPath(t, path)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	err := <-result
+	if !errors.Is(err, ErrServerClosed) {
+		t.Fatalf("ListenAndServe() = %v, want ErrServerClosed", err)
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("ListenAndServe() = %v, want cleanup permission error", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+}

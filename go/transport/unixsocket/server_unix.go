@@ -143,7 +143,7 @@ func serve(ctx context.Context, listener *Listener, export intercall.ExportBindi
 
 	setup, active := state.stop()
 	cancel()
-	_ = listener.Close()
+	cleanupErr := listener.Close()
 	close(stopWatcher)
 	<-watcherDone
 	for _, stream := range setup {
@@ -153,8 +153,11 @@ func serve(ctx context.Context, listener *Listener, export intercall.ExportBindi
 		_ = conn.Close()
 	}
 	state.wg.Wait()
-	if primary == ErrServerClosed {
-		return ErrServerClosed
+	if cleanupErr != nil {
+		primary = errors.Join(primary, cleanupErr)
+	}
+	if primary == ErrServerClosed || errors.Is(primary, ErrServerClosed) {
+		return primary
 	}
 	return primary
 }

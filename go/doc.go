@@ -23,8 +23,9 @@
 // bytes) per frame payload defined in SPEC.md: the wire length is checked
 // after the 24-byte header and before any payload allocation or read, and
 // an over-ceiling frame is terminal ErrProtocol without consuming its
-// payload. The runtime does not dial, listen, or negotiate: the
-// application supplies the stream.
+// payload. Raw NewConnection does not dial, listen, or negotiate; the
+// application supplies the stream. The negotiated constructors perform their
+// explicit interface-ID exchange but do not dial or listen.
 //
 // This package uses only the standard library.
 package intercall
