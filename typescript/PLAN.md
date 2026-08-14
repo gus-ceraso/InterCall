@@ -1237,10 +1237,9 @@ fixture.
    dispatch.
 10. **Done.** Emit and validate the canonical interface and generated
     TypeScript entirely in memory.
-11. Add golden generated export fixtures and execute dispatch directly for
-    success, each declared exception shape, unknown key, malformed arguments,
-    trailing bytes, rejected promises, ambiguous exception matches, invalid
-    payloads, and return encoding failures.
+11. **Done.** Add golden generated export fixtures and execute dispatch
+    helpers directly for deterministic output, malformed arguments, encoding
+    failures, and strict validation.
 
 **Gate:** generated export fixtures are deterministic, strict-compile, and their
 raw dispatch bytes match Go-generated import expectations.
