@@ -1066,11 +1066,11 @@ cannot be forged through ordinary structural objects.
 4. **Done.** Implement outgoing monotonic IDs, pending ownership, the exact
    1,024-call admission limit, response claims, per-call abort claims, terminal
    claims, and unmatched opaque responses.
-5. Implement generated call ordering: validation, ready check, outgoing-call
-   slot reservation, one synchronous encode, post-encode check, owned-frame-byte
-   reservation, frame construction, abortable gate/backpressure wait, final
-   check, ID allocation/pending insertion, send admission, reservation release,
-   and outcome wait.
+5. **Done.** Implement generated call ordering: validation, ready check,
+   outgoing-call slot reservation, one synchronous encode, post-encode check,
+   owned-frame-byte reservation, frame construction, abortable gate/backpressure
+   wait, final check, ID allocation/pending insertion, send admission,
+   reservation release, and outcome wait.
 6. Implement the shared send gate for requests and responses, including the
    exact `bufferedAmount` ceiling, ten-millisecond drain polling, ready-state
    rechecks, and timer cleanup.
