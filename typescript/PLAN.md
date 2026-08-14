@@ -971,8 +971,8 @@ specified as TypeScript-specific.
    lower-snake/Pascal/camel conversion algorithms.
 2. **Done.** Implement TypeScript keyword and identifier checks without
    accepting quoted or computed names as a silent escape.
-3. Implement collision-safe deterministic private mangling using content-derived
-   suffixes; public collisions remain diagnostics.
+3. **Done.** Implement collision-safe deterministic private mangling using
+   content-derived suffixes; public collisions remain diagnostics.
 4. Implement `--ts-name` parsing and the complete root/element/field selector
    path grammar.
 5. Define small command-specific generation records. Keep syntax AST nodes as

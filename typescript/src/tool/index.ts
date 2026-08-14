@@ -4,6 +4,7 @@ export {
     sha256,
 } from "./interface-id.js";
 export type { InterfaceID } from "./interface-id.js";
+export { manglePrivate, PublicNameScope } from "./mangle.js";
 export {
     initialisms,
     isCanonicalWireName,
