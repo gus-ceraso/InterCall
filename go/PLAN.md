@@ -1804,9 +1804,11 @@ go test ./...
 git diff --check
 ```
 
-### Task 23 — Add cross-transport acceptance and compatibility gates
+### Task 23 — Add cross-transport acceptance and compatibility gates — **Complete**
 
 **Commit:** `integration: verify native transport compatibility`
+
+**Status:** Implemented and verified with generated Unix/WebSocket one-way and bidirectional calls, mismatch/raw compatibility checks, race tests, vet, and POSIX cross-compilation in the current working tree.
 
 **Files:**
 
