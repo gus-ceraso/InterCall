@@ -4,6 +4,7 @@ import {
     CodecBufferError,
     EncoderBuffer,
 } from "../../dist/runtime/encoder-buffer.js";
+import { CodecError, CodecResourceError } from "../../dist/runtime/codec-errors.js";
 
 test("grows and finishes with independent storage", () => {
     const buffer = new EncoderBuffer(64, 1);
@@ -22,6 +23,8 @@ test("enforces maximum encoded size before allocation", () => {
     assert.throws(() => buffer.appendByte(4), CodecBufferError);
     assert.throws(() => new EncoderBuffer(-1), RangeError);
     assert.throws(() => buffer.appendByte(256), CodecBufferError);
+    assert.equal(new CodecBufferError("limit") instanceof CodecResourceError, true);
+    assert.equal(new CodecBufferError("limit") instanceof CodecError, true);
 });
 
 test("rejects invalid append lengths through typed arrays", () => {

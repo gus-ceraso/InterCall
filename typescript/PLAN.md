@@ -1009,8 +1009,9 @@ without stack overflow.
    budget, shared across all procedure parameter roots and named references,
    charging containers, list elements, and record objects before allocation or
    traversal.
-9. Enforce the node budget, JavaScript array limits, allocation checks, the
-   outgoing payload ceiling, and deterministic codec/resource error classes.
+9. **Done.** Enforce the node budget, JavaScript array limits, allocation
+   checks, the outgoing payload ceiling, and deterministic codec/resource error
+   classes.
 10. Generate codec programs in memory from syntax generation records.
 11. Port Go codec fixtures and add golden wire vectors for every primitive,
     signed boundaries, infinities, signed zero, canonical/noncanonical NaNs,

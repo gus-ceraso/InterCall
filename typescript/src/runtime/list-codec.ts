@@ -1,4 +1,5 @@
 import { EncoderBuffer } from "./encoder-buffer.js";
+import { CodecResourceError } from "./codec-errors.js";
 import {
     DecoderCursor,
     decodePrimitive,
@@ -27,7 +28,12 @@ export function decodeList<T>(
     if (typeof count !== "bigint" || count > BigInt(MAX_LIST_ELEMENTS)) {
         throw new PrimitiveCodecError("wire list count exceeds the element limit");
     }
-    const result = new Array<T>(Number(count));
+    let result: T[];
+    try {
+        result = new Array<T>(Number(count));
+    } catch (error) {
+        throw new CodecResourceError("unable to allocate decoded list", { cause: error });
+    }
     for (let index = 0; index < result.length; index += 1) result[index] = decodeElement(cursor);
     return result;
 }

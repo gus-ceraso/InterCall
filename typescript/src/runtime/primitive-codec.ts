@@ -1,4 +1,5 @@
 import { EncoderBuffer } from "./encoder-buffer.js";
+import { CodecValueError } from "./codec-errors.js";
 
 export type NumericPrimitive =
     | "int8" | "int16" | "int32" | "int64"
@@ -11,7 +12,7 @@ export type NumericValue = number | bigint;
 export const CANONICAL_FLOAT32_NAN = 0x7fc00000;
 export const CANONICAL_FLOAT64_NAN = 0x7ff8000000000000n;
 
-export class PrimitiveCodecError extends Error {
+export class PrimitiveCodecError extends CodecValueError {
     constructor(message: string, options?: { readonly cause?: unknown }) {
         super(message, options);
         this.name = "PrimitiveCodecError";

@@ -1,5 +1,5 @@
 import type { CodecInstruction, CodecProgram } from "./codec-program.js";
-import { CodecBudget } from "./codec-budget.js";
+import { CodecBudget, CodecResourceError } from "./codec-budget.js";
 import { EncoderBuffer } from "./encoder-buffer.js";
 import { encodeBytes, decodeBytes } from "./bytes-codec.js";
 import { MAX_LIST_ELEMENTS } from "./list-codec.js";
@@ -154,7 +154,12 @@ function decodeListFrame(
     }
     const length = Number(count);
     budget.charge(1 + length);
-    const result = new Array<unknown>(length);
+    let result: unknown[];
+    try {
+        result = new Array<unknown>(length);
+    } catch (error) {
+        throw new CodecResourceError("unable to allocate decoded list", { cause: error });
+    }
     assign(result);
     if (program.zeroWidthInstructions[instruction.element]) {
         budget.charge(length * program.zeroWidthNodeCosts[instruction.element]!);

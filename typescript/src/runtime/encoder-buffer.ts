@@ -1,6 +1,8 @@
+import { CodecResourceError } from "./codec-errors.js";
+
 export const MAX_ENCODER_BYTES = 64 * 1024 * 1024;
 
-export class CodecBufferError extends Error {
+export class CodecBufferError extends CodecResourceError {
     constructor(message: string, options?: { readonly cause?: unknown }) {
         super(message, options);
         this.name = "CodecBufferError";

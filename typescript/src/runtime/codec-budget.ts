@@ -1,11 +1,7 @@
 export const CODEC_NODE_BUDGET = 1_048_576;
 
-export class CodecResourceError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "CodecResourceError";
-    }
-}
+export { CodecResourceError } from "./codec-errors.js";
+import { CodecResourceError } from "./codec-errors.js";
 
 export class CodecBudget {
     private usedValue = 0;
