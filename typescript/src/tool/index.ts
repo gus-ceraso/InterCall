@@ -46,7 +46,7 @@ export { emitExportBinding } from "./export-binding-emitter.js";
 export { buildValidatedExportSource } from "./export-source.js";
 export type { ExportSourceResult } from "./export-source.js";
 export { buildValidatedImportSource } from "./import-source.js";
-export { GENERATED_TYPESCRIPT_MARKER, decodeGeneratedInterface, hasGeneratedTypeScriptMarker, readGeneratedMetadata } from "./metadata-reader.js";
+export { GENERATED_TYPESCRIPT_MARKER, decodeGeneratedInterface, hasGeneratedTypeScriptMarker, readGeneratedMetadata, validateMetadataRows } from "./metadata-reader.js";
 export type { GeneratedMetadata } from "./metadata-reader.js";
 export type {
     ImportDeclarationRecord,

@@ -1278,7 +1278,8 @@ contracts on Linux, macOS, and Windows CI.
    type.
 3. **Done.** Validate the complete marked file before consuming one row.
 4. **Done.** Decode, parse, validate, and recanonicalize metadata.
-5. Verify the machine-row bijection and TypeScript/wire structural parity.
+5. **Done.** Verify the machine-row bijection and TypeScript/wire structural
+   parity.
 6. Transfer exact nested semantic documentation to the export AST without
    directive rescanning.
 7. Add round-trip tests:
