@@ -1159,7 +1159,7 @@ and browser entry points contain no Node imports.
    mappings.
 5. **Done.** Emit immutable flat codec programs for every request, return, and
    exception payload.
-6. Emit one metadata-aware `importBinding` singleton.
+6. **Done.** Emit one metadata-aware `importBinding` singleton.
 7. Emit `createClient(connection)` returning a frozen object with one positional
    async method per procedure and a final optional `CallOptions` parameter.
 8. Ensure a missing return produces `Promise<void>` and every successful response
