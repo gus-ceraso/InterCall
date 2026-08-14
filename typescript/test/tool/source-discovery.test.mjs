@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import test from "node:test";
-import { buildExportInterface, decodeExportArguments, discoverSourceExports, emitExportBinding, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, encodeExportResult, invokeExportProvider, loadCompilerProject, matchExportException, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
+import { buildExportInterface, buildValidatedExportSource, decodeExportArguments, discoverSourceExports, emitExportBinding, emitExportCodecPrograms, emitProcedureSwitch, emitProviderImports, encodeExportResult, invokeExportProvider, loadCompilerProject, matchExportException, normalizeSourceOperands, orderDiscoveredExports, resolveProviderImports, validateDiscoveredException, validateDiscoveredProcedure, walkReachableType } from "../../dist/tool/index.js";
 
 test("matches no-payload identity and payload exception classes", () => {
     const sentinel = new Error("sentinel");
@@ -58,6 +58,7 @@ test("discovers directly exported tagged procedures, exceptions, and types", () 
     assert.match(emitExportCodecPrograms(generated.source), /requireCodecProgram/);
     assert.match(emitExportBinding(generated.source), /exportBinding/);
     assert.match(emitExportBinding(generated.source), /freezeDispatch/);
+    assert.match(buildValidatedExportSource(project, discovered).generatedSource, /exportBinding/);
     assert.match(emitProcedureSwitch(generated.source), /case \"add\"/);
     assert.match(emitProcedureSwitch(generated.source), /procedure_not_found/);
     assert.deepEqual(decodeExportArguments([], []).values, []);

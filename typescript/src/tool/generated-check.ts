@@ -19,6 +19,8 @@ declare module "@cerasos/intercall/generated" {
   export function requireCodecProgram(program: CodecProgram): CodecProgram;
   export function call(connection: import("@cerasos/intercall").Connection, binding: unknown, key: bigint, encode: () => Uint8Array, decode: (key: bigint, payload: Uint8Array) => void, options?: import("@cerasos/intercall").CallOptions): Promise<void>;
   export function createImportBindingWithInterfaceID(id: Uint8Array): unknown;
+  export function freezeDispatch(dispatch: (...args: any[]) => Promise<any>): (...args: any[]) => Promise<any>;
+  export function createExportBindingWithInterfaceID(dispatch: (...args: any[]) => Promise<any>, id: Uint8Array): unknown;
 }
 `;
 

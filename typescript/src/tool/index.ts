@@ -43,6 +43,8 @@ export type { ExportExceptionSpec, MatchedExportException } from "./exception-di
 export { encodeExportResult } from "./encode-dispatch.js";
 export type { ExportEncodeResult } from "./encode-dispatch.js";
 export { emitExportBinding } from "./export-binding-emitter.js";
+export { buildValidatedExportSource } from "./export-source.js";
+export type { ExportSourceResult } from "./export-source.js";
 export type {
     ImportDeclarationRecord,
     ImportExceptionRecord,
