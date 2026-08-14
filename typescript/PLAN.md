@@ -1170,9 +1170,9 @@ and browser entry points contain no Node imports.
     not depend on a user's formatter.
 11. **Done.** Parse and type-check complete output against the synthetic SPI
     before writing.
-12. Add golden fixtures for empty and kitchen-sink interfaces, every exception
-    shape, all naming overrides, deep types, helper collisions, docs/metadata,
-    and generated-source determinism.
+12. **Done.** Add golden fixtures for empty and kitchen-sink interfaces, every
+    exception shape, all naming overrides, deep types, helper collisions,
+    docs/metadata, and generated-source determinism.
 13. Compile generated fixtures under strict TypeScript settings and execute
     their codecs against the runtime tests.
 

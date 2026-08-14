@@ -1,0 +1,7 @@
+type user_id uint64;
+type user record { id user_id; name string; data bytes; tags list uint8; };
+exception denied;
+exception failed record { code int32; detail string; };
+exception procedure_not_found;
+procedure ping {};
+procedure get { value user; } user;

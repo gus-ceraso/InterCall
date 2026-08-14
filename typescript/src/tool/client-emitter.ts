@@ -17,7 +17,7 @@ export function emitImportClient(generation: ImportGenerationRecord): string {
         const result = procedure.declaration.result === undefined ? "void" : emitTypeExpression(procedure.declaration.result, names);
         const key = declarationKey("procedure", procedure.declaration.name.name);
         lines.push(`        ${procedure.nativeName}: async (${parameters.join(", ")}): Promise<${result}> => {`);
-        lines.push(`            return call(connection, importBinding, ${key}n, () => { throw new Error("generated codec not attached"); }, () => {});`);
+        lines.push(`            return call(connection, importBinding, ${key}n, () => { throw new Error("generated codec not attached"); }, () => {}) as unknown as Promise<${result}>;`);
         lines.push("        },");
     }
     lines.push("    });", "}", "");
