@@ -1619,9 +1619,11 @@ go test -race -count=20 ./transport/websocket
 go test ./...
 ```
 
-### Task 18 — Add WebSocket `ListenAndServe`
+### Task 18 — Add WebSocket `ListenAndServe` — **Complete**
 
 **Commit:** `websocket: add cloudflared-friendly ListenAndServe`
+
+**Status:** Implemented and verified with literal-path routing, plain HTTP serving, shutdown, and race-detector tests in the current working tree.
 
 **Files:**
 
