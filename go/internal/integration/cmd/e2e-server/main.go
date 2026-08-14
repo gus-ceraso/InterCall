@@ -24,7 +24,7 @@ func main() {
 		log.Fatal(err)
 	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		stream, acceptErr := websocket.AcceptStream(ctx, w, r, nil)
+		stream, acceptErr := websocket.AcceptStream(ctx, w, r, &websocket.AcceptOptions{InsecureSkipOrigin: true})
 		if acceptErr != nil {
 			return
 		}
