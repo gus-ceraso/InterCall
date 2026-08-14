@@ -969,8 +969,8 @@ specified as TypeScript-specific.
 
 1. **Done.** Port the fixed initialism table and checked ASCII
    lower-snake/Pascal/camel conversion algorithms.
-2. Implement TypeScript keyword and identifier checks without accepting quoted
-   or computed names as a silent escape.
+2. **Done.** Implement TypeScript keyword and identifier checks without
+   accepting quoted or computed names as a silent escape.
 3. Implement collision-safe deterministic private mangling using content-derived
    suffixes; public collisions remain diagnostics.
 4. Implement `--ts-name` parsing and the complete root/element/field selector

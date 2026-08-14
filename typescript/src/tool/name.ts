@@ -55,11 +55,22 @@ export function isCanonicalWireName(name: string): boolean {
     return true;
 }
 
+export function isTypeScriptKeyword(name: string): boolean {
+    return tsKeywords.has(name);
+}
+
 export function isValidTypeScriptIdentifier(name: string): boolean {
-    if (name.length === 0 || tsKeywords.has(name)) return false;
+    if (name.length === 0 || isTypeScriptKeyword(name)) return false;
     if (!/^[\p{ID_Start}$_]/u.test(name)) return false;
     if (!/^[\p{ID_Start}$_][\p{ID_Continue}\u200c\u200d$]*$/u.test(name)) return false;
     return true;
+}
+
+export function requireTypeScriptIdentifier(name: string): string {
+    if (!isValidTypeScriptIdentifier(name)) {
+        throw new Error(`invalid TypeScript identifier ${JSON.stringify(name)}`);
+    }
+    return name;
 }
 
 export function wireToTypeScript(wire: string, nameCase: NameCase): string {

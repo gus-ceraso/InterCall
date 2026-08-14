@@ -3,9 +3,11 @@ import test from "node:test";
 import {
     initialisms,
     isCanonicalWireName,
+    isTypeScriptKeyword,
     isValidTypeScriptIdentifier,
     isValidWireName,
     longestInitialism,
+    requireTypeScriptIdentifier,
     typeScriptToWire,
     wireToTypeScript,
 } from "../../dist/tool/index.js";
@@ -60,6 +62,16 @@ test("validates wire and native identifiers", () => {
     assert.equal(isValidTypeScriptIdentifier("日本語"), true);
     assert.equal(isValidTypeScriptIdentifier("class"), false);
     assert.equal(isValidTypeScriptIdentifier("_"), true);
+    assert.equal(isTypeScriptKeyword("class"), true);
+    assert.equal(isTypeScriptKeyword("from"), true);
+});
+
+test("rejects quoted, dotted, and computed spellings instead of escaping them", () => {
+    for (const spelling of ["\"value\"", "'value'", "value.name", "[value]", "value-name", "value name"]) {
+        assert.equal(isValidTypeScriptIdentifier(spelling), false);
+        assert.throws(() => requireTypeScriptIdentifier(spelling));
+    }
+    assert.equal(requireTypeScriptIdentifier("valueName"), "valueName");
 });
 
 test("checks the exact source-to-wire inverse", () => {

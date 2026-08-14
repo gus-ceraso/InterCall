@@ -8,9 +8,11 @@ export {
     initialisms,
     isCanonicalWireName,
     isInitialism,
+    isTypeScriptKeyword,
     isValidTypeScriptIdentifier,
     isValidWireName,
     longestInitialism,
+    requireTypeScriptIdentifier,
     typeScriptToWire,
     wireToTypeScript,
 } from "./name.js";
