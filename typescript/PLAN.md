@@ -1044,8 +1044,8 @@ same accept/reject classification.
    exception support, and exact payload ownership.
 5. **Done.** Implement the empty import/export singletons, fixed dispatch,
    exact canonical body, fixed keys, and Go-identical interface ID.
-6. Define and freeze the generated-code dispatch, request encoder, response
-   decoder, and codec-program SPI.
+6. **Done.** Define and freeze the generated-code dispatch, request encoder,
+   response decoder, and codec-program SPI.
 7. Add constructor validation, identity, copy/reference, zero-ID, singleton,
    fixed-key, and synthetic-SPI parity tests.
 

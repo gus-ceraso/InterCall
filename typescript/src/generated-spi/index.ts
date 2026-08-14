@@ -7,6 +7,8 @@ import {
     makeExportBinding,
     makeImportBinding,
 } from "../runtime/binding.js";
+import type { CodecProgram } from "../runtime/codec-program.js";
+export type { CodecProgram } from "../runtime/codec-program.js";
 export {
     emptyExportBinding,
     emptyImportBinding,
@@ -28,6 +30,30 @@ export type ResponseDecoder = (
     exceptionKey: bigint,
     payload: Uint8Array,
 ) => void;
+
+export function freezeDispatch(dispatch: Dispatch): Dispatch {
+    return freezeFunction(dispatch, "dispatch");
+}
+
+export function freezeRequestEncoder(encode: RequestEncoder): RequestEncoder {
+    return freezeFunction(encode, "request encoder");
+}
+
+export function freezeResponseDecoder(decode: ResponseDecoder): ResponseDecoder {
+    return freezeFunction(decode, "response decoder");
+}
+
+export function requireCodecProgram(program: CodecProgram): CodecProgram {
+    if (!Object.isFrozen(program) || !Object.isFrozen(program.instructions)) {
+        throw new TypeError("codec program must be immutable");
+    }
+    return program;
+}
+
+function freezeFunction<T extends Function>(value: T, label: string): T {
+    if (typeof value !== "function") throw new TypeError(`${label} must be a function`);
+    return Object.freeze(value);
+}
 
 export function call(
     _connection: Connection,
