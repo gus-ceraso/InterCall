@@ -1074,10 +1074,11 @@ cannot be forged through ordinary structural objects.
 6. **Done.** Implement the shared send gate for requests and responses,
    including the exact `bufferedAmount` ceiling, ten-millisecond drain polling,
    ready-state rechecks, and timer cleanup.
-7. Implement incoming request admission, active-ID tracking, the exact
-   256-handler and 134,217,728-byte active-payload limits, concurrent Promise
-   handlers, per-handler `AbortSignal`, static dispatch invocation, response
-   encoding, owned-frame accounting, and post-send ID/resource release.
+7. **Done.** Implement incoming request admission, active-ID tracking, the
+   exact 256-handler and 134,217,728-byte active-payload limits, concurrent
+   Promise handlers, per-handler `AbortSignal`, static dispatch invocation,
+   response encoding, owned-frame accounting, and post-send ID/resource
+   release.
 8. Map unknown procedures, malformed/trailing arguments, provider/matcher
    failures, and response-encoding failures to the three fixed exceptions.
 9. Catch every synchronous throw and rejected Promise crossing generated
