@@ -266,6 +266,19 @@ func TestGoProjectionDepthLimit(t *testing.T) {
 		wantSyntaxDepthPosition(t, e, badSrc, "uint8", 1)
 	})
 
+	t.Run("ExportExceptionPayloadChain", func(t *testing.T) {
+		makeSource := func(lists int) string {
+			return "package synth\n\n// @intercall exception deep\ntype Deep " + strings.Repeat("[]", lists) + "uint8\n\nfunc (*Deep) Error() string { return \"deep\" }\n"
+		}
+		boundary, _ := synthPkg(t, "example.com/exception_boundary", map[string]string{"synth.go": makeSource(maxProjectionDepth - 1)})
+		if _, err := MapExport(&DiscoverResult{Packages: []*ExplicitPackage{boundary}}, ""); err != nil {
+			t.Fatalf("exception payload at depth 4096 rejected: %v", err)
+		}
+		over, _ := synthPkg(t, "example.com/exception_over", map[string]string{"synth.go": makeSource(maxProjectionDepth)})
+		_, err := MapExport(&DiscoverResult{Packages: []*ExplicitPackage{over}}, "")
+		depthErrorOf(t, err)
+	})
+
 	t.Run("ExportDefinedChain", func(t *testing.T) {
 		// Each slice declaration contributes two edges, so 2,048
 		// declarations put the deepest occurrence at exactly 4,096 and

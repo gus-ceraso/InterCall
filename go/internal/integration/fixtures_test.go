@@ -168,11 +168,17 @@ func TestGeneratedFixtureModules(t *testing.T) {
 	} else if pf.Point != (e2eimport.Point{X: 1.5, Y: -2.5}) {
 		t.Fatalf("Echo(point_failed) err = %v, want *PointFailed{Point{1.5,-2.5}}", err)
 	}
+	var pe *e2eimport.ProviderException
+	if _, err := e2eimport.Echo(ctx, "provider_exception"); !errors.As(err, &pe) {
+		t.Fatalf("Echo(provider_exception) err = %v, want *ProviderException", err)
+	} else if pe.Payload != "provider failed" {
+		t.Fatalf("Echo(provider_exception) payload = %q, want %q", pe.Payload, "provider failed")
+	}
 
 	// Provider failures map to the fixed internal_exception: a provider
 	// panic, an unmatchable wrapped error, a typed-nil payload pointer,
 	// and an encoder-rejected success value.
-	for _, mode := range []string{"panic", "wrapped", "typed_nil", "bad_utf8"} {
+	for _, mode := range []string{"panic", "wrapped", "typed_nil", "bad_utf8", "provider_exception_bad_utf8"} {
 		if _, err := e2eimport.Echo(ctx, mode); err != intercall.ErrInternalException {
 			t.Fatalf("Echo(%s) err = %v, want ErrInternalException", mode, err)
 		}

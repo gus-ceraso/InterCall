@@ -201,11 +201,11 @@ func depthMsg(err error) string {
 //
 // The roots are the provider wire values — each wire parameter and the
 // optional data result in provider order — and the tagged
-// payload-exception structs in collection order, each at depth 1. A
+// payload-exception types in collection order, each at depth 1. A
 // slice-element, struct-field, named-reference-to-underlying,
 // defined-type-to-underlying, or alias-expansion edge adds 1. The walk
 // follows exactly the references the mapper would recurse into:
-// predeclared types, tagged exception structs, unexported types, and
+// predeclared types, tagged exception types, unexported types, and
 // generic types are leaves because the mapper reports them without
 // descending. The walk uses an explicit work stack, re-walks a named
 // type's underlying only when it is reached at a deeper root depth, and
@@ -256,11 +256,7 @@ func (m *mapper) preflightGoDepth(providers []*Provider, pkgs []*ExplicitPackage
 		if spec == nil {
 			return nil
 		}
-		st, ok := unwrapStruct(spec.Type)
-		if !ok {
-			return nil // the collector reports this internal error itself
-		}
-		return s.walk(p.pkg, st, 1, fmt.Sprintf("exception %q", gd.Name))
+		return s.walk(p.pkg, spec.Type, 1, fmt.Sprintf("exception %q", gd.Name))
 	})
 	if err == errRecursiveGraph {
 		return nil // the existing recursive-type diagnostics own cycles
@@ -379,7 +375,7 @@ func (s *goDepthState) walk(pkg *packages.Package, root ast.Expr, depth int, whe
 // reference to an ordinary defined type reaches its declaration's
 // underlying type at depth d+1, and the reference to an alias reaches
 // the alias's RHS at depth d+1. References the mapping rejects before
-// descending — predeclared types, tagged exception structs, unexported
+// descending — predeclared types, tagged exception types, unexported
 // types, and generic types — are leaves. A recursive graph aborts the
 // preflight; a type whose underlying was already walked at a deeper
 // root depth is not walked again.
@@ -388,8 +384,8 @@ func (s *goDepthState) reference(pkg *packages.Package, tn *types.TypeName, dept
 		return nil // a predeclared type: byte, uint8, any, error, ...
 	}
 	key := typeKey{pkg: tn.Pkg().Path(), name: tn.Name()}
-	if s.m.excStructs[key] {
-		return nil // an exception struct: rejected as a wire-type reference
+	if s.m.excTypes[key] {
+		return nil // an exception type: rejected as a wire-type reference
 	}
 	if !isExported(tn.Name()) {
 		return nil // reachable types must be exported: the mapper reports it

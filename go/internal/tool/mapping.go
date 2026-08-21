@@ -172,11 +172,11 @@ type mapper struct {
 	sems   map[*ast.File]*semResult
 
 	// Application exception facts of the export model: the tagged
-	// exception struct types of every explicit package and the exact
-	// wire name of every collected application exception. Role and
-	// global-collision checks consult these during value mapping.
-	excStructs map[typeKey]bool            // tagged payload-exception structs
-	excWire    map[string]*ExportException // application exception wire names
+	// exception types of every explicit package and the exact wire name of
+	// every collected application exception. Role and global-collision
+	// checks consult these during value mapping.
+	excTypes map[typeKey]bool            // tagged payload-exception types
+	excWire  map[string]*ExportException // application exception wire names
 }
 
 // semResult caches one file's semantic recovery, including failures.
@@ -189,15 +189,15 @@ type semResult struct {
 // transitive import closure of every provider package.
 func newMapper(providers []*Provider, outPath string) *mapper {
 	m := &mapper{
-		outPath:    outPath,
-		exp:        make(map[*packages.Package]*ExplicitPackage, len(providers)),
-		pkgs:       make(map[string]*packages.Package),
-		pkgMaps:    make(map[*packages.Package]*pkgMap),
-		types:      make(map[typeKey]*NamedType),
-		byWire:     make(map[string]*NamedType),
-		sems:       make(map[*ast.File]*semResult),
-		excStructs: make(map[typeKey]bool),
-		excWire:    make(map[string]*ExportException),
+		outPath:  outPath,
+		exp:      make(map[*packages.Package]*ExplicitPackage, len(providers)),
+		pkgs:     make(map[string]*packages.Package),
+		pkgMaps:  make(map[*packages.Package]*pkgMap),
+		types:    make(map[typeKey]*NamedType),
+		byWire:   make(map[string]*NamedType),
+		sems:     make(map[*ast.File]*semResult),
+		excTypes: make(map[typeKey]bool),
+		excWire:  make(map[string]*ExportException),
 	}
 	for _, p := range providers {
 		m.exp[p.Pkg.pkg] = p.Pkg
@@ -769,7 +769,7 @@ func (m *mapper) mapAlias(pkg *packages.Package, e ast.Expr, tn *types.TypeName,
 // be exported, nongeneric, and carry exactly one @intercall type
 // directive; its exact wire name comes from the directive or the
 // default projection and must be unique, nonreserved, and not reserved
-// for a fixed runtime exception. A tagged application exception struct
+// for a fixed runtime exception. A tagged application exception type
 // is never an ordinary wire type and cannot occur as a procedure value
 // or wire-type reference. Its underlying structure is mapped once —
 // aliases never reach this function — or recovered from the trusted
@@ -798,8 +798,8 @@ func (m *mapper) mapNamedType(pkg *packages.Package, e ast.Expr, tn *types.TypeN
 	if spec == nil {
 		return nil, m.errAt(pkg, e.Pos(), "%s: internal error: no declaration for type %q", where, tn.Name())
 	}
-	if m.excStructs[key] {
-		return nil, m.errAt(apkg, spec.Name.Pos(), "type %q is a tagged application exception struct and cannot occur as a procedure value or wire-type reference", tn.Name())
+	if m.excTypes[key] {
+		return nil, m.errAt(apkg, spec.Name.Pos(), "type %q is a tagged application exception type and cannot occur as a procedure value or wire-type reference", tn.Name())
 	}
 	af := pm.fileContaining(spec.Pos())
 	doc, err := m.docOf(apkg, af)

@@ -188,7 +188,7 @@ func (e *exportEmitter) register() error {
 		if err != nil {
 			return err
 		}
-		e.payloads[x] = e.occurrence(x.Payload.Type, tn.Type(), e.qual(x.Pkg.Path)+"."+x.GoName)
+		e.payloads[x] = e.exceptionOccurrence(x.Payload.Type, tn.Type(), e.qual(x.Pkg.Path)+"."+x.GoName)
 	}
 	return nil
 }
@@ -424,10 +424,8 @@ func (e *exportEmitter) exceptionType(x *ExportException) (*types.TypeName, erro
 	return tn, nil
 }
 
-// occurrence builds the Go projection of one type occurrence, registers
-// its codec pair, and returns its generation facts. gt overrides the
-// projection's own type text for the exception payload pairs, whose
-// value type is the named exception struct.
+// occurrence builds the Go projection of one ordinary type occurrence,
+// registers its codec pair, and returns its generation facts.
 func (e *exportEmitter) occurrence(wire syntax.TypeExpr, t types.Type, gt string) *exportOccurrence {
 	node := e.pairs.buildNode(wire, t)
 	if gt == "" {
@@ -444,6 +442,22 @@ func (e *exportEmitter) occurrence(wire syntax.TypeExpr, t types.Type, gt string
 		occ.decName = pair.decName()
 	}
 	return occ
+}
+
+// exceptionOccurrence builds the codec facts for a payload exception. Record
+// and list roots can encode directly over the named exception value. Primitive
+// and named roots need a deterministic delegate pair that converts the named
+// exception value to the ordinary wire target before encoding.
+func (e *exportEmitter) exceptionOccurrence(wire syntax.TypeExpr, t types.Type, gt string) *exportOccurrence {
+	node := e.pairs.buildNode(wire, t)
+	var pair *exportPair
+	switch wire.(type) {
+	case *syntax.PrimType, *syntax.NamedType:
+		pair = e.pairs.registerException(wire, gt, node)
+	case *syntax.ListType, *syntax.RecordType:
+		pair = e.pairs.registerAnon(wire, gt, node)
+	}
+	return &exportOccurrence{gt: gt, encName: pair.encName(), decName: pair.decName()}
 }
 
 // emit renders the complete generated export binding file: the package
