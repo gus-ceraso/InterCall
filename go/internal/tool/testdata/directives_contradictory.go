@@ -2,4 +2,4 @@
 package directives
 
 // @intercall exception age
-type Age int
+type Age = int

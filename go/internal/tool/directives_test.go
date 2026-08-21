@@ -249,7 +249,7 @@ func TestDirectives(t *testing.T) {
 	})
 
 	t.Run("Contradictory", func(t *testing.T) {
-		goFixtureErr(t, "directives_contradictory.go", "4:4: contradictory @intercall exception directive: it applies only to a named struct type")
+		goFixtureErr(t, "directives_contradictory.go", "4:4: contradictory @intercall exception directive: an alias is not a named defined type")
 	})
 
 	t.Run("Sentinel", func(t *testing.T) {
@@ -347,11 +347,11 @@ func TestDirectives(t *testing.T) {
 			{"ExceptionOnUnexportedVar", "// @intercall exception\nvar x error\n",
 				"contradictory @intercall exception directive: it applies only to an exported package variable"},
 			{"ExceptionOnUnexportedType", "// @intercall exception\ntype t struct{}\n",
-				"contradictory @intercall exception directive: it applies only to an exported named struct type"},
+				"contradictory @intercall exception directive: it applies only to an exported named defined type"},
 			{"ExceptionOnAliasType", "// @intercall exception\ntype A = B\n",
-				"contradictory @intercall exception directive: a type alias is not a named struct type"},
+				"contradictory @intercall exception directive: an alias is not a named defined type"},
 			{"ExceptionOnGenericType", "// @intercall exception\ntype A[T any] struct{}\n",
-				"contradictory @intercall exception directive: a generic type is not a named struct type"},
+				"contradictory @intercall exception directive: a generic type is not a named defined type"},
 			{"TypeOnAlias", "// @intercall type\ntype A = B\n",
 				"contradictory @intercall type directive: a type alias is not an ordinary defined type"},
 			{"TypeOnGeneric", "// @intercall type\ntype A[T any] struct{}\n",

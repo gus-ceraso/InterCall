@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cerasos/intercall/go/internal/syntax"
@@ -24,6 +25,23 @@ const (
 	fixedInvalidArguments  uint64 = 0x3f5fc972f8477b07
 	fixedInternalException uint64 = 0x1aaec22e85996f50
 )
+
+func stringSourceForPrimitiveExceptions() string {
+	return `package primitive
+
+import "context"
+
+type ProviderException string
+
+func (e *ProviderException) Error() string { return string(*e) }
+
+type BlobException []byte
+
+func (e *BlobException) Error() string { return "blob_exception" }
+
+func Ping(ctx context.Context) error { return nil }
+`
+}
 
 // exportOne runs the complete export model pass over one synthetic
 // package. The empty output path skips the importability checks.
@@ -246,6 +264,88 @@ func Use(ctx context.Context) error { return nil }
 		}
 	})
 
+	t.Run("PrimitivePayloadForms", func(t *testing.T) {
+		model := exportOne(t, "example.com/primitive", `package primitive
+
+import "context"
+
+// ProviderException carries a provider failure message.
+// @intercall exception provider_exception
+type ProviderException string
+
+func (e *ProviderException) Error() string { return string(*e) }
+
+// BlobException carries raw bytes.
+// @intercall exception blob_exception
+type BlobException []byte
+
+func (e *BlobException) Error() string { return "blob_exception" }
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`)
+		if e := excByName(t, model, "provider_exception"); e.Payload == nil || typeKeyOf(e.Payload.Type) != "string" {
+			t.Fatalf("provider_exception payload = %+v, want string", e.Payload)
+		}
+		if e := excByName(t, model, "blob_exception"); e.Payload == nil || typeKeyOf(e.Payload.Type) != "bytes" {
+			t.Fatalf("blob_exception payload = %+v, want bytes", e.Payload)
+		}
+		goFile, body, err := GenerateExport(model, "exp")
+		if err != nil {
+			t.Fatalf("GenerateExport: %v", err)
+		}
+		if !strings.Contains(string(body), "exception provider_exception string;") {
+			t.Fatalf("interface body = %q, want primitive exception payload", body)
+		}
+		typeCheckSyntheticExportBinding(t, map[string]string{"example.com/primitive": stringSourceForPrimitiveExceptions()}, goFile)
+	})
+
+	t.Run("UnsupportedPayloadForms", func(t *testing.T) {
+		exportErr(t, "example.com/unsupported_int", `package unsupported_int
+
+// @intercall exception bad
+type Bad int
+
+func (*Bad) Error() string { return "bad" }
+`, "machine-word integer")
+		exportErr(t, "example.com/unsupported_bool", `package unsupported_bool
+
+// @intercall exception bad
+type Bad bool
+
+func (*Bad) Error() string { return "bool is not a wire value" }
+`, "bool is not a wire value")
+		exportErr(t, "example.com/unsupported_map", `package unsupported_map
+
+// @intercall exception bad
+type Bad map[string]string
+
+func (*Bad) Error() string { return "bad" }
+`, "map types are not wire values")
+		exportErr(t, "example.com/unsupported_array", `package unsupported_array
+
+// @intercall exception bad
+type Bad [1]string
+
+func (*Bad) Error() string { return "bad" }
+`, "array types are not wire values")
+	})
+
+	t.Run("NonStructRoleConflict", func(t *testing.T) {
+		exportErr(t, "example.com/primitive_role", `package primitive_role
+
+import "context"
+
+// @intercall exception exc
+type Exc string
+
+func (*Exc) Error() string { return "exc" }
+
+// @intercall procedure use
+func Use(ctx context.Context, value Exc) error { return nil }
+`, `type "Exc" is a tagged application exception type and cannot occur as a procedure value or wire-type reference`)
+	})
+
 	t.Run("ErrorImplementation", func(t *testing.T) {
 		exportErr(t, "example.com/synth", `package synth
 
@@ -289,7 +389,7 @@ type Both struct {
 
 // Error implements error for Both.
 func (b *Both) Error() string { return "both" }
-`, "cannot be both an ordinary named wire type and an exception struct")
+`, "cannot be both an ordinary named wire type and an exception type")
 		})
 		t.Run("AsProcedureValue", func(t *testing.T) {
 			exportErr(t, "example.com/synth", `package synth
@@ -306,7 +406,7 @@ func (e *Exc) Error() string { return "exc" }
 
 // @intercall procedure use
 func Use(ctx context.Context, e Exc) error { return nil }
-`, `type "Exc" is a tagged application exception struct and cannot occur as a procedure value or wire-type reference`)
+`, `type "Exc" is a tagged application exception type and cannot occur as a procedure value or wire-type reference`)
 		})
 		t.Run("AsTypeField", func(t *testing.T) {
 			// A tagged ordinary type whose record references an
@@ -330,7 +430,7 @@ type Holder struct {
 
 // @intercall procedure use
 func Use(ctx context.Context, h Holder) error { return nil }
-`, `type "Exc" is a tagged application exception struct and cannot occur as a procedure value or wire-type reference`)
+`, `type "Exc" is a tagged application exception type and cannot occur as a procedure value or wire-type reference`)
 		})
 		t.Run("PayloadFieldRejectsEmbedding", func(t *testing.T) {
 			exportErr(t, "example.com/synth", `package synth
@@ -520,7 +620,7 @@ type Inner struct {
 
 // Error implements error for Inner.
 func (i *Inner) Error() string { return "inner" }
-`, `type "Inner" is a tagged application exception struct and cannot occur as a procedure value or wire-type reference`)
+`, `type "Inner" is a tagged application exception type and cannot occur as a procedure value or wire-type reference`)
 	})
 }
 
@@ -1169,13 +1269,24 @@ func Ping(ctx context.Context) error { return nil }
 		bodyRoundTrip(t, model)
 	})
 
-	t.Run("ParenthesizedNonStructStillRejected", func(t *testing.T) {
-		// Parentheses around a non-struct named type do not make it an
-		// exception struct; the directive contradiction is a parse-time
-		// diagnostic.
-		src := "package p\n\n// @intercall exception e\ntype E (int)\n"
-		if msg := goErrMsg(t, src); msg != "contradictory @intercall exception directive: it applies only to a named struct type" {
-			t.Errorf("error = %q", msg)
+	t.Run("ParenthesizedNonStructAccepted", func(t *testing.T) {
+		// Parentheses around a non-struct payload RHS are transparent and
+		// do not change exception eligibility.
+		src := `package p
+
+import "context"
+
+// @intercall exception e
+type E (string)
+
+func (e *E) Error() string { return string(*e) }
+
+// @intercall procedure ping
+func Ping(ctx context.Context) error { return nil }
+`
+		model := exportOne(t, "example.com/paren2", src)
+		if e := excByName(t, model, "e"); e.Payload == nil || typeKeyOf(e.Payload.Type) != "string" {
+			t.Fatalf("payload = %+v, want string", e.Payload)
 		}
 	})
 

@@ -231,6 +231,27 @@ func (e *exportCodecEmitter) registerAnon(wire syntax.TypeExpr, gt string, node 
 	return p
 }
 
+// registerException records a delegate pair for a primitive or named
+// exception payload whose native Go value is a defined exception type. The
+// generated pair converts the exception type to the ordinary wire target
+// for encoding and converts the decoded target back to the exception type.
+func (e *exportCodecEmitter) registerException(wire syntax.TypeExpr, gt string, node *exportNode) *exportPair {
+	key := typeKeyOf(wire) + "\x00" + gt
+	if p := e.anon[key]; p != nil {
+		return p
+	}
+	p := &exportPair{
+		parts:  []string{"exception", typeKeyOf(wire), gt},
+		gt:     gt,
+		node:   node,
+		target: node.parts,
+		conv:   node.gt,
+	}
+	e.anon[key] = p
+	e.order = append(e.order, p)
+	return p
+}
+
 // anonScope returns the encoder and decoder names of every registered
 // anonymous pair. The names embed the resolved aliases through the
 // qualified Go type text, so the export alias fixpoint reserves them

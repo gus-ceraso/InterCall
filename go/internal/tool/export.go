@@ -48,9 +48,9 @@ const (
 	// variable assignable to error for an application exception, and
 	// no generated package symbol for a fixed runtime exception.
 	SentinelForm ExceptionForm = iota
-	// PayloadForm is an exported named struct type whose pointer
-	// implements error; its fields form the inline payload record
-	// under the ordinary record rules.
+	// PayloadForm is an exported named defined type whose pointer
+	// implements error; its declaration RHS forms the payload under
+	// the ordinary value-mapping rules.
 	PayloadForm
 )
 
@@ -165,7 +165,7 @@ func (m *ExportModel) CanonicalBody() []byte {
 // errorInterface is the predeclared error interface: the only legal
 // interface in a provider signature, the assignability target of
 // no-payload sentinel exceptions, and the implementation target of
-// payload exception structs.
+// payload exception types.
 var errorInterface = types.Universe.Lookup("error").Type().Underlying().(*types.Interface)
 
 // MapExport builds the complete export model of one discovery pass:
@@ -178,7 +178,7 @@ var errorInterface = types.Universe.Lookup("error").Type().Underlying().(*types.
 // application exception package, and reachable named-type package. The
 // empty string skips the importability checks.
 //
-// The pass runs in a deterministic order: the tagged exception structs
+// The pass runs in a deterministic order: the tagged exception types
 // are pre-scanned so value mapping can reject exception/type role
 // conflicts, then the providers are mapped, then every tagged
 // application exception of every explicit package is collected and
@@ -282,14 +282,14 @@ func walkExceptionDecls(pkgs []*ExplicitPackage, fn func(p *ExplicitPackage, doc
 	return nil
 }
 
-// scanExceptions records the tagged payload-exception struct types of
-// every explicit package before provider mapping, so a role-conflict
-// reference to an exception struct is rejected as a procedure value or
-// wire-type reference.
+// scanExceptions records the tagged payload-exception types of every
+// explicit package before provider mapping, so a role-conflict reference
+// to an exception type is rejected as a procedure value or wire-type
+// reference.
 func (m *mapper) scanExceptions(pkgs []*ExplicitPackage) {
 	_ = walkExceptionDecls(pkgs, func(p *ExplicitPackage, doc *Document, gd *GoDecl) error {
 		if gd.Kind == GoType {
-			m.excStructs[typeKey{pkg: p.Path, name: gd.Name}] = true
+			m.excTypes[typeKey{pkg: p.Path, name: gd.Name}] = true
 		}
 		return nil
 	})
@@ -299,15 +299,15 @@ func (m *mapper) scanExceptions(pkgs []*ExplicitPackage) {
 // exception of the explicit packages in package-path and source order.
 //
 // A no-payload application exception is one exported package variable
-// assignable to error; a payload application exception is one exported
-// named struct type whose pointer implements error, and its fields form
-// the inline payload record under the ordinary record rules. The
-// exception struct cannot also be an ordinary named wire type. Wire
-// names come from the @intercall exception directive or the default
+// assignable to error; a payload application exception is one exported,
+// nongeneric, non-alias named defined type whose pointer implements error.
+// Its declaration RHS forms the payload under the ordinary value-mapping
+// rules. The exception type cannot also be an ordinary named wire type.
+// Wire names come from the @intercall exception directive or the default
 // projection and must be nonreserved, distinct from fixed runtime
 // exception names, and collision-free against types and earlier
-// exceptions. Payload mapping reaches the tagged ordinary types of its
-// fields, which become ordinary named wire types.
+// exceptions. Payload mapping reaches tagged ordinary types in the RHS,
+// which become ordinary named wire types.
 func (m *mapper) collectExceptions(pkgs []*ExplicitPackage) ([]*ExportException, error) {
 	var out []*ExportException
 	err := walkExceptionDecls(pkgs, func(p *ExplicitPackage, doc *Document, gd *GoDecl) error {
@@ -336,14 +336,14 @@ func (m *mapper) collectExceptions(pkgs []*ExplicitPackage) ([]*ExportException,
 		case GoType:
 			tn, ok := obj.(*types.TypeName)
 			if !ok {
-				return fmt.Errorf("internal error: no type object for exception struct %q of %s", gd.Name, p.Path)
+				return fmt.Errorf("internal error: no type object for exception type %q of %s", gd.Name, p.Path)
 			}
 			if hasDirective(gd.Doc, TypeDir) {
-				return bad("contradictory @intercall exception directive: type %q also carries an @intercall type directive and cannot be both an ordinary named wire type and an exception struct", gd.Name)
+				return bad("contradictory @intercall exception directive: type %q also carries an @intercall type directive and cannot be both an ordinary named wire type and an exception type", gd.Name)
 			}
 			named, ok := tn.Type().(*types.Named)
 			if !ok {
-				return fmt.Errorf("internal error: exception struct %q of %s is not a named type", gd.Name, p.Path)
+				return fmt.Errorf("internal error: exception type %q of %s is not a named type", gd.Name, p.Path)
 			}
 			if !types.Implements(types.NewPointer(named), errorInterface) {
 				return bad("contradictory @intercall exception directive: *%s must implement error (a method Error() string with a value or pointer receiver)", gd.Name)
@@ -373,19 +373,16 @@ func (m *mapper) collectExceptions(pkgs []*ExplicitPackage) ([]*ExportException,
 		out = append(out, rec)
 
 		if gd.Kind == GoType {
-			spec := m.pkgMapOf(p.pkg).specs[obj.(*types.TypeName)]
+			tn := obj.(*types.TypeName)
+			spec := m.pkgMapOf(p.pkg).specs[tn]
 			if spec == nil {
-				return fmt.Errorf("internal error: no type declaration for exception struct %q of %s", gd.Name, p.Path)
+				return fmt.Errorf("internal error: no type declaration for exception type %q of %s", gd.Name, p.Path)
 			}
-			st, ok := unwrapStruct(spec.Type)
-			if !ok {
-				return fmt.Errorf("internal error: exception struct %q of %s is not a struct type", gd.Name, p.Path)
-			}
-			payload, err := m.mapStruct(p.pkg, st, fmt.Sprintf("exception %q", gd.Name))
+			payload, err := m.mapValue(p.pkg, spec.Type, fmt.Sprintf("exception %q", gd.Name))
 			if err != nil {
 				return err
 			}
-			rec.Payload = &MappedValue{Type: payload}
+			rec.Payload = payload
 		}
 		return nil
 	})

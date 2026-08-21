@@ -437,13 +437,11 @@ func checkResolution(dir Directive, d *Document, target docTarget, errs *[]*Erro
 		case GoType:
 			switch {
 			case !isExported(target.name):
-				bad("contradictory @intercall exception directive: it applies only to an exported named struct type")
+				bad("contradictory @intercall exception directive: it applies only to an exported named defined type")
 			case target.typeInfo.Alias:
-				bad("contradictory @intercall exception directive: a type alias is not a named struct type")
+				bad("contradictory @intercall exception directive: an alias is not a named defined type")
 			case target.typeInfo.Generic:
-				bad("contradictory @intercall exception directive: a generic type is not a named struct type")
-			case !target.typeInfo.Struct:
-				bad("contradictory @intercall exception directive: it applies only to a named struct type")
+				bad("contradictory @intercall exception directive: a generic type is not a named defined type")
 			}
 		}
 	case TypeDir:

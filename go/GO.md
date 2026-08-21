@@ -74,7 +74,20 @@ The `@intercall procedure` directive marks the function as selectable.
 Directives occupy complete lines of the Go doc comment. Reachable value
 types are named with `@intercall type` on the defined type, and application
 exceptions with `@intercall exception` on an exported `error` variable or on
-an exported struct type whose pointer implements `error`. `@intercall param`
+an exported named defined type whose pointer implements `error`. The defined
+type's declaration RHS is the wire payload; for example:
+
+```go
+// ProviderException carries a provider failure message.
+// @intercall exception provider_exception
+type ProviderException string
+
+func (e *ProviderException) Error() string { return string(*e) }
+```
+
+A provider returns a nonnil `*ProviderException`; the value is encoded as the
+payload, not the result of `Error()`, and the generated interface contains
+`exception provider_exception string;`. `@intercall param`
 names a wire parameter, `@param` supplies its documentation, and `@return`
 documents the return value. Methods, generics, variadics, and any signature
 other than the two forms above are rejected. The context parameter and the

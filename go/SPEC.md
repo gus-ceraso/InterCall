@@ -273,8 +273,8 @@ group-level InterCall declaration directive on a declaration group containing
 multiple specs, or on one spec that declares multiple objects, is an error.
 `@intercall procedure` applies only to an eligible function.
 `@intercall exception` applies only to one exported package variable or one
-exported named struct type; parentheses around a legal named struct declaration
-do not change exception eligibility. `@intercall type` applies exactly once to
+exported, nongeneric, non-alias named defined type; parentheses around its
+legal declaration RHS do not change exception eligibility. `@intercall type` applies exactly once to
 every reachable ordinary defined type. `@intercall param` names a wire
 parameter in the tagged function. `@param` supplies that parameter node's
 documentation, and `@return` supplies the optional return type's documentation. The context
@@ -467,15 +467,23 @@ runtime exceptions have no generated package symbol and cannot be overridden.
 
 A no-payload application exception is one exported package variable assignable
 to `error` with `@intercall exception`. A payload application exception is one
-exported tagged named struct type `T` for which `*T` implements `error`; its
-fields form an inline payload record under the ordinary record rules. The
-exception struct cannot also be an ordinary named wire type or occur as a
-procedure value. Tagged ordinary types reached through its fields remain named
-wire types.
+exported, nongeneric, non-alias named defined type `T` for which `*T` implements
+`error`. The declaration RHS of `T` forms the payload under the ordinary value
+mapping rules; `T` itself is not emitted as an ordinary named wire type. Thus,
+for example, `type ProviderException string` exports
+`exception provider_exception string;`, while a struct RHS exports its inline
+record payload. Tagged ordinary types reached through the RHS remain named wire
+types. The exception type cannot also be an ordinary named wire type or occur
+as a procedure value.
 
-Generated dispatch matches a provider's nonnil error against every application
-exception in the interface. It uses direct `err == error(provider.Sentinel)`
-comparisons and direct `err.(*T)` assertions, never `errors.Is` or `errors.As`.
+The payload is the value of `T`, not `err.Error()`. Generated dispatch matches
+a provider's nonnil error against every application exception in the
+interface. It uses direct `err == error(provider.Sentinel)` comparisons and
+direct `err.(*T)` assertions, never `errors.Is` or `errors.As`. A payload
+exception therefore must be returned as a nonnil `*T`; a dynamic `T` value does
+not match. After a successful assertion, dispatch dereferences the pointer and
+encodes the value using the mapped RHS payload codec.
+
 Exactly one match sends that exception. Zero or multiple matches, wrapped
 errors, typed-nil payload pointers, and a panic during matching send
 `internal_exception`. The runtime recovery boundary also maps provider panics

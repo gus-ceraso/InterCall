@@ -105,6 +105,13 @@ type PointFailed struct {
 // Error implements error for PointFailed.
 func (p *PointFailed) Error() string { return "point_failed" }
 
+// ProviderException carries a provider failure message.
+// @intercall exception provider_exception
+type ProviderException string
+
+// Error implements error for ProviderException.
+func (e *ProviderException) Error() string { return string(*e) }
+
 // Ping checks liveness.
 // @intercall procedure ping
 func Ping(ctx context.Context) error { return nil }
@@ -112,11 +119,11 @@ func Ping(ctx context.Context) error { return nil }
 // Echo echoes its input, with mode values that exercise the generated
 // exception mapping and failure fallbacks: "denied" returns the denied
 // sentinel, "failed" a failed payload, "blank" a zero-field payload,
-// "point_failed" a payload holding a named type, "panic" panics,
-// "typed_nil" returns a typed-nil payload pointer, "wrapped" returns a
-// wrapped error no direct comparison matches, and "bad_utf8" returns a
-// success value the encoder rejects. Every mode except the declared
-// exceptions selects internal_exception.
+// "point_failed" a payload holding a named type, "provider_exception" a
+// primitive string payload, "panic" panics, "typed_nil" returns a typed-nil
+// payload pointer, "wrapped" returns a wrapped error no direct comparison
+// matches, and "bad_utf8" returns a success value the encoder rejects.
+// Every mode except the declared exceptions selects internal_exception.
 // @intercall procedure echo
 // @param value The value to echo, or a mode selector.
 // @return The unchanged input.
@@ -130,6 +137,12 @@ func Echo(ctx context.Context, value string) (string, error) {
 		return "", &Blank{}
 	case "point_failed":
 		return "", &PointFailed{Point: Point{X: 1.5, Y: -2.5}}
+	case "provider_exception":
+		e := ProviderException("provider failed")
+		return "", &e
+	case "provider_exception_bad_utf8":
+		e := ProviderException("bad\xff")
+		return "", &e
 	case "panic":
 		panic("provider panic")
 	case "typed_nil":
